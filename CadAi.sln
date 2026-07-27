@@ -1,0 +1,90 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "apps", "apps", "{5A3F4F14-0956-489D-B118-804689158640}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.LocalWorker", "apps\local-worker\CadAi.LocalWorker.csproj", "{A59A6A16-CD1B-4298-9C48-F4E1D0AC7A2D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "local-worker", "local-worker", "{2C5085F6-FEA1-442C-9549-F1D7263BE0BF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.LocalWorker.Tests", "apps\local-worker\tests\CadAi.LocalWorker.Tests.csproj", "{B534CFB4-994D-4817-886B-383382B75E33}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "packages", "packages", "{4420F2EA-371D-48D3-AE7B-0E7FE79B5337}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.CodexRunner", "packages\codex-runner\CadAi.CodexRunner.csproj", "{393EDC1C-88AD-4488-966E-058C9A5FBF1C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "codex-runner", "codex-runner", "{69DCE4E3-05F4-42AF-928E-96B42C356DEC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.CodexRunner.Tests", "packages\codex-runner\tests\CadAi.CodexRunner.Tests.csproj", "{F1570128-3F8C-454C-B7D6-CBC348F737E5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.KompasAdapter", "packages\kompas-adapter\CadAi.KompasAdapter.csproj", "{C2BC74E7-AADE-43D0-AC2B-FC65D77E60A0}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "kompas-adapter", "kompas-adapter", "{F2CA33B1-4A35-4C5E-915D-17BC95523FE1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.KompasAdapter.Tests", "packages\kompas-adapter\tests\CadAi.KompasAdapter.Tests.csproj", "{B019A95A-D1CE-4CD4-A02F-0063745866EC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.GeometryValidation", "packages\geometry-validation\CadAi.GeometryValidation.csproj", "{A95850E8-74B3-4854-BF56-16909C08B9AF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "geometry-validation", "geometry-validation", "{C5323A1A-5B5A-45B1-A632-7636BC41C9C7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CadAi.GeometryValidation.Tests", "packages\geometry-validation\tests\CadAi.GeometryValidation.Tests.csproj", "{636FDF8C-41F8-47FF-BDAD-8CD4517DA70F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A59A6A16-CD1B-4298-9C48-F4E1D0AC7A2D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A59A6A16-CD1B-4298-9C48-F4E1D0AC7A2D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A59A6A16-CD1B-4298-9C48-F4E1D0AC7A2D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A59A6A16-CD1B-4298-9C48-F4E1D0AC7A2D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B534CFB4-994D-4817-886B-383382B75E33}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B534CFB4-994D-4817-886B-383382B75E33}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B534CFB4-994D-4817-886B-383382B75E33}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B534CFB4-994D-4817-886B-383382B75E33}.Release|Any CPU.Build.0 = Release|Any CPU
+		{393EDC1C-88AD-4488-966E-058C9A5FBF1C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{393EDC1C-88AD-4488-966E-058C9A5FBF1C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{393EDC1C-88AD-4488-966E-058C9A5FBF1C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{393EDC1C-88AD-4488-966E-058C9A5FBF1C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F1570128-3F8C-454C-B7D6-CBC348F737E5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1570128-3F8C-454C-B7D6-CBC348F737E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1570128-3F8C-454C-B7D6-CBC348F737E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1570128-3F8C-454C-B7D6-CBC348F737E5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C2BC74E7-AADE-43D0-AC2B-FC65D77E60A0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C2BC74E7-AADE-43D0-AC2B-FC65D77E60A0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C2BC74E7-AADE-43D0-AC2B-FC65D77E60A0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C2BC74E7-AADE-43D0-AC2B-FC65D77E60A0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B019A95A-D1CE-4CD4-A02F-0063745866EC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B019A95A-D1CE-4CD4-A02F-0063745866EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B019A95A-D1CE-4CD4-A02F-0063745866EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B019A95A-D1CE-4CD4-A02F-0063745866EC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A95850E8-74B3-4854-BF56-16909C08B9AF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A95850E8-74B3-4854-BF56-16909C08B9AF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A95850E8-74B3-4854-BF56-16909C08B9AF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A95850E8-74B3-4854-BF56-16909C08B9AF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{636FDF8C-41F8-47FF-BDAD-8CD4517DA70F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{636FDF8C-41F8-47FF-BDAD-8CD4517DA70F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{636FDF8C-41F8-47FF-BDAD-8CD4517DA70F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{636FDF8C-41F8-47FF-BDAD-8CD4517DA70F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A59A6A16-CD1B-4298-9C48-F4E1D0AC7A2D} = {5A3F4F14-0956-489D-B118-804689158640}
+		{2C5085F6-FEA1-442C-9549-F1D7263BE0BF} = {5A3F4F14-0956-489D-B118-804689158640}
+		{B534CFB4-994D-4817-886B-383382B75E33} = {2C5085F6-FEA1-442C-9549-F1D7263BE0BF}
+		{393EDC1C-88AD-4488-966E-058C9A5FBF1C} = {4420F2EA-371D-48D3-AE7B-0E7FE79B5337}
+		{69DCE4E3-05F4-42AF-928E-96B42C356DEC} = {4420F2EA-371D-48D3-AE7B-0E7FE79B5337}
+		{F1570128-3F8C-454C-B7D6-CBC348F737E5} = {69DCE4E3-05F4-42AF-928E-96B42C356DEC}
+		{C2BC74E7-AADE-43D0-AC2B-FC65D77E60A0} = {4420F2EA-371D-48D3-AE7B-0E7FE79B5337}
+		{F2CA33B1-4A35-4C5E-915D-17BC95523FE1} = {4420F2EA-371D-48D3-AE7B-0E7FE79B5337}
+		{B019A95A-D1CE-4CD4-A02F-0063745866EC} = {F2CA33B1-4A35-4C5E-915D-17BC95523FE1}
+		{A95850E8-74B3-4854-BF56-16909C08B9AF} = {4420F2EA-371D-48D3-AE7B-0E7FE79B5337}
+		{C5323A1A-5B5A-45B1-A632-7636BC41C9C7} = {4420F2EA-371D-48D3-AE7B-0E7FE79B5337}
+		{636FDF8C-41F8-47FF-BDAD-8CD4517DA70F} = {C5323A1A-5B5A-45B1-A632-7636BC41C9C7}
+	EndGlobalSection
+EndGlobal

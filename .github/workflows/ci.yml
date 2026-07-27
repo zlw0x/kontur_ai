@@ -21,16 +21,12 @@ jobs:
       - run: python scripts/check_openapi_compatibility.py
   local-worker:
     runs-on: windows-latest
-    defaults: {run: {working-directory: apps/local-worker}}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: "8.0.x"}
-      - run: dotnet build CadAi.LocalWorker.csproj --nologo
-      - run: dotnet test ../../packages/kompas-adapter/tests/CadAi.KompasAdapter.Tests.csproj --nologo
-      - run: dotnet test ../../packages/codex-runner/tests/CadAi.CodexRunner.Tests.csproj --nologo
-      - run: dotnet test ../../packages/geometry-validation/tests/CadAi.GeometryValidation.Tests.csproj --nologo
-      - run: dotnet test tests/CadAi.LocalWorker.Tests.csproj --nologo
+      - run: dotnet build CadAi.sln --nologo
+      - run: dotnet test CadAi.sln --nologo --no-build
   web:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: apps/web}}
