@@ -46,6 +46,17 @@ public sealed class KompasApi7Adapter : ICadAdapter
         object? document = null;
         Process? ownedProcess = null;
         var stage = "activation";
+        // Each step is timed separately so a slow startup, a slow hole and a
+        // slow export are distinguishable in the ledger instead of arriving as
+        // one opaque CAD duration.
+        var operations = new List<CadOperationRecord>();
+        var stepStarted = Stopwatch.GetTimestamp();
+        long StepMs()
+        {
+            var elapsed = (long)Stopwatch.GetElapsedTime(stepStarted).TotalMilliseconds;
+            stepStarted = Stopwatch.GetTimestamp();
+            return elapsed;
+        }
         try
         {
             var comType = Type.GetTypeFromProgID(ProgId, throwOnError: false)
@@ -56,41 +67,63 @@ public sealed class KompasApi7Adapter : ICadAdapter
             dynamic api = application;
             api.Visible = false;
             documents = api.Documents;
+            operations.Add(new CadOperationRecord("kompas_startup", stage, StepMs(), Success: true));
+
             stage = "document";
             document = ((dynamic)documents).Add(4, false); // ksDocumentPart=4
             if (document is null || !Marshal.IsComObject(document))
                 throw Failure("DOCUMENT_CREATE_FAILED", stage, "KOMPAS did not create a part document.");
+            operations.Add(new CadOperationRecord("document_create", stage, StepMs(), Success: true));
 
             cancellationToken.ThrowIfCancellationRequested();
             stage = "sketch";
             BuildRectangleExtrusion(document, request.Plan);
+            operations.Add(new CadOperationRecord("rectangular_prism", stage, StepMs(), Success: true));
+
+            var holeNumber = 0;
             foreach (var cut in request.Plan.CircularCuts ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 stage = "feature";
+                holeNumber++;
                 BuildCircularCut(document, cut, request.Plan.Depth);
+                operations.Add(new CadOperationRecord(
+                    $"hole_{holeNumber:D3}", stage, StepMs(), Success: true));
             }
+
             cancellationToken.ThrowIfCancellationRequested();
             stage = "save";
             ((dynamic)document).SaveAs(m3dPath);
             if (!File.Exists(m3dPath) || new FileInfo(m3dPath).Length == 0)
                 throw Failure("SAVE_FAILED", stage, "KOMPAS did not create model.m3d.");
+            operations.Add(new CadOperationRecord("save_m3d", stage, StepMs(), Success: true));
+
             stage = "export";
             ExportAdditionalFormats(stepPath, stlPath);
+            operations.Add(new CadOperationRecord("export_step_stl", stage, StepMs(), Success: true));
+
             return new CadBuildResult([
                 FakeCadAdapter.CreateArtifact("M3D", m3dPath),
                 FakeCadAdapter.CreateArtifact("STEP", stepPath),
                 FakeCadAdapter.CreateArtifact("STL", stlPath)
-            ]);
+            ], operations);
         }
-        catch (CadAdapterException) { throw; }
+        catch (CadAdapterException error)
+        {
+            operations.Add(new CadOperationRecord(error.Code, stage, StepMs(), Success: false, error.Code));
+            throw error.WithOperations(operations);
+        }
         catch (COMException error)
         {
-            throw Failure(MapCode(stage), stage, $"KOMPAS failed at {stage} (HRESULT 0x{error.HResult:X8}).", error);
+            operations.Add(new CadOperationRecord(MapCode(stage), stage, StepMs(), Success: false, MapCode(stage)));
+            throw Failure(MapCode(stage), stage, $"KOMPAS failed at {stage} (HRESULT 0x{error.HResult:X8}).", error)
+                .WithOperations(operations);
         }
         catch (Exception error)
         {
-            throw Failure(MapCode(stage), stage, $"KOMPAS failed at {stage}.", error);
+            operations.Add(new CadOperationRecord(MapCode(stage), stage, StepMs(), Success: false, MapCode(stage)));
+            throw Failure(MapCode(stage), stage, $"KOMPAS failed at {stage}.", error)
+                .WithOperations(operations);
         }
         finally
         {

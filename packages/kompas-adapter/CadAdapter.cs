@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,25 +19,59 @@ public sealed record CadBuildRequest(RectangleExtrusionPlan Plan, string OutputD
 
 public sealed record CadArtifact(string Kind, string Path, long SizeBytes, string Sha256);
 
-public sealed record CadBuildResult(IReadOnlyList<CadArtifact> Artifacts);
+/// <summary>
+/// How long one CAD step took and whether it succeeded.
+/// </summary>
+/// <remarks>
+/// Returned with the result rather than pushed to an observer: the build runs
+/// on a dedicated STA thread, and handing it a callback into the caller's
+/// mutable state would put cross-thread writes on the COM path for the sake
+/// of a metric.
+/// </remarks>
+public sealed record CadOperationRecord(
+    string OperationCode,
+    string Stage,
+    long WallMs,
+    bool Success,
+    string? FailureCode = null);
+
+public sealed record CadBuildResult(
+    IReadOnlyList<CadArtifact> Artifacts,
+    IReadOnlyList<CadOperationRecord>? Operations = null);
 
 public interface ICadAdapter
 {
     Task<CadBuildResult> BuildAsync(CadBuildRequest request, CancellationToken cancellationToken);
 }
 
-public sealed class CadAdapterException(string code, string stage, string safeMessage, Exception? inner = null)
+public sealed class CadAdapterException(
+    string code,
+    string stage,
+    string safeMessage,
+    Exception? inner = null,
+    IReadOnlyList<CadOperationRecord>? operations = null)
     : Exception(safeMessage, inner)
 {
     public string Code { get; } = code;
     public string Stage { get; } = stage;
     public string SafeMessage { get; } = safeMessage;
+
+    /// <summary>
+    /// Steps measured before the failure. A build that fails after twenty
+    /// minutes still consumed twenty minutes, and the ledger only learns that
+    /// if the timings travel out with the error.
+    /// </summary>
+    public IReadOnlyList<CadOperationRecord> Operations { get; } = operations ?? [];
+
+    public CadAdapterException WithOperations(IReadOnlyList<CadOperationRecord> measured) =>
+        new(Code, Stage, SafeMessage, InnerException, measured);
 }
 
 public sealed class FakeCadAdapter : ICadAdapter
 {
     public async Task<CadBuildResult> BuildAsync(CadBuildRequest request, CancellationToken cancellationToken)
     {
+        var started = Stopwatch.GetTimestamp();
         var output = SafeOutputDirectory(request.OutputDirectory);
         Directory.CreateDirectory(output);
         var path = Path.Combine(output, "model.fake-cad.json");
@@ -51,7 +86,16 @@ public sealed class FakeCadAdapter : ICadAdapter
             request.Plan.Depth
         });
         await File.WriteAllTextAsync(path, payload, Encoding.UTF8, cancellationToken);
-        return new CadBuildResult([CreateArtifact("FAKE_CAD", path)]);
+        // The fake reports timings too, so instrumentation is exercised by CI
+        // instead of only on a machine with KOMPAS installed.
+        var operations = new List<CadOperationRecord>
+        {
+            new("rectangular_prism", "sketch",
+                (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, Success: true)
+        };
+        operations.AddRange((request.Plan.CircularCuts ?? []).Select((_, index) =>
+            new CadOperationRecord($"hole_{index + 1:D3}", "feature", 0, Success: true)));
+        return new CadBuildResult([CreateArtifact("FAKE_CAD", path)], operations);
     }
 
     internal static string SafeOutputDirectory(string path)

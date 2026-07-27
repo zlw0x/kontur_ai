@@ -16,11 +16,65 @@ public sealed class DrawingPipeline(
     ICodexRunner runner,
     CodexModelRouter? router = null,
     CodexBudgetState? budget = null,
-    CodexBudgetPolicy? policy = null)
+    CodexBudgetPolicy? policy = null,
+    ResourceLedger? ledger = null)
 {
+    /// <summary>
+    /// Identifies the prompt text a run used. Token counts are only comparable
+    /// between jobs that were asked the same question, so the version travels
+    /// with every AI measurement.
+    /// </summary>
+    private const string PromptVersion = "drawing-mvp-1";
+
     private readonly CodexModelRouter modelRouter = router ?? new();
     private readonly CodexBudgetState budgetState = budget ?? new();
     private readonly CodexBudgetPolicy budgetPolicy = policy ?? new();
+
+    /// <summary>
+    /// Runs one Codex stage and records what it consumed.
+    /// </summary>
+    /// <remarks>
+    /// The scope is recorded even when the stage throws: a run that burned ten
+    /// thousand tokens and then failed still cost ten thousand tokens, and a
+    /// ledger that only sees successes cannot explain the price of a job.
+    /// </remarks>
+    private async Task<CodexStageResult> RunStageAsync(
+        string eventKey,
+        ResourceStage stage,
+        AgentRole role,
+        CodexStageRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var scope = ledger?.Begin(eventKey, ResourceEventType.AI_RUN, stage, role);
+        try
+        {
+            var result = await runner.RunAsync(request, cancellationToken);
+            if (scope is not null)
+            {
+                scope.WithAi(result.ToAiUsage(PromptVersion));
+                var process = result.ToProcessUsage();
+                if (process is not null) scope.WithProcess(process);
+                scope.Succeeded();
+            }
+            if (ledger is not null && result.UsageReading?.RequiresWarning == true)
+            {
+                // The order completes; the gap in measurement is surfaced so it
+                // is fixed deliberately rather than discovered in billing.
+                ledger.Warn(
+                    eventKey + ":usage-warning",
+                    stage,
+                    "CODEX_USAGE_UNRESOLVED",
+                    "cli=" + (result.CliVersion ?? "unknown") +
+                    " source=" + result.UsageReading.Reading.Source);
+            }
+            return result;
+        }
+        catch (CodexRunnerException error)
+        {
+            scope?.Failed(error.Code);
+            throw;
+        }
+    }
 
     public async Task<DrawingPipelineResult> RunAsync(
         string workspacePath,
@@ -43,7 +97,10 @@ public sealed class DrawingPipeline(
 
         budgetState.Reserve(CodexStage.DrawingExtraction, budgetPolicy);
         var analysisRoute = modelRouter.Route(CodexStage.DrawingExtraction);
-        var analysisRun = await runner.RunAsync(
+        var analysisRun = await RunStageAsync(
+            ledger?.Key("ai", "drawing_analysis", "1") ?? "",
+            ResourceStage.DRAWING_ANALYSIS,
+            AgentRole.DRAWING_EXTRACTION,
             new CodexStageRequest(
                 workspace,
                 analysisSchema,
@@ -73,7 +130,10 @@ public sealed class DrawingPipeline(
         budgetState.Reserve(CodexStage.CadIrCompilation, budgetPolicy);
         var compilationRoute = modelRouter.Route(CodexStage.CadIrCompilation);
         var cadIrPath = Path.Combine(output, "cad-ir.json");
-        var compilationRun = await runner.RunAsync(
+        var compilationRun = await RunStageAsync(
+            ledger?.Key("ai", "cad_ir_compilation", "1") ?? "",
+            ResourceStage.CAD_IR_COMPILATION,
+            AgentRole.CAD_IR_COMPILATION,
             new CodexStageRequest(
                 workspace,
                 cadIrSchema,
@@ -92,7 +152,22 @@ public sealed class DrawingPipeline(
         {
             try
             {
-                await CadIrBuildPlanParser.ParseFileAsync(candidatePath, cancellationToken);
+                using (var gate = ledger?.Begin(
+                    ledger.Key("validate", "cad_ir", (repairAttempt + 1).ToString()),
+                    ResourceEventType.VALIDATION,
+                    ResourceStage.SEMANTIC_VALIDATION))
+                {
+                    try
+                    {
+                        await CadIrBuildPlanParser.ParseFileAsync(candidatePath, cancellationToken);
+                        gate?.Succeeded();
+                    }
+                    catch (CadAdapterException gateError)
+                    {
+                        gate?.Failed(gateError.Code);
+                        throw;
+                    }
+                }
                 if (!string.Equals(candidatePath, cadIrPath, StringComparison.OrdinalIgnoreCase))
                     File.Copy(candidatePath, cadIrPath, overwrite: true);
                 return new("CAD_IR_READY", analysisPath, questionsPath, cadIrPath, analysisRun, compilationRun);
@@ -103,7 +178,20 @@ public sealed class DrawingPipeline(
                 var previous = await ReadBoundedAsync(candidatePath, 1_000_000, cancellationToken);
                 candidatePath = Path.Combine(output, $"cad-ir-repair-{repairAttempt + 1}.json");
                 var repairRoute = modelRouter.Route(CodexStage.Repair);
-                compilationRun = await runner.RunAsync(
+                var repairNumber = (repairAttempt + 1).ToString();
+                if (ledger is not null)
+                {
+                    using var iteration = ledger.Begin(
+                        ledger.Key("repair", "iteration", repairNumber),
+                        ResourceEventType.REPAIR_ITERATION,
+                        ResourceStage.SEMANTIC_VALIDATION);
+                    iteration.Meta("trigger_code", error.Code);
+                    iteration.Succeeded();
+                }
+                compilationRun = await RunStageAsync(
+                    ledger?.Key("ai", "repair", repairNumber) ?? "",
+                    ResourceStage.CAD_IR_COMPILATION,
+                    AgentRole.REPAIR,
                     new CodexStageRequest(
                         workspace,
                         cadIrSchema,

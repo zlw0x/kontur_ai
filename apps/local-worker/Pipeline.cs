@@ -39,7 +39,8 @@ public static class LocalCadJobHandler
         string? path,
         WorkerPaths paths,
         bool fakeCad,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ResourceLedger? ledger = null)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new WorkerException("JOB_PATH_REQUIRED", "run-job requires a job directory.", 2);
@@ -61,10 +62,42 @@ public static class LocalCadJobHandler
         {
             var plan = await CadIrBuildPlanParser.ParseFileAsync(cadIrPath, cancellationToken);
             ICadAdapter adapter = fakeCad ? new FakeCadAdapter() : new KompasApi7Adapter();
-            var result = await adapter.BuildAsync(new CadBuildRequest(plan, output), cancellationToken);
+            CadBuildResult result;
+            using (var session = ledger?.Begin(
+                ledger.Key("cad", "session", "1"),
+                ResourceEventType.CAD_SESSION,
+                ResourceStage.KOMPAS_STARTUP))
+            {
+                try
+                {
+                    result = await adapter.BuildAsync(new CadBuildRequest(plan, output), cancellationToken);
+                    session?.WithCad(new CadUsagePayload(
+                        "rectangular_prism_with_holes",
+                        result.Operations?.Count,
+                        FailedFeatureCount: 0,
+                        SessionReuseCount: 0,
+                        ForcedTermination: false,
+                        ResultBytes: result.Artifacts.Sum(artifact => artifact.SizeBytes)));
+                    session?.Succeeded();
+                    RecordOperations(ledger, result.Operations);
+                }
+                catch (CadAdapterException error)
+                {
+                    session?.Failed(error.Code);
+                    // The steps that ran before the failure are on the
+                    // exception; a build that died after twenty minutes still
+                    // consumed them.
+                    RecordOperations(ledger, error.Operations);
+                    throw;
+                }
+            }
             GeometryValidationResult? validation = null;
             if (!fakeCad)
             {
+                using var check = ledger?.Begin(
+                    ledger.Key("validate", "geometry", "1"),
+                    ResourceEventType.VALIDATION,
+                    ResourceStage.GEOMETRY_VALIDATION);
                 validation = GeometryValidator.Validate(
                     Path.Combine(output, "model.m3d"),
                     Path.Combine(output, "model.step"),
@@ -75,6 +108,8 @@ public static class LocalCadJobHandler
                         plan.Depth,
                         SolidBodyCount: 1,
                         ThroughHoleCount: plan.CircularCuts?.Count ?? 0));
+                if (validation.Valid) check?.Succeeded();
+                else check?.Failed("GEOMETRY_VALIDATION_FAILED");
             }
             await FakeJobHandler.AtomicWriteAsync(
                 Path.Combine(output, "validation-report.json"),
@@ -122,6 +157,40 @@ public static class LocalCadJobHandler
             throw new WorkerException(error.Code, error.SafeMessage);
         }
     }
+
+    /// <summary>
+    /// Turn adapter step timings into one ledger event each.
+    /// </summary>
+    /// <remarks>
+    /// Recorded per operation rather than as a single CAD duration so a slow
+    /// startup, a slow hole and a slow export stay distinguishable when the
+    /// feature vocabulary grows.
+    /// </remarks>
+    private static void RecordOperations(
+        ResourceLedger? ledger,
+        IReadOnlyList<CadOperationRecord>? operations)
+    {
+        if (ledger is null || operations is null) return;
+        var finishedAt = DateTimeOffset.UtcNow;
+        foreach (var operation in operations)
+        {
+            ledger.Add(new ResourceEventPayload(
+                ledger.Key("cad", "operation", operation.OperationCode),
+                nameof(ResourceEventType.CAD_OPERATION),
+                nameof(ResourceStage.FEATURE_BUILD),
+                1,
+                null,
+                finishedAt.AddMilliseconds(-operation.WallMs),
+                finishedAt,
+                operation.WallMs,
+                operation.Success,
+                operation.FailureCode,
+                null,
+                null,
+                new CadUsagePayload(operation.OperationCode, 1, operation.Success ? 0 : 1, 0, false, null),
+                new Dictionary<string, string> { ["stage"] = operation.Stage }));
+        }
+    }
 }
 
 public static class ClaimLoop
@@ -145,7 +214,12 @@ public static class ClaimLoop
                 var response = await client.PostAsJsonAsync("/api/v1/workers/claim", new
                 {
                     protocol_version = "1.0", worker_id = config.WorkerId,
-                    capabilities = new[] { "AI_DRAWING", "KOMPAS_BUILD" }, supported_cad_ir = new[] { "0.1.0" }, available_slots = 1
+                    capabilities = new[] { "AI_DRAWING", "KOMPAS_BUILD" },
+                    supported_cad_ir = new[] { WorkerCapabilities.CadIrVersion },
+                    available_slots = 1,
+                    // Declaring what this build can construct is what makes the
+                    // API willing to schedule those operations here.
+                    capability_manifest = WorkerCapabilities.Manifest()
                 }, cancellation);
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                     throw new WorkerException("AUTH_REQUIRED", "Worker credential was rejected.", 3);
@@ -180,6 +254,7 @@ public static class ClaimLoop
     {
         var jobPath = Path.Combine(paths.WorkspaceRoot, job.job_id);
         Directory.CreateDirectory(jobPath);
+        var ledger = new ResourceLedger(job.job_id);
         var manifest = await client.GetFromJsonAsync<JobManifest>(job.manifest_url, cancellation)
             ?? throw new WorkerException("MANIFEST_INVALID", "Job manifest was empty.");
         if (manifest.manifest_version != "1.0" || manifest.job_id != job.job_id)
@@ -191,9 +266,19 @@ public static class ClaimLoop
             var maxSize = input.kind == "drawing" ? 25L * 1024 * 1024 : 1_048_576;
             if (input.size_bytes <= 0 || input.size_bytes > maxSize)
                 throw new WorkerException("MANIFEST_INVALID", "Job input metadata is invalid.");
+            using var download = ledger.Begin(
+                ledger.Key("transfer", "input", input.kind),
+                ResourceEventType.TRANSFER,
+                ResourceStage.IMAGE_PREPROCESSING);
             var payload = await client.GetByteArrayAsync(input.download_url, cancellation);
             if (payload.LongLength != input.size_bytes || !ChecksumMatches(payload, input.sha256))
+            {
+                download.Failed("INPUT_INTEGRITY_FAILED");
                 throw new WorkerException("INPUT_INTEGRITY_FAILED", "Input checksum or size does not match manifest.");
+            }
+            download.WithProcess(new ProcessUsagePayload(
+                null, null, null, payload.LongLength, null, null, null, 0));
+            download.Succeeded();
             var destination = input.kind switch
             {
                 "cad_ir" when input.local_name == "cad-ir.json" => Path.Combine(jobPath, "cad-ir.json"),
@@ -219,7 +304,9 @@ public static class ClaimLoop
                     .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
                 var answersPath = Path.Combine(jobPath, "context", "user-answers.json");
-                var drawing = await new DrawingPipeline(new CadAi.CodexRunner.LocalCodexRunner()).RunAsync(
+                var drawing = await new DrawingPipeline(
+                    new CadAi.CodexRunner.LocalCodexRunner(),
+                    ledger: ledger).RunAsync(
                     jobPath,
                     images,
                     File.Exists(answersPath) ? answersPath : null,
@@ -229,13 +316,13 @@ public static class ClaimLoop
                 {
                     File.Copy(drawing.CadIrPath!, Path.Combine(jobPath, "cad-ir.json"), overwrite: true);
                     await LocalCadJobHandler.RunAsync(
-                        jobPath, paths, fakeCad: false, cancellationToken: cancellation);
+                        jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger);
                 }
             }
             else
             {
                 await LocalCadJobHandler.RunAsync(
-                    jobPath, paths, fakeCad: false, cancellationToken: cancellation);
+                    jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger);
             }
             var uploaded = new List<UploadedArtifact>();
             foreach (var (type, fileName) in new[]
@@ -251,6 +338,10 @@ public static class ClaimLoop
             {
                 var artifactPath = Path.Combine(jobPath, "output", fileName);
                 if (!File.Exists(artifactPath)) continue;
+                using var upload = ledger.Begin(
+                    ledger.Key("transfer", "artifact", type),
+                    ResourceEventType.TRANSFER,
+                    ResourceStage.ARTIFACT_UPLOAD);
                 var artifactBytes = await File.ReadAllBytesAsync(artifactPath, cancellation);
                 var checksum = Convert.ToHexString(SHA256.HashData(artifactBytes));
                 using var content = new ByteArrayContent(artifactBytes);
@@ -265,12 +356,19 @@ public static class ClaimLoop
                 var item = await response.Content.ReadFromJsonAsync<UploadedArtifact>(
                     cancellationToken: cancellation)
                     ?? throw new WorkerException("ARTIFACT_UPLOAD_FAILED", "Artifact upload returned no metadata.");
+                upload.WithProcess(new ProcessUsagePayload(
+                    null, null, null, null, artifactBytes.LongLength, null, null, 0));
+                upload.Succeeded();
                 uploaded.Add(item);
             }
             if (!waitingForAnswers && uploaded.All(artifact => artifact.type != "M3D"))
                 throw new WorkerException("ARTIFACT_UPLOAD_FAILED", "M3D artifact was not uploaded.");
             if (waitingForAnswers && uploaded.All(artifact => artifact.type != "CLARIFICATION_QUESTIONS"))
                 throw new WorkerException("ARTIFACT_UPLOAD_FAILED", "Clarification questions were not uploaded.");
+            // Shipped while the lease is still held, and deliberately before
+            // completion: the ingestion endpoint is lease-scoped, and a job
+            // must never fail because its measurements could not be filed.
+            await ResourceLedgerShipper.ShipAsync(client, job.job_id, ledger, cancellation);
             var complete = await client.PostAsJsonAsync(
                 $"/api/v1/workers/jobs/{job.job_id}/complete",
                 new

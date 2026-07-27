@@ -78,7 +78,7 @@ public static class EnrollmentCommand
         using var client = new HttpClient { BaseAddress = uri, Timeout = TimeSpan.FromSeconds(30) };
         var response = await client.PostAsJsonAsync("/api/v1/workers/register", new
         {
-            enrollment_token = token, worker_name = Environment.MachineName, app_version = "0.2.0"
+            enrollment_token = token, worker_name = Environment.MachineName, app_version = WorkerCapabilities.WorkerVersion
         });
         if (!response.IsSuccessStatusCode) throw new WorkerException("ENROLLMENT_REJECTED", "Worker enrollment was rejected.", 4);
         var result = await response.Content.ReadFromJsonAsync<EnrollmentResponse>()
@@ -115,7 +115,7 @@ public static class WorkerDoctor
         var status = config is not null && credentials.Exists ? "READY" : "AUTH_REQUIRED";
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            status, worker = "0.2.0", mode = "fake", credential = credentials.Exists ? "protected" : "missing",
+            status, worker = WorkerCapabilities.WorkerVersion, mode = "fake", credential = credentials.Exists ? "protected" : "missing",
             workspace = "writable", kompas = "not-probed", codex = "not-probed"
         }));
         return Task.FromResult(status == "READY" ? 0 : 3);
