@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/worker-capability-manifest/1.0",
+  "title": "WorkerCapabilityManifest",
+  "$defs": {
+    "CapabilityStatus": {
+      "enum": [
+        "unsupported",
+        "experimental",
+        "beta",
+        "stable",
+        "disabled"
+      ],
+      "title": "CapabilityStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "worker_version": {
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Worker Version",
+      "type": "string"
+    },
+    "kompas_version": {
+      "anyOf": [
+        {
+          "maxLength": 50,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kompas Version"
+    },
+    "codex_cli_version": {
+      "anyOf": [
+        {
+          "maxLength": 50,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Codex Cli Version"
+    },
+    "cad_ir_versions": {
+      "items": {
+        "maxLength": 20,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Cad Ir Versions",
+      "type": "array"
+    },
+    "capabilities": {
+      "maxProperties": 500,
+      "minProperties": 1,
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$": {
+          "$ref": "#/$defs/CapabilityStatus"
+        }
+      },
+      "title": "Capabilities",
+      "type": "object"
+    }
+  },
+  "required": [
+    "worker_version",
+    "cad_ir_versions",
+    "capabilities"
+  ],
+  "type": "object"
+}

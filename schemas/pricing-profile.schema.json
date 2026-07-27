@@ -1,0 +1,634 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/pricing-profile/1.0",
+  "title": "PricingProfile",
+  "$defs": {
+    "AiUsageWeights": {
+      "additionalProperties": false,
+      "properties": {
+        "cached_token": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Cached Token"
+        },
+        "output_token": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Output Token"
+        },
+        "reasoning_token": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Reasoning Token"
+        },
+        "models": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Models",
+          "type": "object"
+        },
+        "default_model": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "1",
+          "title": "Default Model"
+        },
+        "reasoning": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ]
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ReasoningEffort"
+          },
+          "title": "Reasoning",
+          "type": "object"
+        },
+        "service_tier": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ]
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ServiceTier"
+          },
+          "title": "Service Tier",
+          "type": "object"
+        }
+      },
+      "required": [
+        "cached_token",
+        "output_token",
+        "reasoning_token"
+      ],
+      "title": "AiUsageWeights",
+      "type": "object"
+    },
+    "ComplexityFees": {
+      "additionalProperties": false,
+      "properties": {
+        "included_analysis_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Included Analysis Runs",
+          "type": "integer"
+        },
+        "analysis_retry_fee": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Analysis Retry Fee"
+        },
+        "included_cad_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Included Cad Attempts",
+          "type": "integer"
+        },
+        "cad_retry_fee": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Cad Retry Fee"
+        },
+        "included_repair_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Included Repair Runs",
+          "type": "integer"
+        },
+        "repair_fee": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Repair Fee"
+        },
+        "feature_point_price": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Feature Point Price"
+        }
+      },
+      "title": "ComplexityFees",
+      "type": "object"
+    },
+    "HumanRates": {
+      "additionalProperties": false,
+      "properties": {
+        "review_minute_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Review Minute Cost"
+        }
+      },
+      "required": [
+        "review_minute_cost"
+      ],
+      "title": "HumanRates",
+      "type": "object"
+    },
+    "InfrastructureRates": {
+      "additionalProperties": false,
+      "properties": {
+        "vps_cost_per_job": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Vps Cost Per Job"
+        },
+        "source_gb_day": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Source Gb Day"
+        },
+        "result_gb_day": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Result Gb Day"
+        },
+        "backup_gb_day": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Backup Gb Day"
+        },
+        "egress_gb": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Egress Gb"
+        }
+      },
+      "required": [
+        "vps_cost_per_job"
+      ],
+      "title": "InfrastructureRates",
+      "type": "object"
+    },
+    "JobClass": {
+      "enum": [
+        "AUTO_SIMPLE",
+        "AUTO_STANDARD",
+        "AUTO_ADVANCED",
+        "MANUAL_REVIEW"
+      ],
+      "title": "JobClass",
+      "type": "string"
+    },
+    "MarginPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "target_gross_margin": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Target Gross Margin"
+        },
+        "rounding_step": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Rounding Step"
+        },
+        "minimum_price": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+                "type": "string"
+              }
+            ]
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/JobClass"
+          },
+          "title": "Minimum Price",
+          "type": "object"
+        },
+        "risk_percent": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ]
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/JobClass"
+          },
+          "title": "Risk Percent",
+          "type": "object"
+        }
+      },
+      "required": [
+        "target_gross_margin",
+        "rounding_step"
+      ],
+      "title": "MarginPolicy",
+      "type": "object"
+    },
+    "PaymentRates": {
+      "additionalProperties": false,
+      "properties": {
+        "percent": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Percent"
+        },
+        "fixed": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Fixed"
+        }
+      },
+      "title": "PaymentRates",
+      "type": "object"
+    },
+    "PricingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "ai_usage_weights": {
+          "$ref": "#/$defs/AiUsageWeights"
+        },
+        "shadow_prices": {
+          "$ref": "#/$defs/ShadowPrices"
+        },
+        "worker": {
+          "$ref": "#/$defs/WorkerRates"
+        },
+        "infrastructure": {
+          "$ref": "#/$defs/InfrastructureRates"
+        },
+        "human": {
+          "$ref": "#/$defs/HumanRates"
+        },
+        "payment": {
+          "$ref": "#/$defs/PaymentRates"
+        },
+        "complexity": {
+          "$ref": "#/$defs/ComplexityFees"
+        },
+        "margin": {
+          "$ref": "#/$defs/MarginPolicy"
+        }
+      },
+      "required": [
+        "ai_usage_weights",
+        "shadow_prices",
+        "worker",
+        "infrastructure",
+        "human",
+        "payment",
+        "complexity",
+        "margin"
+      ],
+      "title": "PricingConfig",
+      "type": "object"
+    },
+    "ReasoningEffort": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "title": "ReasoningEffort",
+      "type": "string"
+    },
+    "ServiceTier": {
+      "enum": [
+        "standard",
+        "fast"
+      ],
+      "title": "ServiceTier",
+      "type": "string"
+    },
+    "ShadowPrices": {
+      "additionalProperties": false,
+      "description": "API-equivalent prices. Not a bill; an estimate of a future migration.",
+      "properties": {
+        "input_per_million": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Input Per Million"
+        },
+        "cached_input_per_million": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Cached Input Per Million"
+        },
+        "output_per_million": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Output Per Million"
+        }
+      },
+      "required": [
+        "input_per_million",
+        "cached_input_per_million",
+        "output_per_million"
+      ],
+      "title": "ShadowPrices",
+      "type": "object"
+    },
+    "WorkerRates": {
+      "additionalProperties": false,
+      "properties": {
+        "worker_hour_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Worker Hour Cost"
+        },
+        "cad_license_hour_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Cad License Hour Cost"
+        }
+      },
+      "required": [
+        "worker_hour_cost",
+        "cad_license_hour_cost"
+      ],
+      "title": "WorkerRates",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "code": {
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Code",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "currency": {
+      "pattern": "^[A-Z]{3}$",
+      "title": "Currency",
+      "type": "string"
+    },
+    "valid_from": {
+      "format": "date-time",
+      "title": "Valid From",
+      "type": "string"
+    },
+    "valid_to": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valid To"
+    },
+    "config": {
+      "$ref": "#/$defs/PricingConfig"
+    }
+  },
+  "required": [
+    "code",
+    "version",
+    "currency",
+    "valid_from",
+    "config"
+  ],
+  "type": "object"
+}

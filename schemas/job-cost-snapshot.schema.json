@@ -1,0 +1,420 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/job-cost-snapshot/1.0",
+  "title": "JobCostSnapshot",
+  "$defs": {
+    "CostSnapshotStatus": {
+      "enum": [
+        "DRAFT",
+        "FINAL"
+      ],
+      "title": "CostSnapshotStatus",
+      "type": "string"
+    },
+    "JobClass": {
+      "enum": [
+        "AUTO_SIMPLE",
+        "AUTO_STANDARD",
+        "AUTO_ADVANCED",
+        "MANUAL_REVIEW"
+      ],
+      "title": "JobClass",
+      "type": "string"
+    },
+    "JobCostBreakdown": {
+      "additionalProperties": false,
+      "properties": {
+        "formula_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Formula Version",
+          "type": "string"
+        },
+        "currency": {
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "pricing_profile_code": {
+          "title": "Pricing Profile Code",
+          "type": "string"
+        },
+        "pricing_profile_version": {
+          "title": "Pricing Profile Version",
+          "type": "integer"
+        },
+        "job_class": {
+          "$ref": "#/$defs/JobClass"
+        },
+        "job_ai_units": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Job Ai Units"
+        },
+        "ai_allocated_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Ai Allocated Cost"
+        },
+        "ai_shadow_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Ai Shadow Cost"
+        },
+        "worker_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Worker Cost"
+        },
+        "cad_license_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Cad License Cost"
+        },
+        "vps_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Vps Cost"
+        },
+        "storage_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Storage Cost"
+        },
+        "human_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Human Cost"
+        },
+        "payment_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Payment Cost"
+        },
+        "resource_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Resource Cost"
+        },
+        "complexity_surcharge": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Complexity Surcharge"
+        },
+        "risk_reserve": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Risk Reserve"
+        },
+        "margin_amount": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,10}|(?=[\\d.]{1,15}0*$)\\d{0,10}\\.\\d{0,4}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Margin Amount"
+        },
+        "final_price": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,15}0*$)\\d{0,12}\\.\\d{0,2}0*$)",
+              "type": "string"
+            }
+          ],
+          "title": "Final Price"
+        },
+        "billable_worker_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Billable Worker Seconds"
+        },
+        "counters": {
+          "$ref": "#/$defs/JobIterationCounters"
+        },
+        "token_coverage": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/TokenSource"
+          },
+          "title": "Token Coverage",
+          "type": "object"
+        }
+      },
+      "required": [
+        "currency",
+        "pricing_profile_code",
+        "pricing_profile_version",
+        "job_class",
+        "job_ai_units",
+        "ai_allocated_cost",
+        "ai_shadow_cost",
+        "worker_cost",
+        "cad_license_cost",
+        "vps_cost",
+        "storage_cost",
+        "human_cost",
+        "payment_cost",
+        "resource_cost",
+        "complexity_surcharge",
+        "risk_reserve",
+        "margin_amount",
+        "final_price",
+        "billable_worker_seconds",
+        "counters"
+      ],
+      "title": "JobCostBreakdown",
+      "type": "object"
+    },
+    "JobIterationCounters": {
+      "additionalProperties": false,
+      "description": "Derived from the ledger; never reported directly by the worker.",
+      "properties": {
+        "analysis_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Analysis Runs",
+          "type": "integer"
+        },
+        "clarification_cycles": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Clarification Cycles",
+          "type": "integer"
+        },
+        "planning_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Planning Runs",
+          "type": "integer"
+        },
+        "cad_ir_generation_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cad Ir Generation Runs",
+          "type": "integer"
+        },
+        "schema_repair_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Schema Repair Runs",
+          "type": "integer"
+        },
+        "cad_build_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cad Build Attempts",
+          "type": "integer"
+        },
+        "cad_feature_failures": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cad Feature Failures",
+          "type": "integer"
+        },
+        "geometry_validation_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Geometry Validation Runs",
+          "type": "integer"
+        },
+        "repair_runs": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Repair Runs",
+          "type": "integer"
+        },
+        "export_attempts": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Export Attempts",
+          "type": "integer"
+        },
+        "human_review_minutes": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Human Review Minutes"
+        }
+      },
+      "title": "JobIterationCounters",
+      "type": "object"
+    },
+    "TokenSource": {
+      "description": "How token counts were obtained; never guess, mark what was measured.",
+      "enum": [
+        "STRUCTURED",
+        "SUMMARY",
+        "ESTIMATED",
+        "UNKNOWN"
+      ],
+      "title": "TokenSource",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/CostSnapshotStatus"
+    },
+    "pricing_profile_code": {
+      "title": "Pricing Profile Code",
+      "type": "string"
+    },
+    "pricing_profile_version": {
+      "title": "Pricing Profile Version",
+      "type": "integer"
+    },
+    "breakdown": {
+      "$ref": "#/$defs/JobCostBreakdown"
+    },
+    "calculated_at": {
+      "format": "date-time",
+      "title": "Calculated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "job_id",
+    "status",
+    "pricing_profile_code",
+    "pricing_profile_version",
+    "breakdown",
+    "calculated_at"
+  ],
+  "type": "object"
+}

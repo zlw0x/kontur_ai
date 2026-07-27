@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0",
+  "code": "example-uncalibrated",
+  "version": 1,
+  "currency": "RUB",
+  "valid_from": "2026-07-27T00:00:00Z",
+  "valid_to": null,
+  "config": {
+    "ai_usage_weights": {
+      "cached_token": "0.20",
+      "output_token": "4.00",
+      "reasoning_token": "1.00",
+      "default_model": "1.00",
+      "models": {
+        "gpt-5.6-luna": "1.00",
+        "gpt-5.6-terra": "1.35",
+        "gpt-5.6-sol": "1.80"
+      },
+      "reasoning": {
+        "low": "0.75",
+        "medium": "1.00",
+        "high": "1.35",
+        "xhigh": "1.70",
+        "max": "2.20"
+      },
+      "service_tier": {
+        "standard": "1.00",
+        "fast": "2.50"
+      }
+    },
+    "shadow_prices": {
+      "input_per_million": "0",
+      "cached_input_per_million": "0",
+      "output_per_million": "0"
+    },
+    "worker": {
+      "worker_hour_cost": "0",
+      "cad_license_hour_cost": "0"
+    },
+    "infrastructure": {
+      "vps_cost_per_job": "0",
+      "source_gb_day": "0",
+      "result_gb_day": "0",
+      "backup_gb_day": "0",
+      "egress_gb": "0"
+    },
+    "human": {
+      "review_minute_cost": "0"
+    },
+    "payment": {
+      "percent": "0",
+      "fixed": "0"
+    },
+    "complexity": {
+      "included_analysis_runs": 1,
+      "analysis_retry_fee": "0",
+      "included_cad_attempts": 1,
+      "cad_retry_fee": "0",
+      "included_repair_runs": 2,
+      "repair_fee": "0",
+      "feature_point_price": "0"
+    },
+    "margin": {
+      "target_gross_margin": "0.60",
+      "rounding_step": "10",
+      "minimum_price": {
+        "AUTO_SIMPLE": "0",
+        "AUTO_STANDARD": "0",
+        "AUTO_ADVANCED": "0",
+        "MANUAL_REVIEW": "0"
+      },
+      "risk_percent": {
+        "AUTO_SIMPLE": "0.05",
+        "AUTO_STANDARD": "0.10",
+        "AUTO_ADVANCED": "0.20",
+        "MANUAL_REVIEW": "0.15"
+      }
+    }
+  }
+}

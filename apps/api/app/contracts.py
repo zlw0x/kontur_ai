@@ -8,6 +8,7 @@ client can mutate an order by sending a raw status value.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -17,6 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 API_VERSION = "v1"
 WORKER_PROTOCOL_VERSION = "1.0"
+RESOURCE_LEDGER_SCHEMA_VERSION = "1.0"
+PRICING_PROFILE_SCHEMA_VERSION = "1.0"
+CAPABILITY_MANIFEST_SCHEMA_VERSION = "1.0"
+COST_FORMULA_VERSION = "1.0"
 
 
 class StrictModel(BaseModel):
@@ -223,3 +228,400 @@ class ClarificationAnswer(StrictModel):
 
 class DrawingAnswersRequest(StrictModel):
     answers: list[ClarificationAnswer] = Field(min_length=1, max_length=10)
+
+
+# --------------------------------------------------------------------------
+# Resource ledger (POSTMVP-001)
+#
+# The worker measures; it never prices.  Every counter is optional because an
+# unavailable metric must stay null rather than be invented, and every present
+# counter is non-negative so a malformed worker cannot inflate a job's cost.
+# --------------------------------------------------------------------------
+
+Count = Annotated[int, Field(ge=0)]
+Millis = Annotated[int, Field(ge=0)]
+Bytes = Annotated[int, Field(ge=0)]
+Money = Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=4)]
+Rate = Annotated[Decimal, Field(ge=0)]
+Ratio = Annotated[Decimal, Field(ge=0, le=1)]
+
+
+class ResourceEventType(StrEnum):
+    AI_RUN = "AI_RUN"
+    PROCESS_RUN = "PROCESS_RUN"
+    CAD_SESSION = "CAD_SESSION"
+    CAD_OPERATION = "CAD_OPERATION"
+    CAD_REBUILD = "CAD_REBUILD"
+    REPAIR_ITERATION = "REPAIR_ITERATION"
+    EXPORT = "EXPORT"
+    VALIDATION = "VALIDATION"
+    PREVIEW_RENDER = "PREVIEW_RENDER"
+    TRANSFER = "TRANSFER"
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+    WARNING = "WARNING"
+
+
+class ResourceStage(StrEnum):
+    IMAGE_PREPROCESSING = "IMAGE_PREPROCESSING"
+    DRAWING_ANALYSIS = "DRAWING_ANALYSIS"
+    CLARIFICATION = "CLARIFICATION"
+    CAD_PLANNING = "CAD_PLANNING"
+    CAD_IR_COMPILATION = "CAD_IR_COMPILATION"
+    SCHEMA_VALIDATION = "SCHEMA_VALIDATION"
+    SEMANTIC_VALIDATION = "SEMANTIC_VALIDATION"
+    KOMPAS_STARTUP = "KOMPAS_STARTUP"
+    DOCUMENT_BUILD = "DOCUMENT_BUILD"
+    FEATURE_BUILD = "FEATURE_BUILD"
+    REBUILD = "REBUILD"
+    EXPORT = "EXPORT"
+    GEOMETRY_VALIDATION = "GEOMETRY_VALIDATION"
+    PREVIEW = "PREVIEW"
+    ARTIFACT_UPLOAD = "ARTIFACT_UPLOAD"
+    CLEANUP = "CLEANUP"
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+
+
+class AgentRole(StrEnum):
+    DRAWING_EXTRACTION = "DRAWING_EXTRACTION"
+    GEOMETRY_REASONING = "GEOMETRY_REASONING"
+    CLARIFICATION = "CLARIFICATION"
+    CAD_PLANNING = "CAD_PLANNING"
+    CAD_IR_COMPILATION = "CAD_IR_COMPILATION"
+    REPAIR = "REPAIR"
+    FINAL_AUDIT = "FINAL_AUDIT"
+
+
+class ReasoningEffort(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
+
+
+class ServiceTier(StrEnum):
+    STANDARD = "standard"
+    FAST = "fast"
+
+
+class TokenSource(StrEnum):
+    """How token counts were obtained; never guess, mark what was measured."""
+
+    STRUCTURED = "STRUCTURED"
+    SUMMARY = "SUMMARY"
+    ESTIMATED = "ESTIMATED"
+    UNKNOWN = "UNKNOWN"
+
+
+class AiUsage(StrictModel):
+    model: Annotated[str | None, Field(max_length=100)] = None
+    reasoning_effort: ReasoningEffort | None = None
+    service_tier: ServiceTier = ServiceTier.STANDARD
+    cli_version: Annotated[str | None, Field(max_length=50)] = None
+    prompt_version: Annotated[str | None, Field(max_length=50)] = None
+    thread_id: Annotated[str | None, Field(max_length=100)] = None
+    token_source: TokenSource = TokenSource.UNKNOWN
+    input_tokens: Count | None = None
+    cached_input_tokens: Count | None = None
+    output_tokens: Count | None = None
+    reasoning_tokens: Count | None = None
+    total_tokens: Count | None = None
+
+    @property
+    def token_count_estimated(self) -> bool:
+        return self.token_source is TokenSource.ESTIMATED
+
+    @model_validator(mode="after")
+    def validate_token_shape(self) -> "AiUsage":
+        if self.token_source is TokenSource.UNKNOWN and any(
+            value is not None
+            for value in (self.input_tokens, self.output_tokens, self.reasoning_tokens, self.total_tokens)
+        ):
+            raise ValueError("token counts require a token_source that is not UNKNOWN")
+        if self.cached_input_tokens is not None and self.input_tokens is not None:
+            if self.cached_input_tokens > self.input_tokens:
+                raise ValueError("cached_input_tokens cannot exceed input_tokens")
+        return self
+
+
+class ProcessUsage(StrictModel):
+    cpu_user_ms: Millis | None = None
+    cpu_system_ms: Millis | None = None
+    peak_memory_bytes: Bytes | None = None
+    bytes_read: Bytes | None = None
+    bytes_written: Bytes | None = None
+    exit_code: int | None = None
+    termination_reason: Annotated[str | None, Field(max_length=50)] = None
+    retry_number: Count = 0
+
+
+class CadUsage(StrictModel):
+    operation_code: Annotated[str | None, Field(max_length=64)] = None
+    operation_count: Count | None = None
+    failed_feature_count: Count | None = None
+    session_reuse_count: Count | None = None
+    forced_termination: bool = False
+    result_bytes: Bytes | None = None
+
+
+EVENT_KEY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9:._\-]{0,199}$"
+
+
+class ResourceEvent(StrictModel):
+    """One immutable measurement. `event_key` is the idempotency identity."""
+
+    event_key: Annotated[str, Field(pattern=EVENT_KEY_PATTERN)]
+    event_type: ResourceEventType
+    stage: ResourceStage
+    attempt_no: Annotated[int, Field(ge=1)] = 1
+    agent_role: AgentRole | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+    wall_ms: Millis | None = None
+    success: bool
+    failure_code: Annotated[str | None, Field(max_length=64)] = None
+    ai: AiUsage | None = None
+    process: ProcessUsage | None = None
+    cad: CadUsage | None = None
+    storage_byte_seconds: Annotated[Decimal | None, Field(ge=0)] = None
+    human_minutes: Annotated[Decimal | None, Field(ge=0)] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> "ResourceEvent":
+        if self.finished_at is not None and self.finished_at < self.started_at:
+            raise ValueError("finished_at must not precede started_at")
+        if self.success and self.failure_code is not None:
+            raise ValueError("a successful event must not carry a failure_code")
+        if self.ai is not None and self.event_type is not ResourceEventType.AI_RUN:
+            raise ValueError("ai usage is only valid on an AI_RUN event")
+        return self
+
+
+class ResourceEventBatch(StrictModel):
+    schema_version: Literal["1.0"] = RESOURCE_LEDGER_SCHEMA_VERSION
+    job_id: UUID
+    events: list[ResourceEvent] = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_unique_keys(self) -> "ResourceEventBatch":
+        keys = [event.event_key for event in self.events]
+        if len(set(keys)) != len(keys):
+            raise ValueError("event_key must be unique inside a batch")
+        return self
+
+
+class ResourceEventBatchAck(StrictModel):
+    job_id: UUID
+    accepted: Count
+    duplicates: Count
+
+
+class JobIterationCounters(StrictModel):
+    """Derived from the ledger; never reported directly by the worker."""
+
+    analysis_runs: Count = 0
+    clarification_cycles: Count = 0
+    planning_runs: Count = 0
+    cad_ir_generation_runs: Count = 0
+    schema_repair_runs: Count = 0
+    cad_build_attempts: Count = 0
+    cad_feature_failures: Count = 0
+    geometry_validation_runs: Count = 0
+    repair_runs: Count = 0
+    export_attempts: Count = 0
+    human_review_minutes: Annotated[Decimal, Field(ge=0)] = Decimal(0)
+
+
+# --------------------------------------------------------------------------
+# Pricing profile (POSTMVP-002)
+#
+# Every rate lives here.  No rate, weight, tariff or margin may be hardcoded
+# in the cost engine: a profile version is the only way a number enters a
+# calculation, which is what makes a snapshot reproducible.
+# --------------------------------------------------------------------------
+
+
+class JobClass(StrEnum):
+    AUTO_SIMPLE = "AUTO_SIMPLE"
+    AUTO_STANDARD = "AUTO_STANDARD"
+    AUTO_ADVANCED = "AUTO_ADVANCED"
+    MANUAL_REVIEW = "MANUAL_REVIEW"
+
+
+class AiUsageWeights(StrictModel):
+    cached_token: Rate
+    output_token: Rate
+    reasoning_token: Rate
+    models: dict[str, Rate] = Field(default_factory=dict)
+    default_model: Rate = Decimal(1)
+    reasoning: dict[ReasoningEffort, Rate] = Field(default_factory=dict)
+    service_tier: dict[ServiceTier, Rate] = Field(default_factory=dict)
+
+
+class SubscriptionAllocation(StrictModel):
+    """`ai_pool_amount / period_units` is the price of one internal AI unit.
+
+    `period_units` is supplied by the caller from completed jobs in the
+    period, so the engine stays a pure function of its arguments.
+    """
+
+    ai_pool_amount: Money
+    period_units: Annotated[Decimal, Field(gt=0)]
+
+
+class ShadowPrices(StrictModel):
+    """API-equivalent prices. Not a bill; an estimate of a future migration."""
+
+    input_per_million: Rate
+    cached_input_per_million: Rate
+    output_per_million: Rate
+
+
+class WorkerRates(StrictModel):
+    worker_hour_cost: Rate
+    cad_license_hour_cost: Rate
+
+
+class InfrastructureRates(StrictModel):
+    vps_cost_per_job: Rate
+    source_gb_day: Rate = Decimal(0)
+    result_gb_day: Rate = Decimal(0)
+    backup_gb_day: Rate = Decimal(0)
+    egress_gb: Rate = Decimal(0)
+
+
+class HumanRates(StrictModel):
+    review_minute_cost: Rate
+
+
+class PaymentRates(StrictModel):
+    percent: Ratio = Decimal(0)
+    fixed: Money = Decimal(0)
+
+
+class ComplexityFees(StrictModel):
+    included_analysis_runs: Count = 0
+    analysis_retry_fee: Rate = Decimal(0)
+    included_cad_attempts: Count = 0
+    cad_retry_fee: Rate = Decimal(0)
+    included_repair_runs: Count = 0
+    repair_fee: Rate = Decimal(0)
+    feature_point_price: Rate = Decimal(0)
+
+
+class MarginPolicy(StrictModel):
+    target_gross_margin: Annotated[Decimal, Field(ge=0, lt=1)]
+    rounding_step: Annotated[Decimal, Field(gt=0)]
+    minimum_price: dict[JobClass, Money] = Field(default_factory=dict)
+    risk_percent: dict[JobClass, Rate] = Field(default_factory=dict)
+
+
+class PricingConfig(StrictModel):
+    ai_usage_weights: AiUsageWeights
+    shadow_prices: ShadowPrices
+    worker: WorkerRates
+    infrastructure: InfrastructureRates
+    human: HumanRates
+    payment: PaymentRates
+    complexity: ComplexityFees
+    margin: MarginPolicy
+
+
+class PricingProfile(StrictModel):
+    schema_version: Literal["1.0"] = PRICING_PROFILE_SCHEMA_VERSION
+    code: Annotated[str, Field(min_length=1, max_length=50)]
+    version: Annotated[int, Field(ge=1)]
+    currency: Annotated[str, Field(pattern=r"^[A-Z]{3}$")]
+    valid_from: datetime
+    valid_to: datetime | None = None
+    config: PricingConfig
+
+    @model_validator(mode="after")
+    def validate_validity_window(self) -> "PricingProfile":
+        if self.valid_to is not None and self.valid_to <= self.valid_from:
+            raise ValueError("valid_to must be after valid_from")
+        return self
+
+
+class JobCostBreakdown(StrictModel):
+    formula_version: Literal["1.0"] = COST_FORMULA_VERSION
+    currency: Annotated[str, Field(pattern=r"^[A-Z]{3}$")]
+    pricing_profile_code: str
+    pricing_profile_version: int
+    job_class: JobClass
+
+    job_ai_units: Annotated[Decimal, Field(ge=0)]
+    ai_allocated_cost: Money
+    ai_shadow_cost: Money
+    worker_cost: Money
+    cad_license_cost: Money
+    vps_cost: Money
+    storage_cost: Money
+    human_cost: Money
+    payment_cost: Money
+    resource_cost: Money
+
+    complexity_surcharge: Money
+    risk_reserve: Money
+    margin_amount: Money
+    final_price: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)]
+
+    billable_worker_seconds: Annotated[Decimal, Field(ge=0)]
+    counters: JobIterationCounters
+    token_coverage: dict[TokenSource, Count] = Field(default_factory=dict)
+
+
+class CostSnapshotStatus(StrEnum):
+    DRAFT = "DRAFT"
+    FINAL = "FINAL"
+
+
+class JobCostSnapshot(StrictModel):
+    id: UUID
+    job_id: UUID
+    status: CostSnapshotStatus
+    pricing_profile_code: str
+    pricing_profile_version: int
+    breakdown: JobCostBreakdown
+    calculated_at: datetime
+
+
+# --------------------------------------------------------------------------
+# Capability registry (POSTMVP-003)
+# --------------------------------------------------------------------------
+
+
+class CapabilityStatus(StrEnum):
+    UNSUPPORTED = "unsupported"
+    EXPERIMENTAL = "experimental"
+    BETA = "beta"
+    STABLE = "stable"
+    DISABLED = "disabled"
+
+
+#: A job is only leased to a worker that declares every required capability at
+#: one of these statuses.  `experimental` deliberately does not qualify: it may
+#: only be reached through an explicit opt-in job, never through normal claim.
+LEASABLE_CAPABILITY_STATUSES = frozenset({CapabilityStatus.BETA, CapabilityStatus.STABLE})
+
+CAPABILITY_KEY_PATTERN = r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$"
+
+
+class WorkerCapabilityManifest(StrictModel):
+    schema_version: Literal["1.0"] = CAPABILITY_MANIFEST_SCHEMA_VERSION
+    worker_version: Annotated[str, Field(min_length=1, max_length=50)]
+    kompas_version: Annotated[str | None, Field(max_length=50)] = None
+    codex_cli_version: Annotated[str | None, Field(max_length=50)] = None
+    cad_ir_versions: list[Annotated[str, Field(max_length=20)]] = Field(min_length=1, max_length=20)
+    capabilities: dict[Annotated[str, Field(pattern=CAPABILITY_KEY_PATTERN)], CapabilityStatus] = Field(
+        min_length=1, max_length=500
+    )
+
+    def supports(self, required: list[str]) -> list[str]:
+        """Return the required capability keys this manifest cannot serve."""
+        return [
+            key
+            for key in required
+            if self.capabilities.get(key, CapabilityStatus.UNSUPPORTED) not in LEASABLE_CAPABILITY_STATUSES
+        ]
