@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import or_, select
 
-from app.contracts import ErrorCode, JobStatus, JobType, WorkerCapability
+from app.contracts import (
+    ErrorCode,
+    JobStatus,
+    JobType,
+    WorkerCapability,
+    WorkerCapabilityManifest,
+)
+from app.ledger.models import WorkerCapabilitySnapshotRow
+from app.workers.capabilities import unmet_capabilities
 from app.workers.models import ArtifactRow, JobRow, WorkerRow
 from app.workers.protocol import Job, Worker, WorkerProtocolError, _hash
 
@@ -41,7 +51,14 @@ class SqlWorkerProtocolService:
                 raise WorkerProtocolError(ErrorCode.WORKER_AUTH_FAILED, "worker credential was rejected")
             return self._worker(row)
 
-    def heartbeat(self, worker: Worker, capabilities: list[WorkerCapability], supported_cad_ir: list[str], available_slots: int) -> None:
+    def heartbeat(
+        self,
+        worker: Worker,
+        capabilities: list[WorkerCapability],
+        supported_cad_ir: list[str],
+        available_slots: int,
+        capability_manifest: WorkerCapabilityManifest | None = None,
+    ) -> None:
         if available_slots < 0:
             raise ValueError("available_slots must not be negative")
         with self.sessions.begin() as session:
@@ -51,7 +68,47 @@ class SqlWorkerProtocolService:
             row.capabilities = [item.value for item in capabilities]
             row.supported_cad_ir = supported_cad_ir
             row.last_seen_at = self.clock()
+            if capability_manifest is not None:
+                self._publish_manifest(session, row, capability_manifest)
         worker.capabilities, worker.supported_cad_ir, worker.last_seen_at = set(capabilities), set(supported_cad_ir), self.clock()
+        if capability_manifest is not None:
+            worker.capability_manifest = capability_manifest
+
+    def _publish_manifest(
+        self, session, row: WorkerRow, manifest: WorkerCapabilityManifest
+    ) -> None:
+        """Record the current manifest and keep the change history.
+
+        Every distinct manifest a worker has published is retained, so a cost
+        or incident review can tell which capabilities were in effect when a
+        job ran rather than only what the worker claims today.
+        """
+        document = manifest.model_dump(mode="json")
+        row.capability_manifest = document
+        fingerprint = hashlib.sha256(
+            json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        known = session.scalar(
+            select(WorkerCapabilitySnapshotRow).where(
+                WorkerCapabilitySnapshotRow.worker_id == row.id,
+                WorkerCapabilitySnapshotRow.manifest_sha256 == fingerprint,
+            )
+        )
+        if known is not None:
+            return
+        session.add(
+            WorkerCapabilitySnapshotRow(
+                id=str(uuid4()),
+                worker_id=row.id,
+                manifest_sha256=fingerprint,
+                worker_version=manifest.worker_version,
+                kompas_version=manifest.kompas_version,
+                codex_cli_version=manifest.codex_cli_version,
+                cad_ir_versions=list(manifest.cad_ir_versions),
+                capabilities={key: value.value for key, value in manifest.capabilities.items()},
+                observed_at=self.clock(),
+            )
+        )
 
     def claim(self, worker: Worker, lease_seconds: int = 60) -> Job | None:
         now = self.clock()
@@ -69,6 +126,8 @@ class SqlWorkerProtocolService:
             for row in candidates:
                 required = {WorkerCapability(item) for item in row.required_capabilities}
                 if not required.issubset(worker.capabilities) or row.required_cad_ir not in worker.supported_cad_ir:
+                    continue
+                if unmet_capabilities(worker.capability_manifest, list(row.required_capability_keys or [])):
                     continue
                 row.status, row.lease_owner = JobStatus.LEASED.value, str(worker.id)
                 row.lease_expires_at, row.attempt = now + timedelta(seconds=lease_seconds), row.attempt + 1
@@ -109,6 +168,7 @@ class SqlWorkerProtocolService:
                 id=str(job.id), order_id=str(job.order_id), job_type=job.job_type.value,
                 idempotency_key=job.idempotency_key,
                 required_capabilities=[item.value for item in job.required_capabilities],
+                required_capability_keys=list(job.required_capability_keys),
                 required_cad_ir=job.required_cad_ir, max_attempts=job.max_attempts,
             ))
 
@@ -152,11 +212,13 @@ class SqlWorkerProtocolService:
     @staticmethod
     def _worker(row: WorkerRow) -> Worker:
         return Worker(UUID(row.id), row.name, row.token_hash, row.app_version,
-                      {WorkerCapability(item) for item in row.capabilities}, set(row.supported_cad_ir), row.last_seen_at)
+                      {WorkerCapability(item) for item in row.capabilities}, set(row.supported_cad_ir), row.last_seen_at,
+                      WorkerCapabilityManifest(**row.capability_manifest) if row.capability_manifest else None)
 
     @staticmethod
     def _job(row: JobRow) -> Job:
         return Job(UUID(row.id), UUID(row.order_id), JobType(row.job_type), row.idempotency_key,
                    {WorkerCapability(item) for item in row.required_capabilities}, row.required_cad_ir,
+                   list(row.required_capability_keys or []),
                    row.max_attempts, row.attempt, JobStatus(row.status),
                    UUID(row.lease_owner) if row.lease_owner else None, row.lease_expires_at, row.completed_key)

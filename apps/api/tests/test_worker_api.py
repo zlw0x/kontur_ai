@@ -5,8 +5,9 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from app.main import app
-from app.contracts import JobType, WorkerCapability
+from app.contracts import CapabilityStatus, JobType, WorkerCapability
 from app.workers.artifact_store import LocalArtifactStore
+from app.workers.capabilities import MVP_CAPABILITIES
 from app.workers.protocol import InMemoryWorkerRepository, Job, WorkerProtocolService
 
 
@@ -17,6 +18,18 @@ def memory_protocol(monkeypatch):
     protocol = WorkerProtocolService(InMemoryWorkerRepository(), "local-development-enrollment-token-change-me")
     monkeypatch.setattr("app.main.worker_protocol", protocol)
     return protocol
+
+
+def mvp_manifest(**overrides) -> dict:
+    """What a current worker publishes: the whole confirmed MVP vocabulary."""
+    return {
+        "schema_version": "1.0",
+        "worker_version": "0.4.0",
+        "kompas_version": "22.0",
+        "cad_ir_versions": ["0.1.0"],
+        "capabilities": {key: CapabilityStatus.STABLE.value for key in MVP_CAPABILITIES},
+        **overrides,
+    }
 
 
 def test_worker_register_heartbeat_and_empty_claim(monkeypatch):
@@ -119,6 +132,7 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
             "capabilities": ["KOMPAS_BUILD"],
             "supported_cad_ir": ["0.1.0"],
             "available_slots": 1,
+            "capability_manifest": mvp_manifest(),
         },
     ).json()["job"]
     assert claim["job_id"] == job_id
@@ -199,6 +213,7 @@ def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
             "capabilities": ["AI_DRAWING", "KOMPAS_BUILD"],
             "supported_cad_ir": ["0.1.0"],
             "available_slots": 1,
+            "capability_manifest": mvp_manifest(),
         },
     ).json()["job"]
     manifest = client.get(claim["manifest_url"], headers=worker_headers).json()

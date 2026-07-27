@@ -1539,6 +1539,17 @@
         "type": "object",
         "title": "CadUsage"
       },
+      "CapabilityStatus": {
+        "type": "string",
+        "enum": [
+          "unsupported",
+          "experimental",
+          "beta",
+          "stable",
+          "disabled"
+        ],
+        "title": "CapabilityStatus"
+      },
       "ClaimedJob": {
         "properties": {
           "job_id": {
@@ -2435,6 +2446,75 @@
         ],
         "title": "WorkerCapability"
       },
+      "WorkerCapabilityManifest": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "worker_version": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Worker Version"
+          },
+          "kompas_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kompas Version"
+          },
+          "codex_cli_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codex Cli Version"
+          },
+          "cad_ir_versions": {
+            "items": {
+              "type": "string",
+              "maxLength": 20
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Cad Ir Versions"
+          },
+          "capabilities": {
+            "patternProperties": {
+              "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$": {
+                "$ref": "#/components/schemas/CapabilityStatus"
+              }
+            },
+            "type": "object",
+            "maxProperties": 500,
+            "minProperties": 1,
+            "title": "Capabilities"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "worker_version",
+          "cad_ir_versions",
+          "capabilities"
+        ],
+        "title": "WorkerCapabilityManifest"
+      },
       "WorkerClaimRequest": {
         "properties": {
           "protocol_version": {
@@ -2468,6 +2548,16 @@
             "maximum": 10.0,
             "minimum": 0.0,
             "title": "Available Slots"
+          },
+          "capability_manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkerCapabilityManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -2548,6 +2638,16 @@
             "maximum": 10.0,
             "minimum": 0.0,
             "title": "Available Slots"
+          },
+          "capability_manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkerCapabilityManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,

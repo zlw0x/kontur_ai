@@ -35,6 +35,7 @@ from .contracts import (
     DrawingAnswersRequest,
 )
 from .workers.artifact_store import ArtifactIntegrityError, LocalArtifactStore
+from .workers.capabilities import required_capability_keys
 from .workers.protocol import (
     InMemoryWorkerRepository,
     Job,
@@ -171,13 +172,25 @@ def register_worker(request: WorkerRegistrationRequest) -> WorkerRegistrationRes
 @app.post("/api/v1/workers/heartbeat", status_code=204)
 def worker_heartbeat(request: WorkerHeartbeatRequest, authorization: str | None = Header(default=None)) -> None:
     worker = authenticated_worker(request.worker_id, authorization)
-    worker_protocol.heartbeat(worker, request.capabilities, request.supported_cad_ir, request.available_slots)
+    worker_protocol.heartbeat(
+        worker,
+        request.capabilities,
+        request.supported_cad_ir,
+        request.available_slots,
+        request.capability_manifest,
+    )
 
 
 @app.post("/api/v1/workers/claim", response_model=WorkerClaimResponse)
 def claim_worker_job(request: WorkerClaimRequest, authorization: str | None = Header(default=None)) -> WorkerClaimResponse:
     worker = authenticated_worker(request.worker_id, authorization)
-    worker_protocol.heartbeat(worker, request.capabilities, request.supported_cad_ir, request.available_slots)
+    worker_protocol.heartbeat(
+        worker,
+        request.capabilities,
+        request.supported_cad_ir,
+        request.available_slots,
+        request.capability_manifest,
+    )
     job = worker_protocol.claim(worker) if request.available_slots else None
     if job is None:
         return WorkerClaimResponse(protocol_version="1.0", job=None, retry_after_seconds=5)
@@ -236,6 +249,7 @@ def create_manual_cad_job(
             idempotency_key,
             {WorkerCapability.KOMPAS_BUILD},
             document.schema_version,
+            required_capability_keys(JobType.BUILD_CAD),
         )
     )
     return ManualCadJobResponse(
@@ -277,6 +291,7 @@ async def create_drawing_job(
         "sha256:" + hashlib.sha256(f"{order_id}:{stored.sha256}:0".encode()).hexdigest(),
         {WorkerCapability.AI_DRAWING, WorkerCapability.KOMPAS_BUILD},
         "0.1.0",
+        required_capability_keys(JobType.ANALYZE_DRAWING),
     ))
     return DrawingJobResponse(
         order_id=order_id,
@@ -380,6 +395,7 @@ def answer_drawing_questions(
         ).hexdigest(),
         {WorkerCapability.AI_DRAWING, WorkerCapability.KOMPAS_BUILD},
         "0.1.0",
+        required_capability_keys(JobType.ANALYZE_DRAWING),
     ))
     tracking.update(latest_job_id=job_id, round=round_number)
     artifact_store.put_drawing_tracking(

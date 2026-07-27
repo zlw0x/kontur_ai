@@ -111,6 +111,10 @@ class WorkerClaimRequest(StrictModel):
     capabilities: list[WorkerCapability] = Field(min_length=1)
     supported_cad_ir: list[str] = Field(min_length=1)
     available_slots: Annotated[int, Field(ge=0, le=10)]
+    # Optional so a protocol-1.0 worker built before the capability registry
+    # still authenticates and heartbeats. It simply will not be offered a job
+    # that declares capability requirements.
+    capability_manifest: WorkerCapabilityManifest | None = None
 
 
 class JobPolicy(StrictModel):
@@ -161,6 +165,7 @@ class WorkerHeartbeatRequest(StrictModel):
     capabilities: list[WorkerCapability] = Field(min_length=1)
     supported_cad_ir: list[str] = Field(min_length=1)
     available_slots: int = Field(ge=0, le=10)
+    capability_manifest: WorkerCapabilityManifest | None = None
 
 
 class JobHeartbeatRequest(StrictModel):
@@ -642,3 +647,9 @@ class WorkerCapabilityManifest(StrictModel):
             for key in required
             if self.capabilities.get(key, CapabilityStatus.UNSUPPORTED) not in LEASABLE_CAPABILITY_STATUSES
         ]
+
+
+# WorkerCapabilityManifest is declared after the worker protocol DTOs that
+# reference it, so those two models are completed once it exists.
+WorkerClaimRequest.model_rebuild()
+WorkerHeartbeatRequest.model_rebuild()

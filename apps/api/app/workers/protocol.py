@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from app.contracts import ErrorCode, JobStatus, JobType, WorkerCapability
+from app.contracts import ErrorCode, JobStatus, JobType, WorkerCapability, WorkerCapabilityManifest
+from app.workers.capabilities import unmet_capabilities
 
 
 class WorkerProtocolError(Exception):
@@ -28,6 +29,7 @@ class Worker:
     capabilities: set[WorkerCapability] = field(default_factory=set)
     supported_cad_ir: set[str] = field(default_factory=set)
     last_seen_at: datetime | None = None
+    capability_manifest: WorkerCapabilityManifest | None = None
 
 
 @dataclass
@@ -38,6 +40,7 @@ class Job:
     idempotency_key: str
     required_capabilities: set[WorkerCapability]
     required_cad_ir: str
+    required_capability_keys: list[str] = field(default_factory=list)
     max_attempts: int = 3
     attempt: int = 0
     status: JobStatus = JobStatus.PENDING
@@ -80,10 +83,19 @@ class WorkerProtocolService:
                 return worker
         raise WorkerProtocolError(ErrorCode.WORKER_AUTH_FAILED, "worker credential was rejected")
 
-    def heartbeat(self, worker: Worker, capabilities: list[WorkerCapability], supported_cad_ir: list[str], available_slots: int) -> None:
+    def heartbeat(
+        self,
+        worker: Worker,
+        capabilities: list[WorkerCapability],
+        supported_cad_ir: list[str],
+        available_slots: int,
+        capability_manifest: WorkerCapabilityManifest | None = None,
+    ) -> None:
         if available_slots < 0:
             raise ValueError("available_slots must not be negative")
         worker.capabilities, worker.supported_cad_ir, worker.last_seen_at = set(capabilities), set(supported_cad_ir), self.clock()
+        if capability_manifest is not None:
+            worker.capability_manifest = capability_manifest
 
     def claim(self, worker: Worker, lease_seconds: int = 60) -> Job | None:
         now = self.clock()
@@ -94,6 +106,8 @@ class WorkerProtocolService:
             if job.status != JobStatus.PENDING or job.attempt >= job.max_attempts:
                 continue
             if not job.required_capabilities.issubset(worker.capabilities) or job.required_cad_ir not in worker.supported_cad_ir:
+                continue
+            if unmet_capabilities(worker.capability_manifest, job.required_capability_keys):
                 continue
             job.status, job.lease_owner, job.lease_expires_at = JobStatus.LEASED, worker.id, now + timedelta(seconds=lease_seconds)
             job.attempt += 1
