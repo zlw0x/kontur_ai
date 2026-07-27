@@ -22,12 +22,24 @@ public sealed record CodexUsage(
     long OutputTokens,
     long ReasoningOutputTokens);
 
+/// <summary>Resources one Codex process consumed, as far as the OS reports.</summary>
+public sealed record CodexProcessMetrics(
+    long? CpuUserMs,
+    long? CpuSystemMs,
+    long? PeakMemoryBytes,
+    int? ExitCode);
+
 public sealed record CodexStageResult(
     string? ThreadId,
     CodexUsage? Usage,
     string OutputPath,
     string OutputSha256,
-    string EventsPath);
+    string EventsPath,
+    CodexUsageResolution? UsageReading = null,
+    CodexProcessMetrics? Process = null,
+    string? CliVersion = null,
+    string? Model = null,
+    string? ReasoningEffort = null);
 
 public interface ICodexRunner
 {
@@ -51,10 +63,60 @@ public sealed class LocalCodexRunner : ICodexRunner
         "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$",
         RegexOptions.CultureInvariant);
     private readonly string executable;
+    private readonly CodexUsageParserRegistry usageRegistry;
+    private string? cliVersion;
 
-    public LocalCodexRunner(string? executablePath = null)
+    public LocalCodexRunner(
+        string? executablePath = null,
+        CodexUsageParserRegistry? usageRegistry = null)
     {
         executable = executablePath ?? DiscoverExecutable();
+        this.usageRegistry = usageRegistry ?? new CodexUsageParserRegistry();
+    }
+
+    /// <summary>
+    /// Version string of the installed CLI, or null when it cannot be read.
+    /// Cached: it cannot change while this process runs, and every stage would
+    /// otherwise pay for another process launch.
+    /// </summary>
+    public string? CliVersion => cliVersion ??= ReadCliVersion();
+
+    private string? ReadCliVersion()
+    {
+        try
+        {
+            using var probe = Process.Start(new ProcessStartInfo(executable)
+            {
+                ArgumentList = { "--version" },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            });
+            if (probe is null) return null;
+            var text = probe.StandardOutput.ReadToEnd().Trim();
+            probe.WaitForExit(10_000);
+            return probe.ExitCode == 0 && text.Length is > 0 and <= 200 ? text : null;
+        }
+        catch
+        {
+            // The version is diagnostic metadata. Failing to read it must not
+            // fail the stage that is about to run.
+            return null;
+        }
+    }
+
+    private static CodexProcessMetrics ReadProcessMetrics(Process process)
+    {
+        // These throw once the OS has released the process. An unavailable
+        // metric is recorded as null rather than as a fabricated zero.
+        long? user = null, system = null, peak = null;
+        int? exitCode = null;
+        try { user = (long)process.UserProcessorTime.TotalMilliseconds; } catch { }
+        try { system = (long)process.PrivilegedProcessorTime.TotalMilliseconds; } catch { }
+        try { peak = process.PeakWorkingSet64; } catch { }
+        try { exitCode = process.ExitCode; } catch { }
+        return new CodexProcessMetrics(user, system, peak, exitCode);
     }
 
     public async Task<CodexStageResult> RunAsync(
@@ -166,7 +228,17 @@ public sealed class LocalCodexRunner : ICodexRunner
         }
         await using var outputStream = File.OpenRead(output);
         var checksum = Convert.ToHexString(await SHA256.HashDataAsync(outputStream, cancellationToken));
-        return new CodexStageResult(parser.ThreadId, parser.Usage, output, checksum, eventsPath);
+        return new CodexStageResult(
+            parser.ThreadId,
+            parser.Usage,
+            output,
+            checksum,
+            eventsPath,
+            usageRegistry.Read(CliVersion, parser.UsageCandidates),
+            ReadProcessMetrics(process),
+            CliVersion,
+            request.Model,
+            request.ReasoningEffort);
     }
 
     private static void AddArguments(
@@ -294,14 +366,27 @@ public sealed class LocalCodexRunner : ICodexRunner
 
 public sealed class CodexEventParser
 {
+    private const int TailLines = 20;
+    private readonly List<string> completions = [];
+    private readonly Queue<string> tail = new();
+
     public string? ThreadId { get; private set; }
     public CodexUsage? Usage { get; private set; }
     public bool Failed { get; private set; }
     public bool ToolUseDetected { get; private set; }
     public string ErrorText { get; private set; } = "";
 
+    /// <summary>
+    /// Lines a usage parser may inspect: every turn completion plus a bounded
+    /// tail. The full event stream can reach megabytes and must not be held in
+    /// memory just to read a token count from its end.
+    /// </summary>
+    public IReadOnlyList<string> UsageCandidates => [.. completions, .. tail];
+
     public void Accept(string line)
     {
+        tail.Enqueue(line);
+        if (tail.Count > TailLines) tail.Dequeue();
         JsonDocument document;
         try { document = JsonDocument.Parse(line); }
         catch (JsonException error)
@@ -319,6 +404,8 @@ public sealed class CodexEventParser
                 Failed = true;
                 ErrorText += line;
             }
+            if (type == "turn.completed")
+                completions.Add(line);
             if (type == "turn.completed" && root.TryGetProperty("usage", out var usage))
             {
                 Usage = new CodexUsage(
@@ -335,6 +422,12 @@ public sealed class CodexEventParser
         }
     }
 
+    // TryGetInt64 throws when the element is not a number, so the kind is
+    // checked first: a CLI emitting "many" instead of 12 must not fail a job.
     private static long Number(JsonElement owner, string name) =>
-        owner.TryGetProperty(name, out var value) && value.TryGetInt64(out var number) ? number : 0;
+        owner.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.Number &&
+        value.TryGetInt64(out var number)
+            ? number
+            : 0;
 }
