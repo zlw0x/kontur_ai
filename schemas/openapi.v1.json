@@ -737,6 +737,73 @@
         }
       }
     },
+    "/api/v1/manual/cad-jobs/{job_id}/claimability": {
+      "get": {
+        "summary": "Get Job Claimability",
+        "description": "Explain whether a job can currently be leased, and if not, why.\n\nRead-only and outside the claim transaction: diagnosing a job must never\nbe able to change whether it is picked up.",
+        "operationId": "get_job_claimability_api_v1_manual_cad_jobs__job_id__claimability_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "x-manual-api-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Manual-Api-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobClaimabilityReport"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/manual/cad-jobs/{job_id}/artifacts/{artifact_type}": {
       "get": {
         "summary": "Download Manual Artifact",
@@ -1539,6 +1606,52 @@
         "type": "object",
         "title": "CadUsage"
       },
+      "CapabilityDeclaration": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/CapabilityStatus"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+){0,2}$",
+            "title": "Version",
+            "default": "1.0"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CapabilityDeclaration",
+        "description": "What a worker says about one capability."
+      },
+      "CapabilityRequirement": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$",
+            "title": "Name"
+          },
+          "stability": {
+            "$ref": "#/components/schemas/CapabilityStatus",
+            "default": "beta"
+          },
+          "min_version": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d+){0,2}$",
+            "title": "Min Version",
+            "default": "1.0"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CapabilityRequirement",
+        "description": "What a job needs before a worker may be handed it."
+      },
       "CapabilityStatus": {
         "type": "string",
         "enum": [
@@ -1549,6 +1662,92 @@
           "disabled"
         ],
         "title": "CapabilityStatus"
+      },
+      "ClaimBlocker": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ClaimBlockerCode"
+          },
+          "worker_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Id"
+          },
+          "worker_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Name"
+          },
+          "capability": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "ClaimBlocker"
+      },
+      "ClaimBlockerCode": {
+        "type": "string",
+        "enum": [
+          "NO_ONLINE_WORKERS",
+          "WORKER_MANIFEST_MISSING",
+          "CAPABILITY_NOT_SUPPORTED",
+          "CAPABILITY_EXPERIMENTAL_ONLY",
+          "CAPABILITY_VERSION_TOO_OLD",
+          "WORKER_VERSION_INCOMPATIBLE",
+          "WORKER_LEASE_CAPACITY_EXHAUSTED",
+          "WORKER_HEARTBEAT_STALE",
+          "JOB_REQUIREMENTS_INVALID"
+        ],
+        "title": "ClaimBlockerCode"
+      },
+      "ClaimabilityStatus": {
+        "type": "string",
+        "enum": [
+          "claimable",
+          "blocked",
+          "in_progress",
+          "settled"
+        ],
+        "title": "ClaimabilityStatus"
       },
       "ClaimedJob": {
         "properties": {
@@ -1716,6 +1915,65 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "JobClaimabilityReport": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "claimability": {
+            "$ref": "#/components/schemas/ClaimabilityStatus"
+          },
+          "required_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityRequirement"
+            },
+            "type": "array",
+            "title": "Required Capabilities"
+          },
+          "online_workers": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Online Workers"
+          },
+          "compatible_workers": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Compatible Workers"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimBlocker"
+            },
+            "type": "array",
+            "title": "Blockers"
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Evaluated At"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Summary"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "claimability",
+          "required_capabilities",
+          "online_workers",
+          "compatible_workers",
+          "blockers",
+          "evaluated_at",
+          "summary"
+        ],
+        "title": "JobClaimabilityReport"
       },
       "JobCompletionAck": {
         "properties": {
@@ -2497,7 +2755,7 @@
           "capabilities": {
             "patternProperties": {
               "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$": {
-                "$ref": "#/components/schemas/CapabilityStatus"
+                "$ref": "#/components/schemas/CapabilityDeclaration"
               }
             },
             "type": "object",

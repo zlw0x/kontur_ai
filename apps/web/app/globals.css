@@ -79,3 +79,13 @@ footer { display: flex; justify-content: space-between; gap: 20px; margin-top: 2
   .artifacts { grid-template-columns: repeat(2, 1fr); }
   footer { flex-direction: column; }
 }
+
+.waiting-reason {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border-left: 3px solid var(--accent, #7aa2f7);
+  border-radius: 0 6px 6px 0;
+  background: rgba(122, 162, 247, 0.08);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}

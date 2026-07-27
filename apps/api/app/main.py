@@ -15,6 +15,7 @@ from .config import settings
 from .database import Base, create_session_factory
 from .ledger.service import LedgerError, ResourceLedgerService
 from .contracts import (
+    JobClaimabilityReport,
     ResourceEventBatch,
     ResourceEventBatchAck,
     WorkerClaimRequest,
@@ -36,6 +37,7 @@ from .contracts import (
 )
 from .workers.artifact_store import ArtifactIntegrityError, LocalArtifactStore
 from .workers.capabilities import required_capability_keys
+from .workers.diagnostics import SchedulerDiagnostics
 from .workers.protocol import (
     InMemoryWorkerRepository,
     Job,
@@ -142,6 +144,15 @@ def transition_order(
         version=updated.version,
         updated_at=updated.updated_at,
     )
+
+
+def scheduler_diagnostics() -> SchedulerDiagnostics:
+    """Built per call so it always reads the protocol currently in use.
+
+    Holding a module-level instance would pin the protocol captured at import
+    time, which silently diverges whenever it is replaced.
+    """
+    return SchedulerDiagnostics(worker_protocol)
 
 
 def authenticated_worker(worker_id, authorization: str | None):
@@ -333,10 +344,18 @@ def get_drawing_job(
         else "WAITING_FOR_USER_ANSWERS" if questions
         else job.status.value
     )
+    # Only while the order is genuinely waiting on the scheduler. Once it is
+    # ready or the user has been asked something, the ball is not here.
+    waiting_reason = (
+        scheduler_diagnostics().report(job).summary
+        if status not in ("READY", "WAITING_FOR_USER_ANSWERS")
+        else None
+    )
     return {
         "order_id": str(order_id),
         "job_id": str(job_id),
         "status": status,
+        "waiting_reason": waiting_reason,
         "round": tracking["round"],
         "questions": questions,
         "artifacts": [
@@ -435,6 +454,26 @@ def get_manual_cad_job(
             for artifact in artifacts
         ],
     }
+
+
+@app.get(
+    "/api/v1/manual/cad-jobs/{job_id}/claimability",
+    response_model=JobClaimabilityReport,
+)
+def get_job_claimability(
+    job_id: uuid.UUID,
+    x_manual_api_token: str | None = Header(default=None),
+) -> JobClaimabilityReport:
+    """Explain whether a job can currently be leased, and if not, why.
+
+    Read-only and outside the claim transaction: diagnosing a job must never
+    be able to change whether it is picked up.
+    """
+    authenticated_manual_api(x_manual_api_token)
+    job = worker_protocol.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job was not found")
+    return scheduler_diagnostics().report(job)
 
 
 @app.get("/api/v1/manual/cad-jobs/{job_id}/artifacts/{artifact_type}")

@@ -16,6 +16,7 @@ type OrderState = {
   order_id: string;
   job_id: string;
   status: string;
+  waiting_reason: string | null;
   round: number;
   questions: Question[];
   artifacts: Artifact[];
@@ -210,6 +211,12 @@ export default function Home() {
                 </span>
                 <code>{order.job_id.slice(0, 8)}</code>
               </div>
+
+              {order.waiting_reason && order.questions.length === 0 && (
+                /* Why the order has not moved. Without it a queued job and a
+                   job no worker can serve look identical from here. */
+                <p className="waiting-reason">{order.waiting_reason}</p>
+              )}
 
               {order.questions.length > 0 && (
                 <form className="questions" onSubmit={submitAnswers}>
