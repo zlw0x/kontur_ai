@@ -12,8 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from cad_ir import CadIrValidationError, CadIrValidator
 
 from .config import settings
-from .database import create_session_factory
+from .database import Base, create_session_factory
+from .ledger.service import LedgerError, ResourceLedgerService
 from .contracts import (
+    ResourceEventBatch,
+    ResourceEventBatchAck,
     WorkerClaimRequest,
     WorkerClaimResponse,
     JobCompletionAck,
@@ -56,6 +59,20 @@ def build_worker_protocol():
     return SqlWorkerProtocolService(sessions, settings.worker_enrollment_token)
 
 
+def build_resource_ledger():
+    """The ledger is always SQL-backed; `memory` mode gets a disposable one.
+
+    Measurements must survive an API restart in production, and the isolated
+    API tests still need real UNIQUE-constraint behaviour rather than a fake.
+    """
+    if settings.worker_repository_mode == "memory":
+        engine, sessions = create_session_factory("sqlite://")
+        Base.metadata.create_all(engine)
+        return ResourceLedgerService(sessions)
+    _, sessions = create_session_factory(settings.database_url)
+    return ResourceLedgerService(sessions)
+
+
 app = FastAPI(
     title="CAD AI Service API",
     version="1.0.0",
@@ -73,6 +90,7 @@ app.add_middleware(
     allow_headers=["content-type", "x-manual-api-token", "x-request-id"],
 )
 worker_protocol = build_worker_protocol()
+resource_ledger = build_resource_ledger()
 artifact_store = LocalArtifactStore(settings.artifact_store_root, settings.max_artifact_bytes)
 cad_ir_validator = CadIrValidator()
 order_state_service = OrderStateService()
@@ -545,6 +563,30 @@ async def upload_job_artifact(
     )
 
 
+@app.post(
+    "/api/v1/workers/jobs/{job_id}/resource-events",
+    response_model=ResourceEventBatchAck,
+    status_code=202,
+)
+def record_resource_events(
+    job_id: uuid.UUID,
+    request: ResourceEventBatch,
+    authorization: str | None = Header(default=None),
+) -> ResourceEventBatchAck:
+    """Append measured resources for a job the caller currently holds.
+
+    Scoped to the active lease: only the worker actually running the job can
+    say what it consumed, and a batch that arrives after the lease moved on
+    belongs to a superseded attempt.
+    """
+    if request.job_id != job_id:
+        raise HTTPException(status_code=400, detail="job_id path/body mismatch")
+    worker = authenticated_bearer(authorization)
+    worker_protocol.get_owned_active_job(worker, job_id)
+    accepted, duplicates = resource_ledger.record(job_id, request.events)
+    return ResourceEventBatchAck(job_id=job_id, accepted=accepted, duplicates=duplicates)
+
+
 @app.post("/api/v1/workers/jobs/{job_id}/complete", response_model=JobCompletionAck)
 def complete_job(job_id: uuid.UUID, request: JobCompletionRequest, authorization: str | None = Header(default=None)) -> JobCompletionAck:
     if request.job_id != job_id:
@@ -583,6 +625,20 @@ async def safe_exception_handler(request: Request, exc: Exception):
 async def worker_protocol_exception(request: Request, exc: WorkerProtocolError):
     status = 401 if exc.code.value in {"WORKER_AUTH_FAILED", "ENROLLMENT_REJECTED"} else 409
     return JSONResponse(status_code=status, content={"type": "about:blank", "title": "Worker protocol rejected", "status": status, "code": exc.code, "request_id": request.headers.get("x-request-id", "unknown")})
+
+
+@app.exception_handler(LedgerError)
+async def ledger_exception(request: Request, exc: LedgerError):
+    return JSONResponse(
+        status_code=409,
+        content={
+            "type": "about:blank",
+            "title": "Resource ledger rejected the batch",
+            "status": 409,
+            "code": exc.code,
+            "request_id": request.headers.get("x-request-id", "unknown"),
+        },
+    )
 
 
 @app.exception_handler(OrderTransitionError)

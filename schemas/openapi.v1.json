@@ -1106,6 +1106,83 @@
         }
       }
     },
+    "/api/v1/workers/jobs/{job_id}/resource-events": {
+      "post": {
+        "summary": "Record Resource Events",
+        "description": "Append measured resources for a job the caller currently holds.\n\nScoped to the active lease: only the worker actually running the job can\nsay what it consumed, and a batch that arrives after the lease moved on\nbelongs to a superseded attempt.",
+        "operationId": "record_resource_events_api_v1_workers_jobs__job_id__resource_events_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResourceEventBatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceEventBatchAck"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workers/jobs/{job_id}/complete": {
       "post": {
         "summary": "Complete Job",
@@ -1185,6 +1262,152 @@
   },
   "components": {
     "schemas": {
+      "AgentRole": {
+        "type": "string",
+        "enum": [
+          "DRAWING_EXTRACTION",
+          "GEOMETRY_REASONING",
+          "CLARIFICATION",
+          "CAD_PLANNING",
+          "CAD_IR_COMPILATION",
+          "REPAIR",
+          "FINAL_AUDIT"
+        ],
+        "title": "AgentRole"
+      },
+      "AiUsage": {
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningEffort"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "service_tier": {
+            "$ref": "#/components/schemas/ServiceTier",
+            "default": "standard"
+          },
+          "cli_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cli Version"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thread Id"
+          },
+          "token_source": {
+            "$ref": "#/components/schemas/TokenSource",
+            "default": "UNKNOWN"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "cached_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cached Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "reasoning_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AiUsage"
+      },
       "Artifact": {
         "properties": {
           "type": {
@@ -1243,6 +1466,78 @@
           "size_bytes"
         ],
         "title": "ArtifactUploadResponse"
+      },
+      "CadUsage": {
+        "properties": {
+          "operation_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Code"
+          },
+          "operation_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Count"
+          },
+          "failed_feature_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Feature Count"
+          },
+          "session_reuse_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Reuse Count"
+          },
+          "forced_termination": {
+            "type": "boolean",
+            "title": "Forced Termination",
+            "default": false
+          },
+          "result_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Bytes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CadUsage"
       },
       "ClaimedJob": {
         "properties": {
@@ -1390,6 +1685,10 @@
           "LEASE_EXPIRED",
           "IDEMPOTENCY_CONFLICT",
           "CONTOUR_NOT_CLOSED",
+          "LEDGER_EVENT_CONFLICT",
+          "CAPABILITY_NOT_SUPPORTED",
+          "COST_SNAPSHOT_IMMUTABLE",
+          "PRICING_PROFILE_UNKNOWN",
           "INTERNAL_ERROR"
         ],
         "title": "ErrorCode"
@@ -1684,6 +1983,385 @@
           "request_id"
         ],
         "title": "ProblemDetails"
+      },
+      "ProcessUsage": {
+        "properties": {
+          "cpu_user_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu User Ms"
+          },
+          "cpu_system_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu System Ms"
+          },
+          "peak_memory_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Memory Bytes"
+          },
+          "bytes_read": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes Read"
+          },
+          "bytes_written": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes Written"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "termination_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Termination Reason"
+          },
+          "retry_number": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retry Number",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ProcessUsage"
+      },
+      "ReasoningEffort": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "title": "ReasoningEffort"
+      },
+      "ResourceEvent": {
+        "properties": {
+          "event_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9:._\\-]{0,199}$",
+            "title": "Event Key"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/ResourceEventType"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/ResourceStage"
+          },
+          "attempt_no": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Attempt No",
+            "default": 1
+          },
+          "agent_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "wall_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wall Ms"
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "ai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "process": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProcessUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cad": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CadUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "storage_byte_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Byte Seconds"
+          },
+          "human_minutes": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Human Minutes"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event_key",
+          "event_type",
+          "stage",
+          "started_at",
+          "success"
+        ],
+        "title": "ResourceEvent",
+        "description": "One immutable measurement. `event_key` is the idempotency identity."
+      },
+      "ResourceEventBatch": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1.0",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceEvent"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Events"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "events"
+        ],
+        "title": "ResourceEventBatch"
+      },
+      "ResourceEventBatchAck": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Accepted"
+          },
+          "duplicates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duplicates"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "accepted",
+          "duplicates"
+        ],
+        "title": "ResourceEventBatchAck"
+      },
+      "ResourceEventType": {
+        "type": "string",
+        "enum": [
+          "AI_RUN",
+          "PROCESS_RUN",
+          "CAD_SESSION",
+          "CAD_OPERATION",
+          "CAD_REBUILD",
+          "REPAIR_ITERATION",
+          "EXPORT",
+          "VALIDATION",
+          "PREVIEW_RENDER",
+          "TRANSFER",
+          "HUMAN_REVIEW",
+          "WARNING"
+        ],
+        "title": "ResourceEventType"
+      },
+      "ResourceStage": {
+        "type": "string",
+        "enum": [
+          "IMAGE_PREPROCESSING",
+          "DRAWING_ANALYSIS",
+          "CLARIFICATION",
+          "CAD_PLANNING",
+          "CAD_IR_COMPILATION",
+          "SCHEMA_VALIDATION",
+          "SEMANTIC_VALIDATION",
+          "KOMPAS_STARTUP",
+          "DOCUMENT_BUILD",
+          "FEATURE_BUILD",
+          "REBUILD",
+          "EXPORT",
+          "GEOMETRY_VALIDATION",
+          "PREVIEW",
+          "ARTIFACT_UPLOAD",
+          "CLEANUP",
+          "HUMAN_REVIEW"
+        ],
+        "title": "ResourceStage"
+      },
+      "ServiceTier": {
+        "type": "string",
+        "enum": [
+          "standard",
+          "fast"
+        ],
+        "title": "ServiceTier"
+      },
+      "TokenSource": {
+        "type": "string",
+        "enum": [
+          "STRUCTURED",
+          "SUMMARY",
+          "ESTIMATED",
+          "UNKNOWN"
+        ],
+        "title": "TokenSource",
+        "description": "How token counts were obtained; never guess, mark what was measured."
       },
       "TransitionOrderRequest": {
         "properties": {

@@ -18,5 +18,6 @@ target = root / "schemas" / "openapi.v1.json"
 target.write_text(
     json.dumps(app.openapi(), ensure_ascii=False, indent=2) + "\n",
     encoding="utf-8",
+    newline="",
 )
 print(f"generated: {target.relative_to(root)}")

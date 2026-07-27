@@ -19,6 +19,9 @@ class WorkerRow(Base):
     supported_cad_ir: Mapped[list[str]] = mapped_column(JSON, default=list)
     app_version: Mapped[str] = mapped_column(String(50))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Most recently published WorkerCapabilityManifest; history lives in
+    # worker_capability_snapshots.
+    capability_manifest: Mapped[dict | None] = mapped_column(JSON)
 
 
 class JobRow(Base):
@@ -29,6 +32,9 @@ class JobRow(Base):
     status: Mapped[str] = mapped_column(String(32), default="PENDING", index=True)
     idempotency_key: Mapped[str] = mapped_column(String(80), unique=True)
     required_capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Capability registry keys the worker must declare before this job is
+    # leased. Empty means "v1 job", which any worker may take.
+    required_capability_keys: Mapped[list[str]] = mapped_column(JSON, default=list)
     required_cad_ir: Mapped[str] = mapped_column(String(20))
     attempt: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
