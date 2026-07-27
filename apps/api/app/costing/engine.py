@@ -51,8 +51,8 @@ def calculate_cost(
     )
     ai_shadow = sum((_shadow_cost(event.ai, config.shadow_prices) for event in events), Decimal(0))
 
-    billable_seconds = _billable_seconds(events)
-    billable_hours = billable_seconds / SECONDS_PER_HOUR
+    billable = billable_seconds(events)
+    billable_hours = billable / SECONDS_PER_HOUR
     worker_cost = billable_hours * config.worker.worker_hour_cost
     cad_license_cost = billable_hours * config.worker.cad_license_hour_cost
     vps_cost = config.infrastructure.vps_cost_per_job
@@ -120,7 +120,7 @@ def calculate_cost(
         risk_reserve=_money(risk_reserve),
         margin_amount=_money(margin_amount),
         final_price=final_price,
-        billable_worker_seconds=_money(billable_seconds),
+        billable_worker_seconds=_money(billable),
         counters=counters,
         token_coverage=_token_coverage(events),
     )
@@ -163,7 +163,7 @@ def _shadow_cost(ai: AiUsage | None, prices) -> Decimal:
     )
 
 
-def _billable_seconds(events: list[ResourceEvent]) -> Decimal:
+def billable_seconds(events: list[ResourceEvent]) -> Decimal:
     """Wall time the machine was actually busy, as a union of event intervals.
 
     Summing every event would double count: a CAD session encloses each of its
