@@ -58,3 +58,20 @@ DPAPI в `%LOCALAPPDATA%\CadAiWorker`; Codex auth и лицензия КОМПА
 [`docs/MVP-RUNBOOK.md`](docs/MVP-RUNBOOK.md), а доказательства приёмки — в
 [`docs/TASK-011-014-mvp-drawing-web.md`](docs/TASK-011-014-mvp-drawing-web.md).
 
+## Post-MVP: учёт ресурсов и реестр возможностей
+
+Геометрическая область не расширена. Добавлен фундамент, без которого нельзя
+считать себестоимость и безопасно добавлять операции:
+
+- append-only журнал ресурсов задания с идемпотентным приёмом событий;
+- детерминированный расчёт стоимости по версионированному pricing profile;
+- неизменяемый итоговый cost snapshot;
+- реестр возможностей: API не выдаёт worker'у задание, операции которого тот
+  не умеет строить.
+
+Все денежные ставки в `examples/pricing-profile.example.json` равны нулю —
+их нужно измерить на реальной машине, а не брать из примера. Подробности:
+[`docs/TASK-POSTMVP-001-RESOURCE-LEDGER.md`](docs/TASK-POSTMVP-001-RESOURCE-LEDGER.md),
+[`docs/TASK-POSTMVP-002-COST-ENGINE.md`](docs/TASK-POSTMVP-002-COST-ENGINE.md),
+[`docs/POST-MVP-ROADMAP.md`](docs/POST-MVP-ROADMAP.md).
+

@@ -18,6 +18,15 @@ Invoke-RestMethod http://localhost:8000/health
 
 The migration service is idempotent. It can adopt a complete v1 database
 created before the migration journal existed, but refuses a partial schema.
+Later migrations are applied in order and skipped once recorded in
+`schema_migrations`; `0002_resource_ledger` adds the resource ledger, pricing
+profiles, cost snapshots and the worker capability registry.
+
+After upgrading, an older worker keeps authenticating but stops receiving new
+jobs: it publishes no capability manifest, and jobs created after this
+migration declare the operations they require. Update and restart the worker
+before expecting it to pick anything up — see
+[`docs/TASK-POSTMVP-002-COST-ENGINE.md`](TASK-POSTMVP-002-COST-ENGINE.md).
 
 ## Trusted Windows worker
 
@@ -54,6 +63,19 @@ PENDING -> LEASED -> READY
 At `READY`, inspect the 3D preview and download M3D, STEP, STL and the validation
 report. A failure must retain a typed code in worker/API logs; do not bypass a
 schema, geometry invariant or checksum to force completion.
+
+## Repository checks
+
+```bash
+python -m pytest -q
+python scripts/generate_schemas.py --check
+python scripts/validate_schemas.py
+python scripts/check_openapi_compatibility.py
+dotnet test CadAi.sln --nologo
+```
+
+`generate_schemas.py` without `--check` rewrites the generated schemas; run it
+after changing a contract model, then commit the result.
 
 ## Stop and preserve data
 
