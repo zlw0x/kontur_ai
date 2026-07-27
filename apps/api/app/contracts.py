@@ -548,6 +548,19 @@ class PricingProfile(StrictModel):
         return self
 
 
+class CostInputs(StrictModel):
+    """Everything a cost calculation needs that is not in the ledger.
+
+    Kept explicit so `calculate_cost` stays a pure function: period totals and
+    the job class come from outside the job and must be passed in, never read
+    from a database or a clock inside the engine.
+    """
+
+    job_class: JobClass
+    subscription: SubscriptionAllocation
+    advanced_feature_points: Annotated[Decimal, Field(ge=0)] = Decimal(0)
+
+
 class JobCostBreakdown(StrictModel):
     formula_version: Literal["1.0"] = COST_FORMULA_VERSION
     currency: Annotated[str, Field(pattern=r"^[A-Z]{3}$")]

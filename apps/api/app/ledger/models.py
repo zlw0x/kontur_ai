@@ -27,6 +27,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
+# worker_capability_snapshots has a foreign key to local_workers, so that table
+# must be registered on the shared metadata before create_all runs.
+import app.workers.models  # noqa: E402,F401
+
 
 class ResourceEventRow(Base):
     __tablename__ = "resource_events"
