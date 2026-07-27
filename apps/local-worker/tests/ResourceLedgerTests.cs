@@ -216,8 +216,9 @@ public sealed class ResourceLedgerTests
 
         Assert.Equal("1.0", manifest.SchemaVersion);
         Assert.Equal([WorkerCapabilities.CadIrVersion], manifest.CadIrVersions);
-        Assert.Equal("stable", manifest.Capabilities["solid.rectangular_prism"]);
-        Assert.Equal("stable", manifest.Capabilities["feature.hole.simple_through"]);
+        Assert.Equal("stable", manifest.Capabilities["solid.rectangular_prism"].Status);
+        Assert.Equal("1.0", manifest.Capabilities["solid.rectangular_prism"].Version);
+        Assert.Equal("stable", manifest.Capabilities["feature.hole.simple_through"].Status);
         // Nothing beyond the confirmed MVP may be advertised: a key here tells
         // the API to start scheduling that operation on this machine.
         Assert.DoesNotContain("solid.revolve", manifest.Capabilities.Keys);

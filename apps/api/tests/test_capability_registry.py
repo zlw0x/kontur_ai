@@ -143,7 +143,7 @@ def test_sql_manifest_survives_a_reauthentication():
     reloaded = service.authenticate(worker.id, credential)
     assert reloaded.capability_manifest is not None
     assert (
-        reloaded.capability_manifest.capabilities[SOLID_RECTANGULAR_PRISM]
+        reloaded.capability_manifest.capabilities[SOLID_RECTANGULAR_PRISM].status
         is CapabilityStatus.STABLE
     )
 

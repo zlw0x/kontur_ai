@@ -3,6 +3,26 @@
   "$id": "https://cad.example.com/schemas/worker-capability-manifest/1.0",
   "title": "WorkerCapabilityManifest",
   "$defs": {
+    "CapabilityDeclaration": {
+      "additionalProperties": false,
+      "description": "What a worker says about one capability.",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/CapabilityStatus"
+        },
+        "version": {
+          "default": "1.0",
+          "pattern": "^\\d+(\\.\\d+){0,2}$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "CapabilityDeclaration",
+      "type": "object"
+    },
     "CapabilityStatus": {
       "enum": [
         "unsupported",
@@ -70,7 +90,7 @@
       "minProperties": 1,
       "patternProperties": {
         "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$": {
-          "$ref": "#/$defs/CapabilityStatus"
+          "$ref": "#/$defs/CapabilityDeclaration"
         }
       },
       "title": "Capabilities",

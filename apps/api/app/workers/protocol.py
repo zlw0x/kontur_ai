@@ -30,6 +30,7 @@ class Worker:
     supported_cad_ir: set[str] = field(default_factory=set)
     last_seen_at: datetime | None = None
     capability_manifest: WorkerCapabilityManifest | None = None
+    available_slots: int = 0
 
 
 @dataclass
@@ -94,6 +95,7 @@ class WorkerProtocolService:
         if available_slots < 0:
             raise ValueError("available_slots must not be negative")
         worker.capabilities, worker.supported_cad_ir, worker.last_seen_at = set(capabilities), set(supported_cad_ir), self.clock()
+        worker.available_slots = available_slots
         if capability_manifest is not None:
             worker.capability_manifest = capability_manifest
 
@@ -123,6 +125,9 @@ class WorkerProtocolService:
 
     def get_owned_active_job(self, worker: Worker, job_id: UUID) -> Job:
         return self._owned_active_job(worker, job_id)
+
+    def workers(self) -> list[Worker]:
+        return list(self.repo.workers.values())
 
     def get_job(self, job_id: UUID) -> Job | None:
         return self.repo.jobs.get(job_id)

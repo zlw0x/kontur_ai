@@ -67,10 +67,12 @@ class SqlWorkerProtocolService:
                 raise WorkerProtocolError(ErrorCode.WORKER_AUTH_FAILED, "worker no longer exists")
             row.capabilities = [item.value for item in capabilities]
             row.supported_cad_ir = supported_cad_ir
+            row.available_slots = available_slots
             row.last_seen_at = self.clock()
             if capability_manifest is not None:
                 self._publish_manifest(session, row, capability_manifest)
         worker.capabilities, worker.supported_cad_ir, worker.last_seen_at = set(capabilities), set(supported_cad_ir), self.clock()
+        worker.available_slots = available_slots
         if capability_manifest is not None:
             worker.capability_manifest = capability_manifest
 
@@ -105,7 +107,7 @@ class SqlWorkerProtocolService:
                 kompas_version=manifest.kompas_version,
                 codex_cli_version=manifest.codex_cli_version,
                 cad_ir_versions=list(manifest.cad_ir_versions),
-                capabilities={key: value.value for key, value in manifest.capabilities.items()},
+                capabilities=document["capabilities"],
                 observed_at=self.clock(),
             )
         )
@@ -177,6 +179,10 @@ class SqlWorkerProtocolService:
             row = self._owned_row(session, worker, job_id)
             return self._job(row)
 
+    def workers(self) -> list[Worker]:
+        with self.sessions() as session:
+            return [self._worker(row) for row in session.scalars(select(WorkerRow)).all()]
+
     def get_job(self, job_id: UUID) -> Job | None:
         with self.sessions() as session:
             row = session.get(JobRow, str(job_id))
@@ -213,7 +219,8 @@ class SqlWorkerProtocolService:
     def _worker(row: WorkerRow) -> Worker:
         return Worker(UUID(row.id), row.name, row.token_hash, row.app_version,
                       {WorkerCapability(item) for item in row.capabilities}, set(row.supported_cad_ir), row.last_seen_at,
-                      WorkerCapabilityManifest(**row.capability_manifest) if row.capability_manifest else None)
+                      WorkerCapabilityManifest(**row.capability_manifest) if row.capability_manifest else None,
+                      row.available_slots or 0)
 
     @staticmethod
     def _job(row: JobRow) -> Job:

@@ -22,6 +22,9 @@ class WorkerRow(Base):
     # Most recently published WorkerCapabilityManifest; history lives in
     # worker_capability_snapshots.
     capability_manifest: Mapped[dict | None] = mapped_column(JSON)
+    # Capacity the worker last reported, so a busy worker is distinguishable
+    # from an incapable one when explaining why a job is waiting.
+    available_slots: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class JobRow(Base):

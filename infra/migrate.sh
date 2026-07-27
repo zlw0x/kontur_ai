@@ -36,7 +36,7 @@ fi
 
 # Migrations after 0001 have always been journalled, so they need no adoption
 # path: apply in order, skip what is already recorded.
-for version in 0002_resource_ledger; do
+for version in 0002_resource_ledger 0003_scheduler_diagnostics; do
   if ! is_applied "$version"; then
     apply "$version"
   fi

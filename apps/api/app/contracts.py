@@ -622,12 +622,70 @@ class CapabilityStatus(StrEnum):
     DISABLED = "disabled"
 
 
+#: Maturity ordering. `unsupported` and `disabled` are deliberately absent:
+#: they are not low rungs on this ladder, they are "no", and no requirement can
+#: ever be lax enough to accept them.
+CAPABILITY_MATURITY: dict[CapabilityStatus, int] = {
+    CapabilityStatus.EXPERIMENTAL: 1,
+    CapabilityStatus.BETA: 2,
+    CapabilityStatus.STABLE: 3,
+}
+
 #: A job is only leased to a worker that declares every required capability at
 #: one of these statuses.  `experimental` deliberately does not qualify: it may
 #: only be reached through an explicit opt-in job, never through normal claim.
 LEASABLE_CAPABILITY_STATUSES = frozenset({CapabilityStatus.BETA, CapabilityStatus.STABLE})
 
 CAPABILITY_KEY_PATTERN = r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$"
+CAPABILITY_VERSION_PATTERN = r"^\d+(\.\d+){0,2}$"
+
+CapabilityKey = Annotated[str, Field(pattern=CAPABILITY_KEY_PATTERN)]
+CapabilityVersion = Annotated[str, Field(pattern=CAPABILITY_VERSION_PATTERN)]
+
+
+def capability_version_tuple(version: str) -> tuple[int, ...]:
+    """Compare versions numerically; "1.10" is newer than "1.9", not older."""
+    parts = tuple(int(part) for part in version.split("."))
+    return parts + (0,) * (3 - len(parts))
+
+
+class CapabilityDeclaration(StrictModel):
+    """What a worker says about one capability."""
+
+    status: CapabilityStatus
+    version: CapabilityVersion = "1.0"
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_bare_status(cls, value: Any) -> Any:
+        # A worker may declare `"solid.revolve": "stable"` and mean version
+        # 1.0. Requiring the long form everywhere would break every manifest
+        # the moment versions were introduced.
+        if isinstance(value, str):
+            return {"status": value}
+        return value
+
+
+class CapabilityRequirement(StrictModel):
+    """What a job needs before a worker may be handed it."""
+
+    name: CapabilityKey
+    #: Lowest maturity that satisfies this requirement.
+    stability: CapabilityStatus = CapabilityStatus.BETA
+    min_version: CapabilityVersion = "1.0"
+
+    @model_validator(mode="after")
+    def validate_requirable_stability(self) -> "CapabilityRequirement":
+        if self.stability not in CAPABILITY_MATURITY:
+            raise ValueError(f"{self.stability} is not a maturity level a job can require")
+        return self
+
+    def satisfied_by(self, declared: CapabilityDeclaration | None) -> bool:
+        if declared is None or declared.status not in CAPABILITY_MATURITY:
+            return False
+        if CAPABILITY_MATURITY[declared.status] < CAPABILITY_MATURITY[self.stability]:
+            return False
+        return capability_version_tuple(declared.version) >= capability_version_tuple(self.min_version)
 
 
 class WorkerCapabilityManifest(StrictModel):
@@ -636,17 +694,67 @@ class WorkerCapabilityManifest(StrictModel):
     kompas_version: Annotated[str | None, Field(max_length=50)] = None
     codex_cli_version: Annotated[str | None, Field(max_length=50)] = None
     cad_ir_versions: list[Annotated[str, Field(max_length=20)]] = Field(min_length=1, max_length=20)
-    capabilities: dict[Annotated[str, Field(pattern=CAPABILITY_KEY_PATTERN)], CapabilityStatus] = Field(
-        min_length=1, max_length=500
-    )
+    capabilities: dict[CapabilityKey, CapabilityDeclaration] = Field(min_length=1, max_length=500)
+
+    def declared(self, name: str) -> CapabilityDeclaration | None:
+        return self.capabilities.get(name)
 
     def supports(self, required: list[str]) -> list[str]:
         """Return the required capability keys this manifest cannot serve."""
         return [
             key
             for key in required
-            if self.capabilities.get(key, CapabilityStatus.UNSUPPORTED) not in LEASABLE_CAPABILITY_STATUSES
+            if not CapabilityRequirement(name=key).satisfied_by(self.capabilities.get(key))
         ]
+
+
+# --------------------------------------------------------------------------
+# Scheduler diagnostics (POSTMVP-003A)
+#
+# Claimability is computed, never stored as an order status: it changes when a
+# worker heartbeats, enrols, republishes a manifest or frees capacity, none of
+# which are events on the order.  A persisted field would be stale the moment
+# it was written.
+# --------------------------------------------------------------------------
+
+
+class ClaimabilityStatus(StrEnum):
+    CLAIMABLE = "claimable"
+    BLOCKED = "blocked"
+    IN_PROGRESS = "in_progress"
+    SETTLED = "settled"
+
+
+class ClaimBlockerCode(StrEnum):
+    NO_ONLINE_WORKERS = "NO_ONLINE_WORKERS"
+    WORKER_MANIFEST_MISSING = "WORKER_MANIFEST_MISSING"
+    CAPABILITY_NOT_SUPPORTED = "CAPABILITY_NOT_SUPPORTED"
+    CAPABILITY_EXPERIMENTAL_ONLY = "CAPABILITY_EXPERIMENTAL_ONLY"
+    CAPABILITY_VERSION_TOO_OLD = "CAPABILITY_VERSION_TOO_OLD"
+    WORKER_VERSION_INCOMPATIBLE = "WORKER_VERSION_INCOMPATIBLE"
+    WORKER_LEASE_CAPACITY_EXHAUSTED = "WORKER_LEASE_CAPACITY_EXHAUSTED"
+    WORKER_HEARTBEAT_STALE = "WORKER_HEARTBEAT_STALE"
+    JOB_REQUIREMENTS_INVALID = "JOB_REQUIREMENTS_INVALID"
+
+
+class ClaimBlocker(StrictModel):
+    code: ClaimBlockerCode
+    worker_id: UUID | None = None
+    worker_name: Annotated[str | None, Field(max_length=100)] = None
+    capability: CapabilityKey | None = None
+    detail: Annotated[str | None, Field(max_length=300)] = None
+
+
+class JobClaimabilityReport(StrictModel):
+    job_id: UUID
+    claimability: ClaimabilityStatus
+    required_capabilities: list[CapabilityRequirement]
+    online_workers: Count
+    compatible_workers: Count
+    blockers: list[ClaimBlocker]
+    evaluated_at: datetime
+    #: Non-technical sentence safe to show an end user.
+    summary: Annotated[str, Field(max_length=300)]
 
 
 # WorkerCapabilityManifest is declared after the worker protocol DTOs that

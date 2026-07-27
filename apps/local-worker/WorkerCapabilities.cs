@@ -15,7 +15,14 @@ public static class WorkerCapabilities
     public const string WorkerVersion = "0.4.0";
     public const string CadIrVersion = "0.1.0";
 
-    private const string Stable = "stable";
+    /// <summary>
+    /// Behaviour version of a capability, independent of the worker build.
+    /// It is bumped when an operation's observable behaviour changes, so the
+    /// API can demand the newer behaviour without demanding a whole new
+    /// worker release.
+    /// </summary>
+    private static CapabilityDeclarationPayload Stable(string version = "1.0") =>
+        new("stable", version);
 
     public static WorkerCapabilityManifestPayload Manifest(
         string? kompasVersion = null,
@@ -26,18 +33,22 @@ public static class WorkerCapabilities
             kompasVersion,
             codexCliVersion,
             [CadIrVersion],
-            new Dictionary<string, string>
+            new Dictionary<string, CapabilityDeclarationPayload>
             {
-                ["solid.rectangular_prism"] = Stable,
-                ["feature.hole.simple_through"] = Stable,
-                ["export.m3d"] = Stable,
-                ["export.step"] = Stable,
-                ["export.stl"] = Stable,
-                ["validate.manifold"] = Stable,
-                ["validate.bounding_box"] = Stable,
-                ["validate.hole_count"] = Stable,
+                ["solid.rectangular_prism"] = Stable(),
+                ["feature.hole.simple_through"] = Stable(),
+                ["export.m3d"] = Stable(),
+                ["export.step"] = Stable(),
+                ["export.stl"] = Stable(),
+                ["validate.manifold"] = Stable(),
+                ["validate.bounding_box"] = Stable(),
+                ["validate.hole_count"] = Stable(),
             });
 }
+
+public sealed record CapabilityDeclarationPayload(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("version")] string Version);
 
 public sealed record WorkerCapabilityManifestPayload(
     [property: JsonPropertyName("schema_version")] string SchemaVersion,
@@ -45,4 +56,4 @@ public sealed record WorkerCapabilityManifestPayload(
     [property: JsonPropertyName("kompas_version")] string? KompasVersion,
     [property: JsonPropertyName("codex_cli_version")] string? CodexCliVersion,
     [property: JsonPropertyName("cad_ir_versions")] IReadOnlyList<string> CadIrVersions,
-    [property: JsonPropertyName("capabilities")] IReadOnlyDictionary<string, string> Capabilities);
+    [property: JsonPropertyName("capabilities")] IReadOnlyDictionary<string, CapabilityDeclarationPayload> Capabilities);
