@@ -51,7 +51,9 @@ def main() -> int:
             if current != content:
                 stale.append(target.relative_to(root).as_posix())
             continue
-        target.write_text(content, encoding="utf-8")
+        # newline="" keeps LF on Windows so the generated file matches what
+        # CI writes and .gitattributes expects.
+        target.write_text(content, encoding="utf-8", newline="")
         print(f"generated: {target.relative_to(root).as_posix()}")
     if stale:
         print("stale generated schemas: " + ", ".join(stale), file=sys.stderr)
