@@ -1,0 +1,11 @@
+server_url = "https://cad.example.com"
+worker_name = "home-cad-01"
+workspace_root = "D:/CadAiWorker/jobs"
+max_parallel_jobs = 1
+poll_timeout_seconds = 25
+lease_heartbeat_seconds = 20
+job_timeout_minutes = 30
+retain_failed_jobs_days = 7
+retain_success_jobs_hours = 12
+kompas_executable = "C:/Program Files/ASCON/KOMPAS-3D/Bin/KOMPAS.Exe"
+codex_executable = "C:/Users/USER/AppData/Roaming/npm/codex.cmd"

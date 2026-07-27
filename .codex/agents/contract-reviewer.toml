@@ -1,0 +1,8 @@
+name = "contract_reviewer"
+description = "Checks OpenAPI, JSON Schema, DTO, enum, and compatibility changes."
+model = "gpt-5.6-luna"
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+developer_instructions = """
+Review contracts for backward compatibility, unknown enum handling, required fields, idempotency, versioning, and security. Compare generated clients and server models. Report exact mismatches and missing tests. Do not edit files.
+"""

@@ -1,0 +1,84 @@
+{
+  "schema_version": "0.1.0",
+  "part": {
+    "name": "plate",
+    "units": "mm",
+    "body_mode": "single_solid"
+  },
+  "parameters": [
+    {
+      "id": "p_width",
+      "name": "Width",
+      "value": 40.0,
+      "unit": "mm",
+      "status": "confirmed",
+      "confidence": 1.0,
+      "source": {"type": "fixture"}
+    },
+    {
+      "id": "p_height",
+      "name": "Height",
+      "value": 20.0,
+      "unit": "mm",
+      "status": "confirmed",
+      "confidence": 1.0,
+      "source": {"type": "fixture"}
+    },
+    {
+      "id": "p_depth",
+      "name": "Depth",
+      "value": 10.0,
+      "unit": "mm",
+      "status": "confirmed",
+      "confidence": 1.0,
+      "source": {"type": "fixture"}
+    }
+  ],
+  "features": [
+    {
+      "id": "f_base",
+      "type": "extrude_add",
+      "enabled": true,
+      "depends_on": [],
+      "inputs": {
+        "sketch": {
+          "id": "sk_base",
+          "plane": "XY",
+          "entities": [
+            {
+              "id": "rect_base",
+              "type": "center_rectangle",
+              "center": [0, 0],
+              "width": {"param": "p_width"},
+              "height": {"param": "p_height"}
+            }
+          ],
+          "constraints": [],
+          "expected_closed_contours": 1
+        },
+        "direction": "+Z",
+        "distance": {"expr": "p_depth"}
+      },
+      "semantic_outputs": ["body.main", "face.f_base.end"],
+      "source_refs": [{"type": "fixture"}]
+    }
+  ],
+  "expected_invariants": [
+    {
+      "id": "inv_bbox",
+      "type": "bounding_box",
+      "expected": [40, 20, 10],
+      "tolerance": 0.05,
+      "severity": "error"
+    },
+    {
+      "id": "inv_bodies",
+      "type": "solid_body_count",
+      "expected": 1,
+      "severity": "error"
+    }
+  ],
+  "assumptions": [],
+  "unresolved": [],
+  "provenance": {"fixture": "plate"}
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/worker-protocol/1.0",
+  "title": "Worker protocol envelope",
+  "type": "object",
+  "required": ["protocol_version"],
+  "properties": {
+    "protocol_version": {"const": "1.0"}
+  },
+  "additionalProperties": true
+}

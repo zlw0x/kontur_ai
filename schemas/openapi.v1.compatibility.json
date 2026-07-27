@@ -1,0 +1,14 @@
+{
+  "supported_api_major": "1",
+  "required_paths": {
+    "/api/v1/orders/{order_id}/transition": ["post"],
+    "/api/v1/workers/claim": ["post"]
+  },
+  "required_schema_properties": {
+    "TransitionOrderRequest": ["expected_version", "target_status"],
+    "OrderSnapshot": ["id", "status", "version", "updated_at"],
+    "WorkerClaimRequest": ["protocol_version", "worker_id", "capabilities", "supported_cad_ir", "available_slots"],
+    "WorkerClaimResponse": ["protocol_version", "job"],
+    "ProblemDetails": ["type", "title", "status", "code", "request_id"]
+  }
+}

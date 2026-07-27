@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/drawing-analysis/0.1.0",
+  "type": "object",
+  "required": ["schema_version", "stage", "status", "confidence", "warnings", "result"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1.0"},
+    "stage": {"type": "string", "const": "drawing_analysis"},
+    "status": {"type": "string", "enum": ["success", "need_user_input", "manual_review", "failed"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "result": {
+      "type": "object",
+      "required": ["ready_for_cad", "summary", "parameters", "questions"],
+      "properties": {
+        "ready_for_cad": {"type": "boolean"},
+        "summary": {"type": "string", "maxLength": 2000},
+        "parameters": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "value", "unit", "status", "confidence", "source"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"},
+              "name": {"type": "string", "maxLength": 200},
+              "value": {"type": ["number", "null"]},
+              "unit": {"type": "string", "enum": ["mm", "deg", "count"]},
+              "status": {"type": "string", "enum": ["confirmed", "inferred", "unresolved"]},
+              "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+              "source": {"type": "string", "maxLength": 500}
+            },
+            "additionalProperties": false
+          }
+        },
+        "questions": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "required": ["id", "parameter_id", "text"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^q_[A-Za-z0-9_.-]{1,61}$"},
+              "parameter_id": {"type": "string"},
+              "text": {"type": "string", "maxLength": 500}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

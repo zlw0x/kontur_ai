@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/cad-ir/0.1.0",
+  "title": "CAD-IR",
+  "type": "object",
+  "required": ["schema_version", "part", "parameters", "features", "expected_invariants", "assumptions", "unresolved"],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "part": {
+      "type": "object",
+      "required": ["name", "units", "body_mode"],
+      "properties": {
+        "name": {"type": "string", "maxLength": 100},
+        "units": {"const": "mm"},
+        "body_mode": {"const": "single_solid"}
+      },
+      "additionalProperties": false
+    },
+    "parameters": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/parameter"},
+      "maxItems": 500
+    },
+    "features": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/feature"},
+      "minItems": 1,
+      "maxItems": 100
+    },
+    "expected_invariants": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/invariant"},
+      "minItems": 2,
+      "maxItems": 100
+    },
+    "assumptions": {"type": "array", "items": {"type": "object"}, "maxItems": 100},
+    "unresolved": {"type": "array", "items": {"type": "object"}, "maxItems": 100},
+    "provenance": {"type": "object", "default": {}}
+  },
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "required": ["id", "value", "unit", "status", "confidence", "source"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$"},
+        "name": {"type": "string", "maxLength": 100},
+        "value": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+        "unit": {"const": "mm"},
+        "status": {"enum": ["confirmed", "user_confirmed", "inferred", "assumed", "unresolved"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "source": {"type": "object", "minProperties": 1}
+      },
+      "additionalProperties": false
+    },
+    "feature": {
+      "type": "object",
+      "required": ["id", "type", "enabled", "depends_on", "inputs"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$"},
+        "type": {
+          "enum": [
+            "extrude_add", "extrude_cut", "revolve_add", "revolve_cut",
+            "hole", "linear_pattern", "circular_pattern", "fillet",
+            "chamfer", "mirror"
+          ]
+        },
+        "enabled": {"type": "boolean"},
+        "depends_on": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$"},
+          "uniqueItems": true,
+          "maxItems": 100
+        },
+        "inputs": {"type": "object"},
+        "semantic_outputs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1, "maxLength": 160},
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "source_refs": {"type": "array", "items": {"type": "object"}, "maxItems": 100}
+      },
+      "additionalProperties": false
+    },
+    "invariant": {
+      "type": "object",
+      "required": ["id", "type", "expected", "severity"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$"},
+        "type": {
+          "enum": [
+            "bounding_box", "solid_body_count", "volume_range",
+            "surface_area_range", "hole_count", "cylindrical_face_diameter",
+            "distance_between_axes", "symmetry", "minimum_wall_thickness",
+            "mesh_watertight", "feature_build_status"
+          ]
+        },
+        "expected": {},
+        "tolerance": {"type": "number", "minimum": 0, "maximum": 1000000},
+        "severity": {"enum": ["error", "warning"]}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

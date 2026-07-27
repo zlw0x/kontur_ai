@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>cad-worker</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <ProjectReference Include="..\..\packages\codex-runner\CadAi.CodexRunner.csproj" />
+    <ProjectReference Include="..\..\packages\geometry-validation\CadAi.GeometryValidation.csproj" />
+    <ProjectReference Include="..\..\packages\kompas-adapter\CadAi.KompasAdapter.csproj" />
+    <None Include="..\..\schemas\drawing-analysis.schema.json" Link="schemas\drawing-analysis.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\schemas\cad-ir.schema.json" Link="schemas/cad-ir.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\schemas\cad-ir-mvp-output.schema.json" Link="schemas/cad-ir-mvp-output.schema.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

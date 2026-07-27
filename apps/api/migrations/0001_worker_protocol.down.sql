@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS artifacts;
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS local_workers;

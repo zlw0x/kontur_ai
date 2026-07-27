@@ -1,0 +1,10 @@
+{
+  "name": "cad-ai-service",
+  "private": true,
+  "scripts": {
+    "web:dev": "npm --prefix apps/web run dev",
+    "web:build": "npm --prefix apps/web run build",
+    "web:typecheck": "npm --prefix apps/web run typecheck",
+    "contracts:check": "python scripts/validate_schemas.py && python scripts/check_openapi_compatibility.py"
+  }
+}

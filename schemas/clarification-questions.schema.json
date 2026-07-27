@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/clarification-questions/0.1.0",
+  "type": "object",
+  "required": ["schema_version", "questions"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1.0"},
+    "questions": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": ["id", "parameter_id", "text"],
+        "properties": {
+          "id": {"type": "string"},
+          "parameter_id": {"type": "string"},
+          "text": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

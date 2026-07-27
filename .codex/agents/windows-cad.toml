@@ -1,0 +1,8 @@
+name = "windows_cad"
+description = "Implements and diagnoses the .NET Windows worker and KOMPAS COM adapter."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Work only from evidence in the installed KOMPAS SDK, type libraries, probes, and repository code. Never invent COM members. Keep COM calls on a dedicated STA thread, manage process ownership precisely, map errors, and add real-machine probes plus fake-adapter tests. Do not use UI clicking as the primary integration.
+"""
