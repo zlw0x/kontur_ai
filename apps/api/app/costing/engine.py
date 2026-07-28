@@ -14,9 +14,11 @@ from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 
 from app.contracts import (
     COST_FORMULA_VERSION,
+    AiCostStatus,
     AiUsage,
     CostInputs,
     JobCostBreakdown,
+    ModelObservationStatus,
     PricingProfile,
     ResourceEvent,
     ResourceEventType,
@@ -123,6 +125,8 @@ def calculate_cost(
         billable_worker_seconds=_money(billable),
         counters=counters,
         token_coverage=_token_coverage(events),
+        model_attribution=_model_attribution(events),
+        ai_cost_status=_ai_cost_status(events),
     )
 
 
@@ -232,6 +236,35 @@ def _token_coverage(events: list[ResourceEvent]) -> dict[TokenSource, int]:
         if event.event_type is ResourceEventType.AI_RUN and event.ai is not None:
             coverage[event.ai.token_source] = coverage.get(event.ai.token_source, 0) + 1
     return coverage
+
+
+def _model_attribution(events: list[ResourceEvent]) -> dict[ModelObservationStatus, int]:
+    attribution: dict[ModelObservationStatus, int] = {}
+    for event in events:
+        if event.event_type is ResourceEventType.AI_RUN and event.ai is not None:
+            status = event.ai.model_observation_status
+            attribution[status] = attribution.get(status, 0) + 1
+    return attribution
+
+
+def _ai_cost_status(events: list[ResourceEvent]) -> AiCostStatus:
+    """Whether the AI figure can be defended run by run.
+
+    A single unattributable run makes the total partly a guess. Saying so is
+    the difference between a price that can be explained and one that merely
+    looks precise.
+    """
+    runs = [
+        event.ai
+        for event in events
+        if event.event_type is ResourceEventType.AI_RUN and event.ai is not None
+    ]
+    if not runs:
+        return AiCostStatus.ATTRIBUTED
+    attributed = sum(1 for usage in runs if usage.billable_model is not None)
+    if attributed == len(runs):
+        return AiCostStatus.ATTRIBUTED
+    return AiCostStatus.PARTIAL if attributed else AiCostStatus.UNVERIFIABLE
 
 
 def _excess(actual: int, included: int) -> Decimal:

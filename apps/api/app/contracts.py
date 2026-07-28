@@ -638,6 +638,14 @@ class PricingProfile(StrictModel):
         return self
 
 
+class AiCostStatus(StrEnum):
+    """Whether a job's AI cost can be attributed to the models that served it."""
+
+    ATTRIBUTED = "ATTRIBUTED"
+    PARTIAL = "PARTIAL"
+    UNVERIFIABLE = "UNVERIFIABLE"
+
+
 class CostInputs(StrictModel):
     """Everything a cost calculation needs that is not in the ledger.
 
@@ -677,6 +685,10 @@ class JobCostBreakdown(StrictModel):
     billable_worker_seconds: Annotated[Decimal, Field(ge=0)]
     counters: JobIterationCounters
     token_coverage: dict[TokenSource, Count] = Field(default_factory=dict)
+    #: How confidently each AI run's model could be identified. Carried into
+    #: the snapshot so a reviewer can see what the AI figure rests on.
+    model_attribution: dict[ModelObservationStatus, Count] = Field(default_factory=dict)
+    ai_cost_status: AiCostStatus = AiCostStatus.ATTRIBUTED
 
 
 class CostSnapshotStatus(StrEnum):

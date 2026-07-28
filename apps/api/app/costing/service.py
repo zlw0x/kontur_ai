@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 
 from app.contracts import (
+    AiCostStatus,
     CostSnapshotStatus,
     ErrorCode,
     JobCostBreakdown,
@@ -112,13 +113,32 @@ class CostSnapshotService:
             return self._snapshot(row)
 
     def finalize(
-        self, job_id: UUID, pricing_profile_id: UUID, breakdown: JobCostBreakdown
+        self,
+        job_id: UUID,
+        pricing_profile_id: UUID,
+        breakdown: JobCostBreakdown,
+        allow_unverifiable: bool = False,
     ) -> JobCostSnapshot:
         """Write the job's final snapshot, or return the one already written.
 
         Finalising twice is a replay, not an error: a retried completion must
         not change a price the customer has already been shown.
+
+        A job whose AI cost cannot be attributed to any model is not finalised
+        automatically. Something went wrong upstream — a model mismatch, or a
+        run that never named one — and committing a price derived from it would
+        make a guess permanent. `allow_unverifiable` exists so an operator can
+        take that decision deliberately.
         """
+        if (
+            breakdown.ai_cost_status is AiCostStatus.UNVERIFIABLE
+            and not allow_unverifiable
+        ):
+            raise CostServiceError(
+                ErrorCode.CODEX_MODEL_MISMATCH,
+                "the AI cost of this job cannot be attributed to a model; "
+                "finalise explicitly if this is accepted",
+            )
         with self.sessions.begin() as session:
             existing = self._final_row(session, job_id)
             if existing is not None:

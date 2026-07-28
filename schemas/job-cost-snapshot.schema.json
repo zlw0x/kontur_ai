@@ -3,6 +3,16 @@
   "$id": "https://cad.example.com/schemas/job-cost-snapshot/1.0",
   "title": "JobCostSnapshot",
   "$defs": {
+    "AiCostStatus": {
+      "description": "Whether a job's AI cost can be attributed to the models that served it.",
+      "enum": [
+        "ATTRIBUTED",
+        "PARTIAL",
+        "UNVERIFIABLE"
+      ],
+      "title": "AiCostStatus",
+      "type": "string"
+    },
     "CostSnapshotStatus": {
       "enum": [
         "DRAFT",
@@ -254,6 +264,21 @@
           },
           "title": "Token Coverage",
           "type": "object"
+        },
+        "model_attribution": {
+          "additionalProperties": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ModelObservationStatus"
+          },
+          "title": "Model Attribution",
+          "type": "object"
+        },
+        "ai_cost_status": {
+          "$ref": "#/$defs/AiCostStatus",
+          "default": "ATTRIBUTED"
         }
       },
       "required": [
@@ -362,6 +387,17 @@
       },
       "title": "JobIterationCounters",
       "type": "object"
+    },
+    "ModelObservationStatus": {
+      "description": "How much is actually known about which model served a run.",
+      "enum": [
+        "UNKNOWN",
+        "EXPLICIT_NOT_REPORTED",
+        "VERIFIED",
+        "MISMATCH"
+      ],
+      "title": "ModelObservationStatus",
+      "type": "string"
     },
     "TokenSource": {
       "description": "How token counts were obtained; never guess, mark what was measured.",

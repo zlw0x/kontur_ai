@@ -8,10 +8,12 @@ import pytest
 
 from app.contracts import (
     AgentRole,
+    AiCostStatus,
     CostInputs,
     CostSnapshotStatus,
     ErrorCode,
     JobClass,
+    ModelObservationStatus,
     PricingProfile,
     ResourceEvent,
     ResourceEventType,
@@ -324,3 +326,75 @@ def test_finalising_twice_returns_the_price_already_shown():
     )
     assert replay.id == first.id
     assert replay.breakdown.final_price == first.breakdown.final_price
+
+
+def mismatched_run(key: str) -> ResourceEvent:
+    return ai_run(
+        key,
+        AgentRole.DRAWING_EXTRACTION,
+        requested_model="gpt-5.6-terra",
+        observed_model="gpt-5.6-luna",
+        model_observation_status="MISMATCH",
+    )
+
+
+def test_a_mismatched_run_makes_the_ai_cost_unverifiable():
+    result = calculate_cost([mismatched_run("job:a:ai:1")], profile(), inputs())
+
+    assert result.ai_cost_status is AiCostStatus.UNVERIFIABLE
+    assert result.model_attribution == {ModelObservationStatus.MISMATCH: 1}
+
+
+def test_one_bad_run_among_good_ones_is_reported_as_partial():
+    result = calculate_cost(
+        [ai_run("job:a:ai:1", AgentRole.DRAWING_EXTRACTION), mismatched_run("job:a:ai:2")],
+        profile(),
+        inputs(),
+    )
+
+    # Saying "partial" is the difference between a price that can be explained
+    # and one that merely looks precise.
+    assert result.ai_cost_status is AiCostStatus.PARTIAL
+
+
+def test_a_fully_routed_job_is_attributed():
+    result = calculate_cost(typical_job(), profile(), inputs())
+
+    assert result.ai_cost_status is AiCostStatus.ATTRIBUTED
+    assert result.model_attribution == {ModelObservationStatus.EXPLICIT_NOT_REPORTED: 2}
+
+
+def test_an_unattributable_model_falls_back_to_the_neutral_weight_not_a_guess():
+    """The mismatched run must not be charged at either model's weight."""
+    pricing = profile()
+    attributed = calculate_cost(
+        [ai_run("job:a:ai:1", AgentRole.DRAWING_EXTRACTION)], pricing, inputs()
+    )
+    unattributable = calculate_cost([mismatched_run("job:a:ai:1")], pricing, inputs())
+
+    # gpt-5.6-terra carries weight 1.35; the neutral default is 1.00.
+    assert unattributable.job_ai_units < attributed.job_ai_units
+    assert attributed.job_ai_units == unattributable.job_ai_units * Decimal("1.35")
+
+
+def test_an_unverifiable_cost_is_not_finalised_automatically():
+    profiles, snapshots = store_fixture()
+    pricing = profile()
+    profile_id = profiles.publish(pricing)
+    job_id = uuid4()
+    breakdown = calculate_cost([mismatched_run("job:a:ai:1")], pricing, inputs())
+
+    with pytest.raises(CostServiceError) as caught:
+        snapshots.finalize(job_id, profile_id, breakdown)
+    assert caught.value.code == ErrorCode.CODEX_MODEL_MISMATCH
+    assert snapshots.get(job_id) is None
+
+    # A draft is still allowed: the job's resources were really consumed, and
+    # someone has to be able to look at what they cost.
+    assert snapshots.save_draft(job_id, profile_id, breakdown).breakdown.ai_cost_status is (
+        AiCostStatus.UNVERIFIABLE
+    )
+
+    # Finalising stays possible as a deliberate operator decision.
+    final = snapshots.finalize(job_id, profile_id, breakdown, allow_unverifiable=True)
+    assert final.status is CostSnapshotStatus.FINAL

@@ -241,3 +241,52 @@ def test_required_stages_match_what_the_worker_actually_instruments():
     assert set(REQUIRED_DRAWING_STAGES) <= set(ResourceStage)
     assert ResourceStage.DRAWING_ANALYSIS in REQUIRED_DRAWING_STAGES
     assert ResourceStage.ARTIFACT_UPLOAD in REQUIRED_DRAWING_STAGES
+
+
+def test_a_model_mismatch_fails_the_audit():
+    """The CLI contradicted an explicit instruction, so everything that run
+    produced came from something other than what was asked for."""
+    events = healthy_job()
+    events[0] = ai(
+        "job:x:ai:analysis:1",
+        AgentRole.DRAWING_EXTRACTION,
+        0,
+        40,
+        requested_model="gpt-5.6-terra",
+        observed_model="gpt-5.6-luna",
+        model_observation_status="MISMATCH",
+    )
+
+    audit = audit_job_ledger(events)
+
+    assert not audit.ok
+    finding = next(item for item in audit.findings if item.code == "CODEX_MODEL_MISMATCH")
+    assert "gpt-5.6-luna" in finding.detail
+
+
+def test_an_ai_run_that_named_no_model_fails_the_audit():
+    events = healthy_job()
+    events[0] = span(
+        "job:x:ai:analysis:1",
+        ResourceEventType.AI_RUN,
+        ResourceStage.DRAWING_ANALYSIS,
+        0,
+        40,
+        agent_role=AgentRole.DRAWING_EXTRACTION,
+        ai={"token_source": TokenSource.UNKNOWN},
+    )
+
+    audit = audit_job_ledger(events)
+
+    assert not audit.ok
+    assert any(item.code == "CODEX_MODEL_UNATTRIBUTED" for item in audit.findings)
+
+
+def test_an_explicit_run_the_cli_did_not_echo_passes_the_audit():
+    """Where every run lands on codex-cli 0.145.0. It must not be an error."""
+    audit = audit_job_ledger(healthy_job())
+
+    assert not any(
+        item.code in ("CODEX_MODEL_MISMATCH", "CODEX_MODEL_UNATTRIBUTED")
+        for item in audit.findings
+    )
