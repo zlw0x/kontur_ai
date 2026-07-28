@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/0.1.0",
+  "type": "object",
+  "required": ["schema_version", "part", "parameters", "features", "expected_invariants", "assumptions", "unresolved", "provenance"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "0.1.0"},
+    "part": {
+      "type": "object",
+      "required": ["name", "units", "body_mode"],
+      "properties": {
+        "name": {"type": "string"},
+        "units": {"type": "string", "const": "mm"},
+        "body_mode": {"type": "string", "const": "single_solid"}
+      },
+      "additionalProperties": false
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "value", "unit", "status", "confidence", "source"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "value": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+          "unit": {"type": "string", "const": "mm"},
+          "status": {"type": "string", "enum": ["confirmed", "user_confirmed", "inferred", "assumed"]},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "source": {
+            "type": "object",
+            "required": ["type", "detail"],
+            "properties": {"type": {"type": "string"}, "detail": {"type": "string"}},
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "enabled", "depends_on", "inputs", "semantic_outputs", "source_refs"],
+        "properties": {
+          "id": {"type": "string"},
+          "type": {"type": "string", "enum": ["extrude_add", "extrude_cut"]},
+          "enabled": {"type": "boolean"},
+          "depends_on": {"type": "array", "items": {"type": "string"}},
+          "inputs": {
+            "type": "object",
+            "required": ["sketch", "direction", "distance", "through_all"],
+            "properties": {
+              "sketch": {
+                "type": "object",
+                "required": ["id", "plane", "entities", "constraints", "expected_closed_contours"],
+                "properties": {
+                  "id": {"type": "string"},
+                  "plane": {"type": "string", "const": "XY"},
+                  "entities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": ["id", "type", "center", "width", "height", "radius"],
+                      "properties": {
+                        "id": {"type": "string"},
+                        "type": {"type": "string", "enum": ["center_rectangle", "circle"]},
+                        "center": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/scalar"}},
+                        "width": {"$ref": "#/$defs/nullableScalar"},
+                        "height": {"$ref": "#/$defs/nullableScalar"},
+                        "radius": {"$ref": "#/$defs/nullableScalar"}
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "constraints": {"type": "array", "items": {"type": "string"}},
+                  "expected_closed_contours": {"type": "integer", "const": 1}
+                },
+                "additionalProperties": false
+              },
+              "direction": {"type": "string", "const": "+Z"},
+              "distance": {"$ref": "#/$defs/nullableScalar"},
+              "through_all": {"type": ["boolean", "null"]}
+            },
+            "additionalProperties": false
+          },
+          "semantic_outputs": {"type": "array", "items": {"type": "string"}},
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "detail"],
+              "properties": {"type": {"type": "string"}, "detail": {"type": "string"}},
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "expected_invariants": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "expected", "tolerance", "severity"],
+        "properties": {
+          "id": {"type": "string"},
+          "type": {"type": "string", "enum": ["bounding_box", "solid_body_count", "hole_count"]},
+          "expected": {"anyOf": [{"type": "number"}, {"type": "integer"}, {"type": "array", "items": {"type": "number"}}]},
+          "tolerance": {"type": "number", "minimum": 0},
+          "severity": {"type": "string", "const": "error"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "assumptions": {"type": "array", "items": {"$ref": "#/$defs/note"}},
+    "unresolved": {"type": "array", "items": {"$ref": "#/$defs/note"}},
+    "provenance": {
+      "type": "object",
+      "required": ["analysis_sha256"],
+      "properties": {"analysis_sha256": {"type": "string"}},
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "note": {
+      "type": "object",
+      "required": ["type", "detail"],
+      "properties": {"type": {"type": "string"}, "detail": {"type": "string"}},
+      "additionalProperties": false
+    },
+    "scalar": {
+      "anyOf": [
+        {"type": "number"},
+        {"type": "object", "required": ["param"], "properties": {"param": {"type": "string"}}, "additionalProperties": false},
+        {"type": "object", "required": ["expr"], "properties": {"expr": {"type": "string"}}, "additionalProperties": false}
+      ]
+    },
+    "nullableScalar": {"anyOf": [{"$ref": "#/$defs/scalar"}, {"type": "null"}]}
+  },
+  "additionalProperties": false
+}

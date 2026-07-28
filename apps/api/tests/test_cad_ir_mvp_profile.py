@@ -8,7 +8,6 @@ refuses — a repair loop caused entirely by our own schemas disagreeing.
 """
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -255,16 +254,17 @@ def test_the_output_profile_stays_inside_the_structured_output_dialect():
 
 
 def test_the_rules_are_the_ones_the_previously_accepted_schema_obeyed():
-    """Derived, not guessed: the 0.1.0 schema the API accepted satisfies every
-    rule above. If it did not, the rule would be wrong."""
+    """Derived, not guessed: the 0.1.0 schema the API accepted for months
+    satisfies every rule above. If it did not, the rule would be wrong.
+
+    Pinned as a fixture rather than read from git. A relative revision means
+    something different after every commit, which is a test that changes its
+    own subject.
+    """
     accepted = json.loads(
-        subprocess.run(
-            ["git", "show", "HEAD~1:schemas/cad-ir-mvp-output.schema.json"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=ROOT,
-        ).stdout
+        (ROOT / "tests" / "fixtures" / "schemas" / "cad-ir-mvp-output-0.1.0.accepted.json")
+        .read_text(encoding="utf-8")
     )
 
+    assert accepted["properties"]["schema_version"]["const"] == "0.1.0"
     assert dialect_violations(accepted) == []
