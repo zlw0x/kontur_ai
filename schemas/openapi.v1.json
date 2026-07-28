@@ -2219,6 +2219,13 @@
           "cad_ir_sha256": {
             "type": "string",
             "title": "Cad Ir Sha256"
+          },
+          "lineage": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Lineage"
           }
         },
         "additionalProperties": false,

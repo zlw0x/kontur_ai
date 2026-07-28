@@ -43,10 +43,10 @@ public sealed class DrawingPipelineTests
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
                 FindRepositoryRoot(),
-                "tests", "fixtures", "cad-ir", "plate.json"));
+                "tests", "fixtures", "cad-ir", "plate.v1_1.json"));
             var invalid = valid.Replace(
-                @"""type"": ""extrude_add""",
-                @"""type"": ""hole""",
+                @"""type"": ""solid.extrude""",
+                @"""type"": ""cut.extrude""",
                 StringComparison.Ordinal);
             var runner = new FakeRunner(ReadyAnalysis(), invalid, valid);
             var result = await new DrawingPipeline(runner).RunAsync(workspace, [image]);

@@ -141,9 +141,7 @@ def _translate(value: dict[str, Any], metadata: DocumentMetadata | None) -> dict
         "parameters": [
             _parameter(item, index) for index, item in enumerate(_require(value, "parameters", "$"))
         ],
-        "features": [
-            _feature(item, index) for index, item in enumerate(_require(value, "features", "$"))
-        ],
+        "features": _features(_require(value, "features", "$")),
         "expectations": [
             _expectation(item, index)
             for index, item in enumerate(_require(value, "expected_invariants", "$"))
@@ -195,6 +193,32 @@ def _provenance(confidence: Any, source: Any) -> dict[str, Any]:
             # and rather than being forced into a shape it does not have.
             provenance["note"] = json.dumps(source, sort_keys=True, ensure_ascii=False)[:300]
     return provenance
+
+
+def _features(items: list[Any]) -> list[dict[str, Any]]:
+    """Translate features, then link each cut to the body it applies to.
+
+    0.1.0 said which body a cut affected through `depends_on`; 1.1 says it with
+    `source_body`. Deriving one from the other is a translation of something
+    the document already stated, not an assumption about intent — so it is only
+    done when the dependency is unambiguous: exactly one dependency, producing
+    exactly one solid body.
+    """
+    features = [_feature(item, index) for index, item in enumerate(items)]
+    bodies: dict[str, list[str]] = {
+        feature["id"]: [
+            result["id"] for result in feature["produces"] if result["kind"] == "solid_body"
+        ]
+        for feature in features
+    }
+    for feature in features:
+        if feature["type"] != "cut.extrude" or "source_body" in feature["inputs"]:
+            continue
+        produced = [bodies.get(dependency, []) for dependency in feature["depends_on"]]
+        candidates = [body for group in produced for body in group]
+        if len(feature["depends_on"]) == 1 and len(candidates) == 1:
+            feature["inputs"]["source_body"] = {"result": candidates[0]}
+    return features
 
 
 def _feature(item: dict[str, Any], index: int) -> dict[str, Any]:

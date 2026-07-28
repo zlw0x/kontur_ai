@@ -205,3 +205,23 @@ def test_an_already_canonical_document_passes_through_unchanged():
 
     assert result.lineage.original_schema_version == CAD_IR_VERSION
     assert result.lineage.original_sha256 == result.lineage.canonical_sha256
+
+
+def test_a_cut_is_linked_to_the_body_its_dependency_produced():
+    """0.1.0 said which body a cut affected through depends_on; 1.1 says it
+    with source_body. Deriving one from the other is a translation of something
+    already stated, not an assumption."""
+    document = normalize(legacy()).document
+
+    assert document.features[1].inputs.source_body.result == "body.main"
+
+
+def test_an_ambiguous_dependency_leaves_the_source_body_unset():
+    """Two dependencies producing two bodies is not a question this can answer
+    on the document's behalf."""
+    document = legacy()
+    document["features"][0]["semantic_outputs"] = ["body.main", "body.second"]
+
+    normalized = normalize(document).document
+
+    assert normalized.features[1].inputs.source_body is None

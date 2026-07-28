@@ -1,0 +1,115 @@
+{
+  "document": {
+    "coordinate_system": "right_handed",
+    "name": "plate",
+    "part_type": "single_part",
+    "units": "mm"
+  },
+  "expectations": [
+    {
+      "id": "inv_bbox",
+      "size_mm": {
+        "x": 40.0,
+        "y": 20.0,
+        "z": 10.0
+      },
+      "tolerance_mm": 0.05,
+      "type": "bounding_box"
+    },
+    {
+      "id": "inv_bodies",
+      "type": "body_count",
+      "value": 1
+    }
+  ],
+  "features": [
+    {
+      "depends_on": [],
+      "enabled": true,
+      "id": "f_base",
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "p_depth"
+        },
+        "sketch": {
+          "entities": [
+            {
+              "center": [
+                0.0,
+                0.0
+              ],
+              "height": {
+                "parameter": "p_height"
+              },
+              "id": "rect_base",
+              "type": "center_rectangle",
+              "width": {
+                "parameter": "p_width"
+              }
+            }
+          ],
+          "expected_closed_contours": 1,
+          "id": "sk_base",
+          "plane": "XY"
+        }
+      },
+      "produces": [
+        {
+          "id": "body.main",
+          "kind": "solid_body"
+        },
+        {
+          "id": "face.f_base.end",
+          "kind": "face"
+        }
+      ],
+      "type": "solid.extrude"
+    }
+  ],
+  "metadata": {
+    "generator": "cad-ir-normalizer",
+    "generator_version": "1.0"
+  },
+  "parameters": [
+    {
+      "id": "p_width",
+      "name": "Width",
+      "provenance": {
+        "confidence": 1.0,
+        "note": "{\"type\": \"fixture\"}"
+      },
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 40.0
+    },
+    {
+      "id": "p_height",
+      "name": "Height",
+      "provenance": {
+        "confidence": 1.0,
+        "note": "{\"type\": \"fixture\"}"
+      },
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 20.0
+    },
+    {
+      "id": "p_depth",
+      "name": "Depth",
+      "provenance": {
+        "confidence": 1.0,
+        "note": "{\"type\": \"fixture\"}"
+      },
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 10.0
+    }
+  ],
+  "reference_geometry": [],
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.1"
+}

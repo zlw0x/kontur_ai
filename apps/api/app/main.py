@@ -4,19 +4,25 @@ import hashlib
 import secrets
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from cad_ir import CadIrValidationError, CadIrValidator
+from cad_ir import CadIrValidationError
+from cad_ir.canonical import CAD_IR_VERSION, DocumentMetadata
+from cad_ir.normalizer import normalize as normalize_cad_ir
 
 from .config import settings
 from .database import Base, create_session_factory
 from .ledger.service import LedgerError, ResourceLedgerService
 from .contracts import (
+    API_VERSION,
     JobClaimabilityReport,
+    ResourceEvent,
     ResourceEventBatch,
+    ResourceEventType,
+    ResourceStage,
     ResourceEventBatchAck,
     WorkerClaimRequest,
     WorkerClaimResponse,
@@ -95,7 +101,6 @@ app.add_middleware(
 worker_protocol = build_worker_protocol()
 resource_ledger = build_resource_ledger()
 artifact_store = LocalArtifactStore(settings.artifact_store_root, settings.max_artifact_bytes)
-cad_ir_validator = CadIrValidator()
 order_state_service = OrderStateService()
 order_records: dict[uuid.UUID, OrderRecord] = {}
 drawing_orders: dict[uuid.UUID, dict] = {}
@@ -228,8 +233,15 @@ def create_manual_cad_job(
     x_manual_api_token: str | None = Header(default=None),
 ) -> ManualCadJobResponse:
     authenticated_manual_api(x_manual_api_token)
+    # A submission may still be written against 0.1.0. It is lifted into the
+    # canonical form here so the worker only ever sees one shape, and the
+    # lineage records both ends of that translation.
+    started = time.perf_counter()
     try:
-        document = cad_ir_validator.validate(request.cad_ir)
+        normalized = normalize_cad_ir(
+            request.cad_ir,
+            metadata=DocumentMetadata(generator="manual-api", generator_version=API_VERSION),
+        )
     except CadIrValidationError as error:
         raise HTTPException(
             status_code=422,
@@ -241,6 +253,7 @@ def create_manual_cad_job(
                 ],
             },
         ) from error
+    normalization_ms = (time.perf_counter() - started) * 1000
     order_id, job_id = uuid.uuid4(), uuid.uuid4()
     order_records[order_id] = OrderRecord(
         order_id,
@@ -248,7 +261,7 @@ def create_manual_cad_job(
         0,
         datetime.now(timezone.utc),
     )
-    stored = artifact_store.put_cad_ir(job_id, document.model_dump(mode="json"))
+    stored = artifact_store.put_cad_ir(job_id, json.loads(normalized.canonical_json))
     idempotency_key = "sha256:" + hashlib.sha256(
         f"{order_id}:{stored.sha256}".encode()
     ).hexdigest()
@@ -259,16 +272,50 @@ def create_manual_cad_job(
             JobType.BUILD_CAD,
             idempotency_key,
             {WorkerCapability.KOMPAS_BUILD},
-            document.schema_version,
+            normalized.document.schema_version,
             required_capability_keys(JobType.BUILD_CAD),
         )
     )
+    _record_normalization(job_id, normalized, normalization_ms)
     return ManualCadJobResponse(
         order_id=order_id,
         job_id=job_id,
         status="WAITING_FOR_LOCAL_WORKER",
         cad_ir_sha256=stored.sha256,
+        lineage=normalized.lineage.as_dict(),
     )
+
+
+def _record_normalization(job_id: uuid.UUID, normalized, elapsed_ms: float) -> None:
+    """Normalisation is machine time spent on the job, so it goes in the ledger.
+
+    Recorded in-process rather than through the worker endpoint: no worker
+    holds a lease at this point, and the work happened here.
+    """
+    finished = datetime.now(timezone.utc)
+    try:
+        resource_ledger.record(
+            job_id,
+            [
+                ResourceEvent(
+                    event_key=f"job:{job_id}:attempt:1:normalize:cad_ir",
+                    event_type=ResourceEventType.PROCESS_RUN,
+                    stage=ResourceStage.SCHEMA_VALIDATION,
+                    started_at=finished - timedelta(milliseconds=elapsed_ms),
+                    finished_at=finished,
+                    wall_ms=int(elapsed_ms),
+                    success=True,
+                    metadata=normalized.lineage.as_dict(),
+                )
+            ],
+        )
+    except Exception:
+        # Deliberately broad. By this point the CAD-IR is stored and the job is
+        # queued; losing an accounting row is strictly better than failing a
+        # request that has already had its effect. A database outage lands here
+        # as readily as a rejected event, and both are logged rather than
+        # raised.
+        logger.exception("failed to record CAD-IR normalization")
 
 
 @app.post("/api/v1/drawing-jobs", response_model=DrawingJobResponse, status_code=201)
@@ -301,7 +348,7 @@ async def create_drawing_job(
         JobType.ANALYZE_DRAWING,
         "sha256:" + hashlib.sha256(f"{order_id}:{stored.sha256}:0".encode()).hexdigest(),
         {WorkerCapability.AI_DRAWING, WorkerCapability.KOMPAS_BUILD},
-        "0.1.0",
+        CAD_IR_VERSION,
         required_capability_keys(JobType.ANALYZE_DRAWING),
     ))
     return DrawingJobResponse(
@@ -413,7 +460,7 @@ def answer_drawing_questions(
             f"{order_id}:{stored.sha256}:{round_number}:{request.model_dump_json()}".encode()
         ).hexdigest(),
         {WorkerCapability.AI_DRAWING, WorkerCapability.KOMPAS_BUILD},
-        "0.1.0",
+        CAD_IR_VERSION,
         required_capability_keys(JobType.ANALYZE_DRAWING),
     ))
     tracking.update(latest_job_id=job_id, round=round_number)

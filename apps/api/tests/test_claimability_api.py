@@ -6,9 +6,17 @@ from fastapi.testclient import TestClient
 
 from app.contracts import CapabilityStatus, WorkerCapability
 from app.main import app
+from app.database import Base, create_session_factory
+from app.ledger.service import ResourceLedgerService
 from app.workers.artifact_store import LocalArtifactStore
 from app.workers.capabilities import MVP_CAPABILITIES, SOLID_RECTANGULAR_PRISM
 from app.workers.protocol import InMemoryWorkerRepository, WorkerProtocolService
+
+def disposable_ledger() -> ResourceLedgerService:
+    engine, sessions = create_session_factory("sqlite://")
+    Base.metadata.create_all(engine)
+    return ResourceLedgerService(sessions)
+
 
 MANUAL = {"x-manual-api-token": "local-development-manual-api-token-change-me"}
 ENROLLMENT = "local-development-enrollment-token-change-me"
@@ -19,7 +27,7 @@ def manifest(**overrides) -> dict:
         "schema_version": "1.0",
         "worker_version": "0.4.0",
         "kompas_version": "22.0",
-        "cad_ir_versions": ["0.1.0"],
+        "cad_ir_versions": ["1.1"],
         "capabilities": {
             key: {"status": CapabilityStatus.STABLE.value, "version": "1.0"}
             for key in MVP_CAPABILITIES
@@ -31,6 +39,7 @@ def manifest(**overrides) -> dict:
 def environment(monkeypatch, tmp_path):
     protocol = WorkerProtocolService(InMemoryWorkerRepository(), ENROLLMENT)
     monkeypatch.setattr("app.main.worker_protocol", protocol)
+    monkeypatch.setattr("app.main.resource_ledger", disposable_ledger())
     monkeypatch.setattr("app.main.artifact_store", LocalArtifactStore(tmp_path, 1_000_000))
     monkeypatch.setattr("app.main.drawing_orders", {})
     return protocol, TestClient(app)
@@ -48,7 +57,7 @@ def heartbeat(client, headers, worker_id, capability_manifest=None, slots=1):
     body = {
         "worker_id": worker_id,
         "capabilities": ["AI_DRAWING", "KOMPAS_BUILD"],
-        "supported_cad_ir": ["0.1.0"],
+        "supported_cad_ir": ["1.1"],
         "available_slots": slots,
     }
     if capability_manifest is not None:
@@ -142,7 +151,7 @@ def test_diagnosis_does_not_consume_the_job(monkeypatch, tmp_path):
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
             "capabilities": ["KOMPAS_BUILD"],
-            "supported_cad_ir": ["0.1.0"],
+            "supported_cad_ir": ["1.1"],
             "available_slots": 1,
             "capability_manifest": manifest(),
         },

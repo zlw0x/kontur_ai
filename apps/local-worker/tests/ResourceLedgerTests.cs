@@ -114,7 +114,7 @@ public sealed class ResourceLedgerTests
             "thread-1", null, "out.json", "SHA", "events.jsonl",
             new CodexUsageResolution(CodexUsageReading.Unknown, null, KnownCliVersion: true));
 
-        var usage = result.ToAiUsage("drawing-mvp-1");
+        var usage = result.ToAiUsage("drawing-mvp-2");
 
         Assert.Equal("UNKNOWN", usage.TokenSource);
         Assert.Null(usage.InputTokens);
@@ -134,13 +134,13 @@ public sealed class ResourceLedgerTests
             "gpt-5.6-terra",
             "medium");
 
-        var usage = result.ToAiUsage("drawing-mvp-1");
+        var usage = result.ToAiUsage("drawing-mvp-2");
         Assert.Equal("STRUCTURED", usage.TokenSource);
         Assert.Equal(1000, usage.InputTokens);
         Assert.Equal(400, usage.CachedInputTokens);
         Assert.Equal("gpt-5.6-terra", usage.RequestedModel);
         Assert.Equal("medium", usage.RequestedReasoningEffort);
-        Assert.Equal("drawing-mvp-1", usage.PromptVersion);
+        Assert.Equal("drawing-mvp-2", usage.PromptVersion);
         Assert.Equal("codex-cli 0.145.0", usage.CliVersion);
         // The CLI reported no model, so the request is all that is confirmed.
         Assert.Null(usage.ObservedModel);
@@ -183,7 +183,7 @@ public sealed class ResourceLedgerTests
             var image = CreateImagePlaceholder(workspace);
             var ledger = new ResourceLedger("job-1");
             var valid = await File.ReadAllTextAsync(
-                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.json"));
+                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_1.json"));
             var runner = new FakeRunner(ReadyAnalysis(), valid);
 
             var result = await new DrawingPipeline(runner, ledger: ledger).RunAsync(workspace, [image]);
@@ -194,7 +194,7 @@ public sealed class ResourceLedgerTests
             Assert.Contains(aiRuns, item => item.AgentRole == "DRAWING_EXTRACTION");
             Assert.Contains(aiRuns, item => item.AgentRole == "CAD_IR_COMPILATION");
             Assert.Contains(ledger.Events, item => item.EventType == "VALIDATION" && item.Success);
-            Assert.All(aiRuns, item => Assert.Equal("drawing-mvp-1", item.Ai!.PromptVersion));
+            Assert.All(aiRuns, item => Assert.Equal("drawing-mvp-2", item.Ai!.PromptVersion));
             // Every run names the model the routing profile chose, and carries
             // the profile version that chose it.
             Assert.All(aiRuns, item => Assert.Equal("gpt-5.6-terra", item.Ai!.RequestedModel));
@@ -214,9 +214,9 @@ public sealed class ResourceLedgerTests
             var image = CreateImagePlaceholder(workspace);
             var ledger = new ResourceLedger("job-1");
             var valid = await File.ReadAllTextAsync(
-                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.json"));
+                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_1.json"));
             var invalid = valid.Replace(
-                @"""type"": ""extrude_add""", @"""type"": ""hole""", StringComparison.Ordinal);
+                @"""type"": ""solid.extrude""", @"""type"": ""cut.extrude""", StringComparison.Ordinal);
             var runner = new FakeRunner(ReadyAnalysis(), invalid, valid);
 
             await new DrawingPipeline(runner, ledger: ledger).RunAsync(workspace, [image]);

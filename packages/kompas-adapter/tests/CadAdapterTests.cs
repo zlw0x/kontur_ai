@@ -26,14 +26,30 @@ public sealed class CadAdapterTests
     }
 
     [Fact]
-    public void ParserEvaluatesBoundedArithmeticExpression()
+    public void ParserAcceptsALiteralInPlaceOfAParameterReference()
     {
         using var document = JsonDocument.Parse(ValidCadIr().Replace(
-            @"""width"":{""param"":""p_width""}",
-            @"""width"":{""expr"":""p_width / 2 + 5""}",
+            @"""width"":{""parameter"":""param.width""}",
+            @"""width"":25",
             StringComparison.Ordinal));
+
         var plan = CadIrBuildPlanParser.Parse(document.RootElement);
         Assert.Equal(25, plan.Width);
+    }
+
+    [Fact]
+    public void ParserRejectsAnExpressionBecauseVersion1_1HasNone()
+    {
+        // The evaluator is gone with the expression language it served. A
+        // document carrying one is from a schema this adapter does not build.
+        using var document = JsonDocument.Parse(ValidCadIr().Replace(
+            @"""width"":{""parameter"":""param.width""}",
+            @"""width"":{""expr"":""param.width / 2 + 5""}",
+            StringComparison.Ordinal));
+
+        var error = Assert.Throws<CadAdapterException>(
+            () => CadIrBuildPlanParser.Parse(document.RootElement));
+        Assert.Equal("CAD_IR_INVALID", error.Code);
     }
 
     [Fact]
@@ -59,15 +75,79 @@ public sealed class CadAdapterTests
     }
 
     [Fact]
+    public void ParserTreatsAMissingStatusAsConfirmed()
+    {
+        // `status` is optional in 1.1; only an explicitly unresolved value
+        // blocks a build.
+        using var document = JsonDocument.Parse(ValidCadIr().Replace(
+            @"""status"":""confirmed"",", "", StringComparison.Ordinal));
+
+        Assert.Equal(40, CadIrBuildPlanParser.Parse(document.RootElement).Width);
+    }
+
+    [Fact]
     public void ParserRejectsUnsupportedFeatureWithoutPartialBuild()
     {
         using var document = JsonDocument.Parse(ValidCadIr().Replace(
-            @"""type"":""extrude_add""",
-            @"""type"":""hole""",
+            @"""type"":""solid.extrude""",
+            @"""type"":""cut.extrude""",
             StringComparison.Ordinal));
         var error = Assert.Throws<CadAdapterException>(
             () => CadIrBuildPlanParser.Parse(document.RootElement));
         Assert.Equal("UNSUPPORTED_FEATURE_TYPE", error.Code);
+    }
+
+    [Fact]
+    public void ParserRejectsADocumentWithNoVersion()
+    {
+        using var document = JsonDocument.Parse(ValidCadIr().Replace(
+            @"""schema_version"":""1.1"",", "", StringComparison.Ordinal));
+
+        var error = Assert.Throws<CadAdapterException>(
+            () => CadIrBuildPlanParser.Parse(document.RootElement));
+        Assert.Equal("CAD_IR_VERSION_MISSING", error.Code);
+    }
+
+    [Fact]
+    public void ParserDistinguishesATooNewVersionFromAnUnsupportedOne()
+    {
+        // "Too new" tells an operator to upgrade the worker. "Unsupported"
+        // sends them looking for a malformed document.
+        using var future = JsonDocument.Parse(ValidCadIr().Replace(
+            @"""schema_version"":""1.1""", @"""schema_version"":""1.2""", StringComparison.Ordinal));
+        Assert.Equal(
+            "CAD_IR_VERSION_TOO_NEW",
+            Assert.Throws<CadAdapterException>(() => CadIrBuildPlanParser.Parse(future.RootElement)).Code);
+
+        using var legacy = JsonDocument.Parse(ValidCadIr().Replace(
+            @"""schema_version"":""1.1""", @"""schema_version"":""0.1.0""", StringComparison.Ordinal));
+        Assert.Equal(
+            "CAD_IR_VERSION_UNSUPPORTED",
+            Assert.Throws<CadAdapterException>(() => CadIrBuildPlanParser.Parse(legacy.RootElement)).Code);
+    }
+
+    [Fact]
+    public void ParserRejectsAForeignSchemaName()
+    {
+        using var document = JsonDocument.Parse(ValidCadIr().Replace(
+            @"""schema"":""cad-ai/cad-ir""",
+            @"""schema"":""some-other/format""",
+            StringComparison.Ordinal));
+
+        var error = Assert.Throws<CadAdapterException>(
+            () => CadIrBuildPlanParser.Parse(document.RootElement));
+        Assert.Equal("CAD_IR_VERSION_UNSUPPORTED", error.Code);
+    }
+
+    [Fact]
+    public void ParserRejectsANonLengthParameter()
+    {
+        using var document = JsonDocument.Parse(ValidCadIr().Replace(
+            @"""type"":""length""", @"""type"":""angle""", StringComparison.Ordinal));
+
+        var error = Assert.Throws<CadAdapterException>(
+            () => CadIrBuildPlanParser.Parse(document.RootElement));
+        Assert.Equal("UNSUPPORTED_PARAMETER_TYPE", error.Code);
     }
 
     [Fact]
@@ -94,55 +174,65 @@ public sealed class CadAdapterTests
     private static string ValidCadIr() =>
         """
         {
-          "schema_version":"0.1.0",
+          "schema":"cad-ai/cad-ir",
+          "schema_version":"1.1",
+          "document":{"units":"mm"},
           "parameters":[
-            {"id":"p_width","status":"confirmed","value":40},
-            {"id":"p_height","status":"confirmed","value":20},
-            {"id":"p_depth","status":"confirmed","value":10}
+            {"id":"param.width","type":"length","unit":"mm","status":"confirmed","value":40},
+            {"id":"param.height","type":"length","unit":"mm","status":"confirmed","value":20},
+            {"id":"param.depth","type":"length","unit":"mm","status":"confirmed","value":10}
           ],
           "features":[{
-            "id":"f_base","type":"extrude_add","enabled":true,"depends_on":[],
+            "id":"feature.base","type":"solid.extrude","enabled":true,"depends_on":[],
+            "produces":[{"id":"body.main","kind":"solid_body"}],
             "inputs":{
               "direction":"+Z",
-              "distance":{"expr":"p_depth"},
-              "sketch":{"plane":"XY","entities":[{
-                "id":"rect","type":"center_rectangle","center":[0,0],
-                "width":{"param":"p_width"},"height":{"param":"p_height"}
+              "distance":{"parameter":"param.depth"},
+              "sketch":{"id":"sketch.base","plane":"XY","entities":[{
+                "id":"rect.base","type":"center_rectangle","center":[0,0],
+                "width":{"parameter":"param.width"},"height":{"parameter":"param.height"}
               }]}
             }
-          }]
+          }],
+          "metadata":{"generator":"test","generator_version":"1.0"}
         }
         """;
 
     private static string ValidCadIrWithHole(double radius, double centerX, double centerY) =>
         $$"""
         {
-          "schema_version":"0.1.0",
+          "schema":"cad-ai/cad-ir",
+          "schema_version":"1.1",
+          "document":{"units":"mm"},
           "parameters":[
-            {"id":"p_width","status":"confirmed","value":40},
-            {"id":"p_height","status":"confirmed","value":20},
-            {"id":"p_depth","status":"confirmed","value":10},
-            {"id":"p_radius","status":"confirmed","value":{{radius}}}
+            {"id":"param.width","type":"length","unit":"mm","status":"confirmed","value":40},
+            {"id":"param.height","type":"length","unit":"mm","status":"confirmed","value":20},
+            {"id":"param.depth","type":"length","unit":"mm","status":"confirmed","value":10},
+            {"id":"param.radius","type":"length","unit":"mm","status":"confirmed","value":{{radius}}}
           ],
           "features":[{
-            "id":"f_base","type":"extrude_add","enabled":true,"depends_on":[],
+            "id":"feature.base","type":"solid.extrude","enabled":true,"depends_on":[],
+            "produces":[{"id":"body.main","kind":"solid_body"}],
             "inputs":{
-              "direction":"+Z","distance":{"param":"p_depth"},
-              "sketch":{"plane":"XY","entities":[{
-                "id":"rect","type":"center_rectangle","center":[0,0],
-                "width":{"param":"p_width"},"height":{"param":"p_height"}
+              "direction":"+Z","distance":{"parameter":"param.depth"},
+              "sketch":{"id":"sketch.base","plane":"XY","entities":[{
+                "id":"rect.base","type":"center_rectangle","center":[0,0],
+                "width":{"parameter":"param.width"},"height":{"parameter":"param.height"}
               }]}
             }
           },{
-            "id":"f_hole","type":"extrude_cut","enabled":true,"depends_on":["f_base"],
+            "id":"feature.hole","type":"cut.extrude","enabled":true,"depends_on":["feature.base"],
+            "produces":[],
             "inputs":{
               "direction":"+Z","through_all":true,
-              "sketch":{"plane":"XY","entities":[{
-                "id":"hole","type":"circle","center":[{{centerX}},{{centerY}}],
-                "radius":{"param":"p_radius"}
+              "source_body":{"result":"body.main"},
+              "sketch":{"id":"sketch.hole","plane":"XY","entities":[{
+                "id":"circle.hole","type":"circle","center":[{{centerX}},{{centerY}}],
+                "radius":{"parameter":"param.radius"}
               }]}
             }
-          }]
+          }],
+          "metadata":{"generator":"test","generator_version":"1.0"}
         }
         """;
 }

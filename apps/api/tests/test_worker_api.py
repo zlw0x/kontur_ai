@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 from app.main import app
 from app.contracts import CapabilityStatus, JobType, WorkerCapability
+from app.database import Base, create_session_factory
+from app.ledger.service import ResourceLedgerService
 from app.workers.artifact_store import LocalArtifactStore
 from app.workers.capabilities import MVP_CAPABILITIES
 from app.workers.protocol import InMemoryWorkerRepository, Job, WorkerProtocolService
@@ -17,7 +19,14 @@ app.dependency_overrides = {}
 def memory_protocol(monkeypatch):
     protocol = WorkerProtocolService(InMemoryWorkerRepository(), "local-development-enrollment-token-change-me")
     monkeypatch.setattr("app.main.worker_protocol", protocol)
+    monkeypatch.setattr("app.main.resource_ledger", disposable_ledger())
     return protocol
+
+
+def disposable_ledger() -> ResourceLedgerService:
+    engine, sessions = create_session_factory("sqlite://")
+    Base.metadata.create_all(engine)
+    return ResourceLedgerService(sessions)
 
 
 def mvp_manifest(**overrides) -> dict:
@@ -26,7 +35,7 @@ def mvp_manifest(**overrides) -> dict:
         "schema_version": "1.0",
         "worker_version": "0.4.0",
         "kompas_version": "22.0",
-        "cad_ir_versions": ["0.1.0"],
+        "cad_ir_versions": ["1.1"],
         "capabilities": {key: CapabilityStatus.STABLE.value for key in MVP_CAPABILITIES},
         **overrides,
     }
@@ -42,11 +51,11 @@ def test_worker_register_heartbeat_and_empty_claim(monkeypatch):
     body = registered.json()
     headers = {"Authorization": f"Bearer {body['credential']}"}
     heartbeat = client.post("/api/v1/workers/heartbeat", headers=headers, json={
-        "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["0.1.0"], "available_slots": 1
+        "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["1.1"], "available_slots": 1
     })
     assert heartbeat.status_code == 204
     claim = client.post("/api/v1/workers/claim", headers=headers, json={
-        "protocol_version": "1.0", "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["0.1.0"], "available_slots": 1
+        "protocol_version": "1.0", "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["1.1"], "available_slots": 1
     })
     assert claim.status_code == 200 and claim.json() == {"protocol_version": "1.0", "job": None, "retry_after_seconds": 5}
 
@@ -55,7 +64,7 @@ def test_worker_api_rejects_bad_enrollment_and_missing_credential(monkeypatch):
     memory_protocol(monkeypatch)
     client = TestClient(app)
     assert client.post("/api/v1/workers/register", json={"enrollment_token": "x" * 32, "worker_name": "bad", "app_version": "0.1"}).status_code == 401
-    assert client.post("/api/v1/workers/claim", json={"protocol_version": "1.0", "worker_id": "123e4567-e89b-12d3-a456-426614174000", "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["0.1.0"], "available_slots": 1}).status_code == 401
+    assert client.post("/api/v1/workers/claim", json={"protocol_version": "1.0", "worker_id": "123e4567-e89b-12d3-a456-426614174000", "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["1.1"], "available_slots": 1}).status_code == 401
 
 
 def test_job_heartbeat_and_completion_are_authenticated_and_idempotent(monkeypatch, tmp_path):
@@ -67,8 +76,8 @@ def test_job_heartbeat_and_completion_are_authenticated_and_idempotent(monkeypat
     }).json()
     worker_id, job_id = UUID(registered["worker_id"]), uuid4()
     worker = protocol.repo.workers[worker_id]
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["0.1.0"], 1)
-    protocol.repo.jobs[job_id] = Job(job_id, uuid4(), JobType.BUILD_CAD, "sha256:complete", {WorkerCapability.KOMPAS_BUILD}, "0.1.0")
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1)
+    protocol.repo.jobs[job_id] = Job(job_id, uuid4(), JobType.BUILD_CAD, "sha256:complete", {WorkerCapability.KOMPAS_BUILD}, "1.1")
     assert protocol.claim(worker) is not None
     headers = {"Authorization": f"Bearer {registered['credential']}"}
     heartbeat = client.post(f"/api/v1/workers/jobs/{job_id}/heartbeat", headers=headers, json={
@@ -130,7 +139,7 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
             "capabilities": ["KOMPAS_BUILD"],
-            "supported_cad_ir": ["0.1.0"],
+            "supported_cad_ir": ["1.1"],
             "available_slots": 1,
             "capability_manifest": mvp_manifest(),
         },
@@ -211,7 +220,7 @@ def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
             "capabilities": ["AI_DRAWING", "KOMPAS_BUILD"],
-            "supported_cad_ir": ["0.1.0"],
+            "supported_cad_ir": ["1.1"],
             "available_slots": 1,
             "capability_manifest": mvp_manifest(),
         },
@@ -269,3 +278,60 @@ def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
     )
     assert answered.status_code == 201
     assert answered.json()["job_id"] != job_id
+
+
+def test_a_manual_submission_is_normalised_and_its_lineage_returned(monkeypatch, tmp_path):
+    """A caller may still submit 0.1.0. It is lifted into the canonical form so
+    the worker only ever sees one shape, and the response says exactly what
+    happened to it."""
+    memory_protocol(monkeypatch)
+    store = LocalArtifactStore(tmp_path, 1_000_000)
+    monkeypatch.setattr("app.main.artifact_store", store)
+    client = TestClient(app)
+    legacy = json.loads(
+        (Path(__file__).parents[3] / "tests" / "fixtures" / "cad-ir" / "plate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    created = client.post(
+        "/api/v1/manual/cad-jobs",
+        headers={"x-manual-api-token": "local-development-manual-api-token-change-me"},
+        json={"cad_ir": legacy, "requested_formats": ["m3d"]},
+    )
+
+    assert created.status_code == 201
+    lineage = created.json()["lineage"]
+    assert lineage["original_schema_version"] == "0.1.0"
+    assert lineage["canonical_schema_version"] == "1.1"
+    assert lineage["original_sha256"] != lineage["canonical_sha256"]
+    assert lineage["normalizer_version"]
+
+    stored = json.loads(
+        store.cad_ir(UUID(created.json()["job_id"])).path.read_text(encoding="utf-8")
+    )
+    assert stored["schema_version"] == "1.1"
+    assert stored["features"][0]["type"] == "solid.extrude"
+
+
+def test_a_submission_that_cannot_be_migrated_is_refused_with_its_reasons(monkeypatch, tmp_path):
+    memory_protocol(monkeypatch)
+    monkeypatch.setattr("app.main.artifact_store", LocalArtifactStore(tmp_path, 1_000_000))
+    client = TestClient(app)
+    legacy = json.loads(
+        (Path(__file__).parents[3] / "tests" / "fixtures" / "cad-ir" / "plate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    legacy["features"][0]["inputs"]["distance"] = {"expr": "p_depth * 2"}
+
+    refused = client.post(
+        "/api/v1/manual/cad-jobs",
+        headers={"x-manual-api-token": "local-development-manual-api-token-change-me"},
+        json={"cad_ir": legacy, "requested_formats": ["m3d"]},
+    )
+
+    assert refused.status_code == 422
+    detail = refused.json()["detail"]
+    assert detail["code"] == "CAD_IR_INVALID"
+    assert detail["issues"][0]["code"] == "CAD_IR_MIGRATION_FAILED"

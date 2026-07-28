@@ -214,6 +214,9 @@ class ManualCadJobResponse(StrictModel):
     job_id: UUID
     status: Literal["WAITING_FOR_LOCAL_WORKER"]
     cad_ir_sha256: str
+    #: How the stored canonical document relates to what was submitted:
+    #: both versions, both hashes and the normalizer version.
+    lineage: dict[str, str] = Field(default_factory=dict)
 
 
 class ArtifactUploadResponse(StrictModel):
