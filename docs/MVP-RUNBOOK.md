@@ -21,6 +21,10 @@ container can keep serving a previous contract while the worker already sends
 the new one — which surfaces as the worker's batches being rejected with 422
 and nothing else obviously wrong.
 
+The worker has the same trap in reverse: JSON Schemas are copied into its build
+output, so `dotnet run --no-build` can leave it sending Codex a schema from
+before your change. Rebuild after touching anything under `schemas/`.
+
 The migration service is idempotent. It can adopt a complete v1 database
 created before the migration journal existed, but refuses a partial schema.
 Later migrations are applied in order and skipped once recorded in

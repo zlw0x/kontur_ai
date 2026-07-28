@@ -8,6 +8,7 @@ refuses — a repair loop caused entirely by our own schemas disagreeing.
 """
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -31,18 +32,125 @@ def canonical_fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.v1_1.json").read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("name", ["plate", "plate-with-hole"])
-def test_the_canonical_fixtures_satisfy_the_narrowed_profile(profile, name):
-    """What the normalizer produces is what Codex is asked to produce."""
-    assert list(profile.iter_errors(canonical_fixture(name))) == []
+def profile_shaped_document() -> dict:
+    """A document exactly as the profile demands it: every listed property
+    present, because strict mode has no optional ones."""
+    return {
+        "schema": "cad-ai/cad-ir",
+        "schema_version": "1.1",
+        "document": {
+            "units": "mm",
+            "part_type": "single_part",
+            "coordinate_system": "right_handed",
+            "name": "plate",
+        },
+        "reference_geometry": [],
+        "parameters": [
+            {
+                "id": "param.width",
+                "type": "length",
+                "value": 60.0,
+                "unit": "mm",
+                "name": "Width",
+                "status": "confirmed",
+                "provenance": {"confidence": 0.98},
+            },
+            {
+                "id": "param.radius",
+                "type": "length",
+                "value": 2.5,
+                "unit": "mm",
+                "name": "Hole radius",
+                "status": "confirmed",
+                "provenance": {"confidence": 0.95},
+            },
+        ],
+        "features": [
+            {
+                "id": "feature.base",
+                "type": "solid.extrude",
+                "enabled": True,
+                "depends_on": [],
+                "produces": [{"id": "body.main", "kind": "solid_body"}],
+                "inputs": {
+                    "direction": "+Z",
+                    "distance": 8.0,
+                    "sketch": {
+                        "id": "sketch.base",
+                        "plane": "XY",
+                        "expected_closed_contours": 1,
+                        "entities": [
+                            {
+                                "id": "rect.base",
+                                "type": "center_rectangle",
+                                "center": [0.0, 0.0],
+                                "width": {"parameter": "param.width"},
+                                "height": 30.0,
+                            }
+                        ],
+                    },
+                },
+            },
+            {
+                "id": "feature.hole",
+                "type": "cut.extrude",
+                "enabled": True,
+                "depends_on": ["feature.base"],
+                "produces": [],
+                "inputs": {
+                    "direction": "+Z",
+                    "through_all": True,
+                    "source_body": {"result": "body.main"},
+                    "sketch": {
+                        "id": "sketch.hole",
+                        "plane": "XY",
+                        "expected_closed_contours": 1,
+                        "entities": [
+                            {
+                                "id": "circle.hole",
+                                "type": "circle",
+                                "center": [-15.0, 0.0],
+                                "radius": {"parameter": "param.radius"},
+                            }
+                        ],
+                    },
+                },
+            },
+        ],
+        "expectations": [
+            {
+                "id": "expect.bounds",
+                "type": "bounding_box",
+                "size_mm": {"x": 60.0, "y": 30.0, "z": 8.0},
+                "tolerance_mm": 0.05,
+            },
+            {"id": "expect.bodies", "type": "body_count", "value": 1},
+        ],
+        "metadata": {
+            "generator": "drawing-agent",
+            "generator_version": "0.4.0",
+            "prompt_version": "drawing-mvp-2",
+        },
+    }
 
 
-@pytest.mark.parametrize("name", ["plate", "plate-with-hole"])
-def test_anything_the_profile_accepts_is_canonically_valid(profile, name):
-    document = canonical_fixture(name)
+def test_a_document_shaped_by_the_profile_is_canonically_valid(profile):
+    """The direction that matters. If the profile accepted something the
+    canonical validator rejects, Codex would be told to produce documents the
+    trusted gate then refuses — a repair loop caused by our own schemas
+    disagreeing with each other."""
+    document = profile_shaped_document()
+
     assert list(profile.iter_errors(document)) == []
-
     assert validate_canonical(document).schema_version == "1.1"
+
+
+@pytest.mark.parametrize("name", ["plate", "plate-with-hole"])
+def test_the_normalizer_output_is_canonically_valid(name):
+    """The normalizer produces canonical documents, not profile-shaped ones:
+    the profile constrains generation, and a migrated 0.1.0 document was never
+    generated."""
+    assert validate_canonical(canonical_fixture(name)).schema_version == "1.1"
 
 
 def test_the_profile_declares_the_same_version_as_the_canonical_schema():
@@ -50,35 +158,113 @@ def test_the_profile_declares_the_same_version_as_the_canonical_schema():
     assert PROFILE["properties"]["schema"]["const"] == "cad-ai/cad-ir"
 
 
-@pytest.mark.parametrize(
-    "mutation",
-    [
-        ("plane", "XZ"),
-        ("direction", "-Z"),
-    ],
-)
+@pytest.mark.parametrize("mutation", [("plane", "XZ"), ("direction", "-Z")])
 def test_the_profile_is_narrower_than_the_canonical_model(profile, mutation):
     """The canonical model allows three planes and six directions because a
     later version will need them. The profile allows one of each, so Codex is
     never asked for geometry this adapter cannot build."""
     key, value = mutation
-    document = canonical_fixture("plate")
+    document = profile_shaped_document()
     inputs = document["features"][0]["inputs"]
     if key == "plane":
         inputs["sketch"]["plane"] = value
     else:
         inputs["direction"] = value
 
-    # Canonically valid...
     assert validate_canonical(document).schema_version == "1.1"
-    # ...but outside what Codex may produce.
     assert list(profile.iter_errors(document)) != []
 
 
 def test_the_profile_rejects_an_expression(profile):
-    document = canonical_fixture("plate")
-    document["features"][0]["inputs"]["distance"] = {"expr": "p_depth * 2"}
+    document = profile_shaped_document()
+    document["features"][0]["inputs"]["distance"] = {"expr": "param.width * 2"}
 
     assert list(profile.iter_errors(document)) != []
     with pytest.raises(CadIrValidationError):
         validate_canonical(document)
+
+
+#: The dialect the Codex structured-output API accepts, derived on 2026-07-28
+#: from the 0.1.0 schema it had been accepting for months and from three real
+#: rejections. Each rejection cost a full AI run, and the repair loop paid for
+#: it three times before giving up, so the rules live here rather than being
+#: rediscovered.
+#:
+#:   1. no `oneOf` — "'oneOf' is not permitted"
+#:   2. every schema node declares a `type` — "schema must have a 'type' key"
+#:   3. every array declares `items` — "array schema missing items"
+#:   4. every object lists *all* its properties as required
+#:   5. every object sets additionalProperties: false
+#:
+#: Rule 4 is the one with teeth: strict mode has no optional properties, so a
+#: field kept "just in case" becomes a field the model is forced to invent.
+UNSUPPORTED_KEYWORDS = (
+    "oneOf",
+    "allOf",
+    "not",
+    "contains",
+    "minContains",
+    "maxContains",
+    "if",
+    "then",
+    "else",
+    "patternProperties",
+    "dependentSchemas",
+    "propertyNames",
+    "unevaluatedProperties",
+    "unevaluatedItems",
+)
+
+
+def schema_nodes(node, path="$"):
+    if isinstance(node, list):
+        for index, item in enumerate(node):
+            yield from schema_nodes(item, f"{path}[{index}]")
+        return
+    if not isinstance(node, dict):
+        return
+    if any(key in node for key in ("type", "const", "enum", "properties", "items", "anyOf")):
+        yield path, node
+    for key, value in node.items():
+        yield from schema_nodes(value, f"{path}.{key}")
+
+
+def dialect_violations(schema) -> list[str]:
+    found = []
+    for path, node in schema_nodes(schema):
+        if "type" not in node and "$ref" not in node and "anyOf" not in node:
+            found.append(f"untyped: {path}")
+        if node.get("type") == "array" and "items" not in node:
+            found.append(f"array without items: {path}")
+        if node.get("type") == "object" and "properties" in node:
+            if set(node.get("required", [])) != set(node["properties"]):
+                found.append(f"not every property is required: {path}")
+            if node.get("additionalProperties") is not False:
+                found.append(f"open object: {path}")
+    for keyword in UNSUPPORTED_KEYWORDS:
+        if any(keyword in node for _, node in schema_nodes(schema)):
+            found.append(f"unsupported keyword: {keyword}")
+    return found
+
+
+def test_the_output_profile_stays_inside_the_structured_output_dialect():
+    """This file is not just a JSON Schema; it is the response format Codex is
+    constrained by. A keyword that dialect rejects fails every AI run for the
+    job — which is exactly how these rules were learned."""
+    assert dialect_violations(PROFILE) == []
+
+
+def test_the_rules_are_the_ones_the_previously_accepted_schema_obeyed():
+    """Derived, not guessed: the 0.1.0 schema the API accepted satisfies every
+    rule above. If it did not, the rule would be wrong."""
+    accepted = json.loads(
+        subprocess.run(
+            ["git", "show", "HEAD~1:schemas/cad-ir-mvp-output.schema.json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=ROOT,
+        ).stdout
+    )
+
+    assert dialect_violations(accepted) == []

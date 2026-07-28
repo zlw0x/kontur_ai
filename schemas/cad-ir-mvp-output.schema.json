@@ -2,40 +2,49 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/1.1",
   "title": "CAD-IR 1.1, narrowed to the geometry this build can construct",
-  "description": "A subset of the canonical CAD-IR schema. The canonical schema says what version 1.1 can express; this says what the KOMPAS adapter can actually build, so the model is constrained at generation time instead of being corrected by a repair loop.",
+  "description": "A subset of the canonical CAD-IR schema, expressed in the dialect the Codex structured-output API accepts: anyOf rather than oneOf, and no contains family. The canonical schema says what version 1.1 can express; this says what the KOMPAS adapter can actually build, so the model is constrained at generation time instead of being corrected by a repair loop. Semantics the dialect cannot state — exactly one solid body, for instance — are enforced by the trusted validator.",
   "type": "object",
   "required": [
-    "schema",
-    "schema_version",
     "document",
-    "parameters",
-    "features",
     "expectations",
-    "metadata"
+    "features",
+    "metadata",
+    "parameters",
+    "reference_geometry",
+    "schema",
+    "schema_version"
   ],
   "additionalProperties": false,
   "properties": {
     "schema": {
-      "const": "cad-ai/cad-ir"
+      "const": "cad-ai/cad-ir",
+      "type": "string"
     },
     "schema_version": {
-      "const": "1.1"
+      "const": "1.1",
+      "type": "string"
     },
     "document": {
       "type": "object",
       "required": [
+        "coordinate_system",
+        "name",
+        "part_type",
         "units"
       ],
       "additionalProperties": false,
       "properties": {
         "units": {
-          "const": "mm"
+          "const": "mm",
+          "type": "string"
         },
         "part_type": {
-          "const": "single_part"
+          "const": "single_part",
+          "type": "string"
         },
         "coordinate_system": {
-          "const": "right_handed"
+          "const": "right_handed",
+          "type": "string"
         },
         "name": {
           "type": "string",
@@ -51,10 +60,12 @@
         "type": "object",
         "required": [
           "id",
+          "name",
+          "provenance",
+          "status",
           "type",
-          "value",
           "unit",
-          "status"
+          "value"
         ],
         "additionalProperties": false,
         "properties": {
@@ -62,7 +73,8 @@
             "$ref": "#/$defs/identifier"
           },
           "type": {
-            "const": "length"
+            "const": "length",
+            "type": "string"
           },
           "value": {
             "type": "number",
@@ -70,7 +82,8 @@
             "maximum": 1000000
           },
           "unit": {
-            "const": "mm"
+            "const": "mm",
+            "type": "string"
           },
           "name": {
             "type": "string",
@@ -82,22 +95,22 @@
               "user_confirmed",
               "inferred",
               "assumed"
-            ]
+            ],
+            "type": "string"
           },
           "provenance": {
             "type": "object",
-            "additionalProperties": false,
             "properties": {
               "confidence": {
                 "type": "number",
                 "minimum": 0,
                 "maximum": 1
-              },
-              "note": {
-                "type": "string",
-                "maxLength": 300
               }
-            }
+            },
+            "required": [
+              "confidence"
+            ],
+            "additionalProperties": false
           }
         }
       }
@@ -107,7 +120,7 @@
       "minItems": 1,
       "maxItems": 20,
       "items": {
-        "oneOf": [
+        "anyOf": [
           {
             "$ref": "#/$defs/base_extrusion"
           },
@@ -122,14 +135,14 @@
       "minItems": 2,
       "maxItems": 8,
       "items": {
-        "oneOf": [
+        "anyOf": [
           {
             "type": "object",
             "required": [
               "id",
-              "type",
               "size_mm",
-              "tolerance_mm"
+              "tolerance_mm",
+              "type"
             ],
             "additionalProperties": false,
             "properties": {
@@ -137,7 +150,8 @@
                 "$ref": "#/$defs/identifier"
               },
               "type": {
-                "const": "bounding_box"
+                "const": "bounding_box",
+                "type": "string"
               },
               "size_mm": {
                 "type": "object",
@@ -185,7 +199,8 @@
                 "enum": [
                   "body_count",
                   "through_hole_count"
-                ]
+                ],
+                "type": "string"
               },
               "value": {
                 "type": "integer",
@@ -201,7 +216,8 @@
       "type": "object",
       "required": [
         "generator",
-        "generator_version"
+        "generator_version",
+        "prompt_version"
       ],
       "additionalProperties": false,
       "properties": {
@@ -221,6 +237,12 @@
     },
     "reference_geometry": {
       "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
       "maxItems": 0
     }
   },
@@ -230,7 +252,7 @@
       "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
     },
     "scalar": {
-      "oneOf": [
+      "anyOf": [
         {
           "type": "number",
           "minimum": -1000000,
@@ -253,12 +275,12 @@
     "base_extrusion": {
       "type": "object",
       "required": [
-        "id",
-        "type",
-        "enabled",
         "depends_on",
+        "enabled",
+        "id",
+        "inputs",
         "produces",
-        "inputs"
+        "type"
       ],
       "additionalProperties": false,
       "properties": {
@@ -266,13 +288,18 @@
           "$ref": "#/$defs/identifier"
         },
         "type": {
-          "const": "solid.extrude"
+          "const": "solid.extrude",
+          "type": "string"
         },
         "enabled": {
-          "const": true
+          "const": true,
+          "type": "boolean"
         },
         "depends_on": {
           "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
           "maxItems": 0
         },
         "produces": {
@@ -294,34 +321,24 @@
                 "enum": [
                   "solid_body",
                   "face"
-                ]
+                ],
+                "type": "string"
               }
             }
-          },
-          "contains": {
-            "properties": {
-              "kind": {
-                "const": "solid_body"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "minContains": 1,
-          "maxContains": 1
+          }
         },
         "inputs": {
           "type": "object",
           "required": [
-            "sketch",
             "direction",
-            "distance"
+            "distance",
+            "sketch"
           ],
           "additionalProperties": false,
           "properties": {
             "direction": {
-              "const": "+Z"
+              "const": "+Z",
+              "type": "string"
             },
             "distance": {
               "$ref": "#/$defs/scalar"
@@ -329,9 +346,10 @@
             "sketch": {
               "type": "object",
               "required": [
+                "entities",
+                "expected_closed_contours",
                 "id",
-                "plane",
-                "entities"
+                "plane"
               ],
               "additionalProperties": false,
               "properties": {
@@ -339,10 +357,12 @@
                   "$ref": "#/$defs/identifier"
                 },
                 "plane": {
-                  "const": "XY"
+                  "const": "XY",
+                  "type": "string"
                 },
                 "expected_closed_contours": {
-                  "const": 1
+                  "const": 1,
+                  "type": "integer"
                 },
                 "entities": {
                   "type": "array",
@@ -351,11 +371,11 @@
                   "items": {
                     "type": "object",
                     "required": [
+                      "center",
+                      "height",
                       "id",
                       "type",
-                      "center",
-                      "width",
-                      "height"
+                      "width"
                     ],
                     "additionalProperties": false,
                     "properties": {
@@ -363,7 +383,8 @@
                         "$ref": "#/$defs/identifier"
                       },
                       "type": {
-                        "const": "center_rectangle"
+                        "const": "center_rectangle",
+                        "type": "string"
                       },
                       "center": {
                         "type": "array",
@@ -391,12 +412,12 @@
     "circular_cut": {
       "type": "object",
       "required": [
-        "id",
-        "type",
-        "enabled",
         "depends_on",
+        "enabled",
+        "id",
+        "inputs",
         "produces",
-        "inputs"
+        "type"
       ],
       "additionalProperties": false,
       "properties": {
@@ -404,10 +425,12 @@
           "$ref": "#/$defs/identifier"
         },
         "type": {
-          "const": "cut.extrude"
+          "const": "cut.extrude",
+          "type": "string"
         },
         "enabled": {
-          "const": true
+          "const": true,
+          "type": "boolean"
         },
         "depends_on": {
           "type": "array",
@@ -419,39 +442,42 @@
         },
         "produces": {
           "type": "array",
-          "maxItems": 4,
           "items": {
             "type": "object",
-            "required": [
-              "id",
-              "kind"
-            ],
-            "additionalProperties": false,
             "properties": {
               "id": {
                 "$ref": "#/$defs/identifier"
               },
               "kind": {
+                "type": "string",
                 "const": "face"
               }
-            }
-          }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 4
         },
         "inputs": {
           "type": "object",
           "required": [
-            "sketch",
             "direction",
-            "through_all",
-            "source_body"
+            "sketch",
+            "source_body",
+            "through_all"
           ],
           "additionalProperties": false,
           "properties": {
             "direction": {
-              "const": "+Z"
+              "const": "+Z",
+              "type": "string"
             },
             "through_all": {
-              "const": true
+              "const": true,
+              "type": "boolean"
             },
             "source_body": {
               "type": "object",
@@ -468,9 +494,10 @@
             "sketch": {
               "type": "object",
               "required": [
+                "entities",
+                "expected_closed_contours",
                 "id",
-                "plane",
-                "entities"
+                "plane"
               ],
               "additionalProperties": false,
               "properties": {
@@ -478,10 +505,12 @@
                   "$ref": "#/$defs/identifier"
                 },
                 "plane": {
-                  "const": "XY"
+                  "const": "XY",
+                  "type": "string"
                 },
                 "expected_closed_contours": {
-                  "const": 1
+                  "const": 1,
+                  "type": "integer"
                 },
                 "entities": {
                   "type": "array",
@@ -490,10 +519,10 @@
                   "items": {
                     "type": "object",
                     "required": [
-                      "id",
-                      "type",
                       "center",
-                      "radius"
+                      "id",
+                      "radius",
+                      "type"
                     ],
                     "additionalProperties": false,
                     "properties": {
@@ -501,7 +530,8 @@
                         "$ref": "#/$defs/identifier"
                       },
                       "type": {
-                        "const": "circle"
+                        "const": "circle",
+                        "type": "string"
                       },
                       "center": {
                         "type": "array",
