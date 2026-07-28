@@ -52,7 +52,7 @@ public sealed class DrawingPipeline(
             var result = await runner.RunAsync(request, cancellationToken);
             if (scope is not null)
             {
-                scope.WithAi(result.ToAiUsage(PromptVersion));
+                scope.WithAi(result.ToAiUsage(PromptVersion, request.PromptBundleSha256));
                 var process = result.ToProcessUsage();
                 if (process is not null) scope.WithProcess(process);
                 scope.Succeeded();

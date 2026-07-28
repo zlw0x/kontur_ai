@@ -71,6 +71,7 @@ class ErrorCode(StrEnum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
     CONTOUR_NOT_CLOSED = "CONTOUR_NOT_CLOSED"
     LEDGER_EVENT_CONFLICT = "LEDGER_EVENT_CONFLICT"
+    CODEX_MODEL_MISMATCH = "CODEX_MODEL_MISMATCH"
     CAPABILITY_NOT_SUPPORTED = "CAPABILITY_NOT_SUPPORTED"
     COST_SNAPSHOT_IMMUTABLE = "COST_SNAPSHOT_IMMUTABLE"
     PRICING_PROFILE_UNKNOWN = "PRICING_PROFILE_UNKNOWN"
@@ -322,12 +323,42 @@ class TokenSource(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class ModelObservationStatus(StrEnum):
+    """How much is actually known about which model served a run."""
+
+    UNKNOWN = "UNKNOWN"
+    EXPLICIT_NOT_REPORTED = "EXPLICIT_NOT_REPORTED"
+    VERIFIED = "VERIFIED"
+    MISMATCH = "MISMATCH"
+
+
+#: Statuses whose model attribution may be used for pricing. A MISMATCH is not
+#: resolved in favour of either model, and an UNKNOWN never had one.
+BILLABLE_MODEL_STATUSES = frozenset(
+    {ModelObservationStatus.VERIFIED, ModelObservationStatus.EXPLICIT_NOT_REPORTED}
+)
+
+
 class AiUsage(StrictModel):
-    model: Annotated[str | None, Field(max_length=100)] = None
-    reasoning_effort: ReasoningEffort | None = None
+    """What was asked of Codex, what came back, and how much is confirmed.
+
+    `requested_model` and `observed_model` are deliberately separate. Collapsed
+    into one field, "we asked for Terra" becomes indistinguishable from "Terra
+    is what ran", and only the second justifies charging Terra's weight.
+    """
+
+    requested_model: Annotated[str | None, Field(max_length=100)] = None
+    observed_model: Annotated[str | None, Field(max_length=100)] = None
+    requested_reasoning_effort: ReasoningEffort | None = None
+    observed_reasoning_effort: ReasoningEffort | None = None
+    model_observation_status: ModelObservationStatus = ModelObservationStatus.UNKNOWN
+    routing_profile_version: Annotated[str | None, Field(max_length=50)] = None
+    routing_rule_id: Annotated[str | None, Field(max_length=100)] = None
     service_tier: ServiceTier = ServiceTier.STANDARD
     cli_version: Annotated[str | None, Field(max_length=50)] = None
     prompt_version: Annotated[str | None, Field(max_length=50)] = None
+    prompt_bundle_sha256: Annotated[str | None, Field(max_length=64)] = None
+    provenance_sha256: Annotated[str | None, Field(max_length=64)] = None
     thread_id: Annotated[str | None, Field(max_length=100)] = None
     token_source: TokenSource = TokenSource.UNKNOWN
     input_tokens: Count | None = None
@@ -339,6 +370,39 @@ class AiUsage(StrictModel):
     @property
     def token_count_estimated(self) -> bool:
         return self.token_source is TokenSource.ESTIMATED
+
+    @property
+    def billable_model(self) -> str | None:
+        """The model a cost may be attributed to, or None when unverifiable.
+
+        Never falls back to a CLI default. Whatever the documentation says
+        today, that default is external behaviour that can change without
+        notice, and back-filling it would put a guess into a price.
+        """
+        if self.model_observation_status is ModelObservationStatus.VERIFIED:
+            return self.observed_model
+        if self.model_observation_status is ModelObservationStatus.EXPLICIT_NOT_REPORTED:
+            return self.requested_model
+        return None
+
+    @model_validator(mode="after")
+    def validate_observation_consistency(self) -> "AiUsage":
+        status = self.model_observation_status
+        if status is ModelObservationStatus.UNKNOWN:
+            if self.requested_model is not None:
+                raise ValueError("a requested model cannot be reported as UNKNOWN")
+        elif self.requested_model is None:
+            raise ValueError(f"{status} requires a requested_model")
+        if status is ModelObservationStatus.VERIFIED and self.observed_model is None:
+            raise ValueError("VERIFIED requires an observed_model")
+        if status is ModelObservationStatus.MISMATCH and self.observed_model is None:
+            raise ValueError("MISMATCH requires the observed_model that disagreed")
+        if (
+            status is ModelObservationStatus.EXPLICIT_NOT_REPORTED
+            and self.observed_model is not None
+        ):
+            raise ValueError("EXPLICIT_NOT_REPORTED means the CLI reported no model")
+        return self
 
     @model_validator(mode="after")
     def validate_token_shape(self) -> "AiUsage":
@@ -417,6 +481,27 @@ class ResourceEventBatch(StrictModel):
         keys = [event.event_key for event in self.events]
         if len(set(keys)) != len(keys):
             raise ValueError("event_key must be unique inside a batch")
+        return self
+
+    @model_validator(mode="after")
+    def validate_model_provenance(self) -> "ResourceEventBatch":
+        """Reject an AI run that does not say which model it asked for.
+
+        Enforced on ingestion rather than on the model itself, so rows written
+        before the routing profile existed still load. A new run without a
+        named model is a worker that skipped routing, and its cost could never
+        be attributed to anything.
+        """
+        unattributed = [
+            event.event_key
+            for event in self.events
+            if event.event_type is ResourceEventType.AI_RUN
+            and (event.ai is None or event.ai.requested_model is None)
+        ]
+        if unattributed:
+            raise ValueError(
+                "an AI run must record the model it requested: " + ", ".join(unattributed[:5])
+            )
         return self
 
 

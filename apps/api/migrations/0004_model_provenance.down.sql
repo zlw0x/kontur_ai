@@ -1,0 +1,11 @@
+DROP INDEX ix_resource_events_model_observation_status;
+DROP INDEX ix_resource_events_requested_model;
+ALTER TABLE resource_events DROP COLUMN provenance_sha256;
+ALTER TABLE resource_events DROP COLUMN prompt_bundle_sha256;
+ALTER TABLE resource_events DROP COLUMN routing_rule_id;
+ALTER TABLE resource_events DROP COLUMN routing_profile_version;
+ALTER TABLE resource_events DROP COLUMN model_observation_status;
+ALTER TABLE resource_events DROP COLUMN observed_reasoning_effort;
+ALTER TABLE resource_events DROP COLUMN observed_model;
+ALTER TABLE resource_events RENAME COLUMN requested_reasoning_effort TO reasoning_effort;
+ALTER TABLE resource_events RENAME COLUMN requested_model TO model;

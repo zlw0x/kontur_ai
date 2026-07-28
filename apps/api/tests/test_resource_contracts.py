@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.contracts import (
     AiUsage,
     CapabilityStatus,
+    ModelObservationStatus,
     PricingProfile,
     ResourceEvent,
     ResourceEventBatch,
@@ -155,3 +156,106 @@ def test_pricing_profile_rejects_impossible_margin_and_validity_window():
     document["config"]["margin"]["rounding_step"] = "0"
     with pytest.raises(ValidationError):
         PricingProfile(**document)
+
+
+def ai_run_event(**ai_overrides) -> dict:
+    return {
+        "event_key": "job:a:ai:analysis:1",
+        "event_type": ResourceEventType.AI_RUN,
+        "stage": ResourceStage.DRAWING_ANALYSIS,
+        "started_at": STARTED,
+        "success": True,
+        "ai": {
+            "requested_model": "gpt-5.6-terra",
+            "model_observation_status": "EXPLICIT_NOT_REPORTED",
+            **ai_overrides,
+        },
+    }
+
+
+def test_requested_and_observed_models_are_not_collapsed_into_one_field():
+    """"We asked for Terra" and "Terra is what ran" are different claims, and
+    only the second justifies charging Terra's weight."""
+    asked = AiUsage(
+        requested_model="gpt-5.6-terra",
+        model_observation_status=ModelObservationStatus.EXPLICIT_NOT_REPORTED,
+    )
+    assert asked.observed_model is None
+    assert asked.billable_model == "gpt-5.6-terra"
+
+    confirmed = AiUsage(
+        requested_model="gpt-5.6-terra",
+        observed_model="gpt-5.6-terra",
+        model_observation_status=ModelObservationStatus.VERIFIED,
+    )
+    assert confirmed.billable_model == "gpt-5.6-terra"
+
+
+def test_a_disagreement_is_not_billed_to_either_model():
+    mismatched = AiUsage(
+        requested_model="gpt-5.6-terra",
+        observed_model="gpt-5.6-luna",
+        model_observation_status=ModelObservationStatus.MISMATCH,
+    )
+    # Charging the requested model would overstate; charging the observed one
+    # would trust a CLI that just contradicted an explicit instruction.
+    assert mismatched.billable_model is None
+
+
+def test_an_unattributed_run_never_falls_back_to_a_default_model():
+    unknown = AiUsage(model_observation_status=ModelObservationStatus.UNKNOWN)
+    assert unknown.billable_model is None
+
+
+def test_the_status_must_agree_with_the_fields_it_describes():
+    with pytest.raises(ValidationError):
+        AiUsage(model_observation_status=ModelObservationStatus.VERIFIED)
+    with pytest.raises(ValidationError):
+        AiUsage(requested_model="gpt-5.6-terra", model_observation_status=ModelObservationStatus.VERIFIED)
+    with pytest.raises(ValidationError):
+        AiUsage(requested_model="gpt-5.6-terra", model_observation_status=ModelObservationStatus.MISMATCH)
+    with pytest.raises(ValidationError):
+        AiUsage(
+            requested_model="gpt-5.6-terra",
+            observed_model="gpt-5.6-terra",
+            model_observation_status=ModelObservationStatus.EXPLICIT_NOT_REPORTED,
+        )
+    with pytest.raises(ValidationError):
+        AiUsage(requested_model="gpt-5.6-terra", model_observation_status=ModelObservationStatus.UNKNOWN)
+
+
+def test_a_new_ai_run_must_say_which_model_it_asked_for():
+    job_id = uuid4()
+    assert ResourceEventBatch(job_id=job_id, events=[ai_run_event()]).events[0].ai is not None
+
+    without_model = {
+        **ai_run_event(),
+        "ai": {"token_source": TokenSource.UNKNOWN},
+    }
+    with pytest.raises(ValidationError) as caught:
+        ResourceEventBatch(job_id=job_id, events=[without_model])
+    assert "must record the model it requested" in str(caught.value)
+
+    with pytest.raises(ValidationError):
+        ResourceEventBatch(
+            job_id=job_id,
+            events=[{**ai_run_event(), "ai": None}],
+        )
+
+
+def test_a_non_ai_event_needs_no_model():
+    """Only AI runs have a model. Requiring one everywhere would make a file
+    upload undeliverable."""
+    batch = ResourceEventBatch(
+        job_id=uuid4(),
+        events=[
+            {
+                "event_key": "job:a:transfer:input:drawing",
+                "event_type": ResourceEventType.TRANSFER,
+                "stage": ResourceStage.IMAGE_PREPROCESSING,
+                "started_at": STARTED,
+                "success": True,
+            }
+        ],
+    )
+    assert batch.events[0].ai is None

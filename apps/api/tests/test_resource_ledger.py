@@ -46,8 +46,9 @@ def ai_event(key: str, role: AgentRole = AgentRole.DRAWING_EXTRACTION, **overrid
             "wall_ms": 30_000,
             "success": True,
             "ai": {
-                "model": "gpt-5.6-terra",
-                "reasoning_effort": "medium",
+                "requested_model": "gpt-5.6-terra",
+                "model_observation_status": "EXPLICIT_NOT_REPORTED",
+                "requested_reasoning_effort": "medium",
                 "token_source": TokenSource.STRUCTURED,
                 "input_tokens": 1200,
                 "cached_input_tokens": 400,
@@ -166,7 +167,11 @@ def test_null_token_counts_round_trip_without_becoming_zero():
         agent_role=AgentRole.DRAWING_EXTRACTION,
         started_at=STARTED,
         success=True,
-        ai={"model": "gpt-5.6-terra", "token_source": TokenSource.UNKNOWN},
+        ai={
+            "requested_model": "gpt-5.6-terra",
+            "model_observation_status": "EXPLICIT_NOT_REPORTED",
+            "token_source": TokenSource.UNKNOWN,
+        },
     )
     ledger.record(job_id, [unmeasured])
 
@@ -185,7 +190,12 @@ def test_estimated_tokens_stay_marked_through_storage():
         [
             ai_event(
                 "job:a:ai:analysis:1",
-                ai={"token_source": TokenSource.ESTIMATED, "input_tokens": 900},
+                ai={
+                    "requested_model": "gpt-5.6-terra",
+                    "model_observation_status": "EXPLICIT_NOT_REPORTED",
+                    "token_source": TokenSource.ESTIMATED,
+                    "input_tokens": 900,
+                },
             )
         ],
     )

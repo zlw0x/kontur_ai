@@ -77,8 +77,9 @@ def ai_run(key: str, role: AgentRole, seconds: int = 30, **ai_overrides) -> Reso
         success=True,
         ai={
             **{
-                "model": "gpt-5.6-terra",
-                "reasoning_effort": "medium",
+                "requested_model": "gpt-5.6-terra",
+                "model_observation_status": "EXPLICIT_NOT_REPORTED",
+                "requested_reasoning_effort": "medium",
                 "token_source": TokenSource.STRUCTURED,
                 "input_tokens": 10_000,
                 "cached_input_tokens": 4_000,

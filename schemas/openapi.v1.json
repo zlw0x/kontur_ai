@@ -1344,7 +1344,7 @@
       },
       "AiUsage": {
         "properties": {
-          "model": {
+          "requested_model": {
             "anyOf": [
               {
                 "type": "string",
@@ -1354,9 +1354,21 @@
                 "type": "null"
               }
             ],
-            "title": "Model"
+            "title": "Requested Model"
           },
-          "reasoning_effort": {
+          "observed_model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Model"
+          },
+          "requested_reasoning_effort": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/ReasoningEffort"
@@ -1365,6 +1377,44 @@
                 "type": "null"
               }
             ]
+          },
+          "observed_reasoning_effort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningEffort"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_observation_status": {
+            "$ref": "#/components/schemas/ModelObservationStatus",
+            "default": "UNKNOWN"
+          },
+          "routing_profile_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routing Profile Version"
+          },
+          "routing_rule_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routing Rule Id"
           },
           "service_tier": {
             "$ref": "#/components/schemas/ServiceTier",
@@ -1393,6 +1443,30 @@
               }
             ],
             "title": "Prompt Version"
+          },
+          "prompt_bundle_sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Bundle Sha256"
+          },
+          "provenance_sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance Sha256"
           },
           "thread_id": {
             "anyOf": [
@@ -1473,7 +1547,8 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "AiUsage"
+        "title": "AiUsage",
+        "description": "What was asked of Codex, what came back, and how much is confirmed.\n\n`requested_model` and `observed_model` are deliberately separate. Collapsed\ninto one field, \"we asked for Terra\" becomes indistinguishable from \"Terra\nis what ran\", and only the second justifies charging Terra's weight."
       },
       "Artifact": {
         "properties": {
@@ -1896,6 +1971,7 @@
           "IDEMPOTENCY_CONFLICT",
           "CONTOUR_NOT_CLOSED",
           "LEDGER_EVENT_CONFLICT",
+          "CODEX_MODEL_MISMATCH",
           "CAPABILITY_NOT_SUPPORTED",
           "COST_SNAPSHOT_IMMUTABLE",
           "PRICING_PROFILE_UNKNOWN",
@@ -2154,6 +2230,17 @@
           "cad_ir_sha256"
         ],
         "title": "ManualCadJobResponse"
+      },
+      "ModelObservationStatus": {
+        "type": "string",
+        "enum": [
+          "UNKNOWN",
+          "EXPLICIT_NOT_REPORTED",
+          "VERIFIED",
+          "MISMATCH"
+        ],
+        "title": "ModelObservationStatus",
+        "description": "How much is actually known about which model served a run."
       },
       "OrderSnapshot": {
         "properties": {

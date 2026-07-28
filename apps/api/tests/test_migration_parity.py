@@ -17,6 +17,7 @@ MIGRATIONS = Path(__file__).parents[1] / "migrations"
 
 CREATE_TABLE = re.compile(r"CREATE TABLE (\w+)\s*\((.*?)\n\);", re.DOTALL)
 ADD_COLUMN = re.compile(r"ALTER TABLE (\w+) ADD COLUMN (\w+)")
+RENAME_COLUMN = re.compile(r"ALTER TABLE (\w+) RENAME COLUMN (\w+) TO (\w+)")
 
 
 def migrated_schema() -> dict[str, set[str]]:
@@ -31,6 +32,12 @@ def migrated_schema() -> dict[str, set[str]]:
             }
         for table, column in ADD_COLUMN.findall(sql):
             schema.setdefault(table, set()).add(column)
+        # Applied in file order, so a later rename supersedes the name an
+        # earlier migration created.
+        for table, old, new in RENAME_COLUMN.findall(sql):
+            columns = schema.setdefault(table, set())
+            columns.discard(old)
+            columns.add(new)
     return schema
 
 

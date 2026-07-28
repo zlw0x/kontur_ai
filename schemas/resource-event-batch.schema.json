@@ -18,8 +18,9 @@
     },
     "AiUsage": {
       "additionalProperties": false,
+      "description": "What was asked of Codex, what came back, and how much is confirmed.\n\n`requested_model` and `observed_model` are deliberately separate. Collapsed\ninto one field, \"we asked for Terra\" becomes indistinguishable from \"Terra\nis what ran\", and only the second justifies charging Terra's weight.",
       "properties": {
-        "model": {
+        "requested_model": {
           "anyOf": [
             {
               "maxLength": 100,
@@ -30,9 +31,22 @@
             }
           ],
           "default": null,
-          "title": "Model"
+          "title": "Requested Model"
         },
-        "reasoning_effort": {
+        "observed_model": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Model"
+        },
+        "requested_reasoning_effort": {
           "anyOf": [
             {
               "$ref": "#/$defs/ReasoningEffort"
@@ -42,6 +56,47 @@
             }
           ],
           "default": null
+        },
+        "observed_reasoning_effort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningEffort"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "model_observation_status": {
+          "$ref": "#/$defs/ModelObservationStatus",
+          "default": "UNKNOWN"
+        },
+        "routing_profile_version": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Routing Profile Version"
+        },
+        "routing_rule_id": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Routing Rule Id"
         },
         "service_tier": {
           "$ref": "#/$defs/ServiceTier",
@@ -72,6 +127,32 @@
           ],
           "default": null,
           "title": "Prompt Version"
+        },
+        "prompt_bundle_sha256": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Bundle Sha256"
+        },
+        "provenance_sha256": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provenance Sha256"
         },
         "thread_id": {
           "anyOf": [
@@ -235,6 +316,17 @@
       },
       "title": "CadUsage",
       "type": "object"
+    },
+    "ModelObservationStatus": {
+      "description": "How much is actually known about which model served a run.",
+      "enum": [
+        "UNKNOWN",
+        "EXPLICIT_NOT_REPORTED",
+        "VERIFIED",
+        "MISMATCH"
+      ],
+      "title": "ModelObservationStatus",
+      "type": "string"
     },
     "ProcessUsage": {
       "additionalProperties": false,

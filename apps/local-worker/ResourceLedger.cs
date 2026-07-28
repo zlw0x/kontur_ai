@@ -55,11 +55,18 @@ public enum AgentRole
 }
 
 public sealed record AiUsagePayload(
-    [property: JsonPropertyName("model")] string? Model,
-    [property: JsonPropertyName("reasoning_effort")] string? ReasoningEffort,
+    [property: JsonPropertyName("requested_model")] string? RequestedModel,
+    [property: JsonPropertyName("observed_model")] string? ObservedModel,
+    [property: JsonPropertyName("requested_reasoning_effort")] string? RequestedReasoningEffort,
+    [property: JsonPropertyName("observed_reasoning_effort")] string? ObservedReasoningEffort,
+    [property: JsonPropertyName("model_observation_status")] string ModelObservationStatus,
+    [property: JsonPropertyName("routing_profile_version")] string? RoutingProfileVersion,
+    [property: JsonPropertyName("routing_rule_id")] string? RoutingRuleId,
     [property: JsonPropertyName("service_tier")] string ServiceTier,
     [property: JsonPropertyName("cli_version")] string? CliVersion,
     [property: JsonPropertyName("prompt_version")] string? PromptVersion,
+    [property: JsonPropertyName("prompt_bundle_sha256")] string? PromptBundleSha256,
+    [property: JsonPropertyName("provenance_sha256")] string? ProvenanceSha256,
     [property: JsonPropertyName("thread_id")] string? ThreadId,
     [property: JsonPropertyName("token_source")] string TokenSource,
     [property: JsonPropertyName("input_tokens")] long? InputTokens,
@@ -367,15 +374,27 @@ public static class CodexLedgerExtensions
     /// Unavailable counts stay null, and the source records whether the
     /// numbers were measured, summarised or never obtained.
     /// </summary>
-    public static AiUsagePayload ToAiUsage(this CodexStageResult result, string promptVersion)
+    public static AiUsagePayload ToAiUsage(
+        this CodexStageResult result,
+        string promptVersion,
+        string? promptBundleSha256 = null)
     {
         var reading = result.UsageReading?.Reading ?? CodexUsageReading.Unknown;
+        var observation = result.ModelObservation
+            ?? CodexModelObservation.Compare(result.Model, null, result.ReasoningEffort, null);
         return new AiUsagePayload(
-            result.Model,
-            result.ReasoningEffort,
+            observation.RequestedModel,
+            observation.ObservedModel,
+            observation.RequestedReasoningEffort,
+            observation.ObservedReasoningEffort,
+            observation.StatusCode,
+            result.Routing?.ProfileVersion,
+            result.Routing?.RuleId,
             "standard",
             result.CliVersion,
             promptVersion,
+            result.ProvenanceSha256 is null ? null : promptBundleSha256,
+            result.ProvenanceSha256,
             result.ThreadId,
             reading.Source switch
             {

@@ -125,8 +125,19 @@ class ResourceLedgerService:
             stage=event.stage.value,
             attempt_no=event.attempt_no,
             agent_role=event.agent_role.value if event.agent_role else None,
-            model=ai.model if ai else None,
-            reasoning_effort=ai.reasoning_effort.value if ai and ai.reasoning_effort else None,
+            requested_model=ai.requested_model if ai else None,
+            observed_model=ai.observed_model if ai else None,
+            requested_reasoning_effort=(
+                ai.requested_reasoning_effort.value if ai and ai.requested_reasoning_effort else None
+            ),
+            observed_reasoning_effort=(
+                ai.observed_reasoning_effort.value if ai and ai.observed_reasoning_effort else None
+            ),
+            model_observation_status=ai.model_observation_status.value if ai else None,
+            routing_profile_version=ai.routing_profile_version if ai else None,
+            routing_rule_id=ai.routing_rule_id if ai else None,
+            prompt_bundle_sha256=ai.prompt_bundle_sha256 if ai else None,
+            provenance_sha256=ai.provenance_sha256 if ai else None,
             service_tier=ai.service_tier.value if ai else None,
             cli_version=ai.cli_version if ai else None,
             prompt_version=ai.prompt_version if ai else None,
@@ -176,8 +187,17 @@ class ResourceLedgerService:
         ai = None
         if row.event_type == ResourceEventType.AI_RUN.value:
             ai = {
-                "model": row.model,
-                "reasoning_effort": row.reasoning_effort,
+                "requested_model": row.requested_model,
+                "observed_model": row.observed_model,
+                "requested_reasoning_effort": row.requested_reasoning_effort,
+                "observed_reasoning_effort": row.observed_reasoning_effort,
+                # Rows written before the routing profile existed named no
+                # model, and UNKNOWN is exactly what they meant.
+                "model_observation_status": row.model_observation_status or "UNKNOWN",
+                "routing_profile_version": row.routing_profile_version,
+                "routing_rule_id": row.routing_rule_id,
+                "prompt_bundle_sha256": row.prompt_bundle_sha256,
+                "provenance_sha256": row.provenance_sha256,
                 "service_tier": row.service_tier or "standard",
                 "cli_version": row.cli_version,
                 "prompt_version": row.prompt_version,

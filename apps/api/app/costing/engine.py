@@ -145,8 +145,13 @@ def _run_units(ai: AiUsage | None, weights) -> Decimal:
         + Decimal(ai.output_tokens or 0) * weights.output_token
         + Decimal(ai.reasoning_tokens or 0) * weights.reasoning_token
     )
-    model_weight = weights.models.get(ai.model, weights.default_model) if ai.model else weights.default_model
-    effort_weight = weights.reasoning.get(ai.reasoning_effort, Decimal(1)) if ai.reasoning_effort else Decimal(1)
+    # Only a confirmed attribution earns its model's weight. An unverifiable
+    # run falls back to the neutral default rather than to a guess about which
+    # model probably served it; see ADR-017.
+    billable = ai.billable_model
+    model_weight = weights.models.get(billable, weights.default_model) if billable else weights.default_model
+    effort = ai.requested_reasoning_effort
+    effort_weight = weights.reasoning.get(effort, Decimal(1)) if effort else Decimal(1)
     tier_weight = weights.service_tier.get(ai.service_tier, Decimal(1))
     return base_tokens * model_weight * effort_weight * tier_weight
 

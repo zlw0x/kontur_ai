@@ -53,7 +53,8 @@ def ai(key, role, offset, seconds, **ai_overrides) -> ResourceEvent:
         agent_role=role,
         ai={
             **{
-                "model": "gpt-5.6-terra",
+                "requested_model": "gpt-5.6-terra",
+                "model_observation_status": "EXPLICIT_NOT_REPORTED",
                 "token_source": TokenSource.STRUCTURED,
                 "input_tokens": 9000,
                 "cached_input_tokens": 3000,
@@ -143,7 +144,11 @@ def test_unknown_usage_warns_but_does_not_fail_the_job():
         0,
         40,
         agent_role=AgentRole.DRAWING_EXTRACTION,
-        ai={"model": "gpt-5.6-terra", "token_source": TokenSource.UNKNOWN},
+        ai={
+            "requested_model": "gpt-5.6-terra",
+            "model_observation_status": "EXPLICIT_NOT_REPORTED",
+            "token_source": TokenSource.UNKNOWN,
+        },
     )
 
     audit = audit_job_ledger(events)

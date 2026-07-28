@@ -138,10 +138,13 @@ public sealed class ResourceLedgerTests
         Assert.Equal("STRUCTURED", usage.TokenSource);
         Assert.Equal(1000, usage.InputTokens);
         Assert.Equal(400, usage.CachedInputTokens);
-        Assert.Equal("gpt-5.6-terra", usage.Model);
-        Assert.Equal("medium", usage.ReasoningEffort);
+        Assert.Equal("gpt-5.6-terra", usage.RequestedModel);
+        Assert.Equal("medium", usage.RequestedReasoningEffort);
         Assert.Equal("drawing-mvp-1", usage.PromptVersion);
         Assert.Equal("codex-cli 0.145.0", usage.CliVersion);
+        // The CLI reported no model, so the request is all that is confirmed.
+        Assert.Null(usage.ObservedModel);
+        Assert.Equal("EXPLICIT_NOT_REPORTED", usage.ModelObservationStatus);
 
         var process = result.ToProcessUsage();
         Assert.NotNull(process);
@@ -192,6 +195,12 @@ public sealed class ResourceLedgerTests
             Assert.Contains(aiRuns, item => item.AgentRole == "CAD_IR_COMPILATION");
             Assert.Contains(ledger.Events, item => item.EventType == "VALIDATION" && item.Success);
             Assert.All(aiRuns, item => Assert.Equal("drawing-mvp-1", item.Ai!.PromptVersion));
+            // Every run names the model the routing profile chose, and carries
+            // the profile version that chose it.
+            Assert.All(aiRuns, item => Assert.Equal("gpt-5.6-terra", item.Ai!.RequestedModel));
+            Assert.All(aiRuns, item => Assert.Equal(
+                CodexRoutingProfile.CurrentVersion, item.Ai!.RoutingProfileVersion));
+            Assert.All(aiRuns, item => Assert.NotNull(item.Ai!.ProvenanceSha256));
         }
         finally { Directory.Delete(workspace, recursive: true); }
     }
@@ -311,7 +320,13 @@ public sealed class ResourceLedgerTests
                 new CodexProcessMetrics(50, 10, 400_000, 0),
                 "codex-cli 0.145.0",
                 request.Model,
-                request.ReasoningEffort);
+                request.ReasoningEffort,
+                request.Routing,
+                CodexModelObservation.Compare(request.Model, null, request.ReasoningEffort, null),
+                request.Routing is null || request.PromptBundleSha256 is null
+                    ? null
+                    : CodexProvenance.Fingerprint(
+                        hash, request.PromptBundleSha256, request.Routing, "codex-cli 0.145.0"));
         }
     }
 }
