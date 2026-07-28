@@ -16,7 +16,12 @@ from app.contracts import (
     WorkerCapability,
 )
 from app.database import Base, create_session_factory
-from app.ledger.service import LedgerError, ResourceLedgerService, derive_counters
+from app.ledger.service import (
+    LedgerError,
+    ResourceLedgerService,
+    content_fingerprint,
+    derive_counters,
+)
 from app.main import app
 from app.workers.protocol import InMemoryWorkerRepository, Job, WorkerProtocolService
 
@@ -100,6 +105,46 @@ def test_same_key_with_different_content_is_rejected():
         ledger.record(job_id, [ai_event("job:a:ai:analysis:1", role=AgentRole.REPAIR)])
     assert caught.value.code == ErrorCode.LEDGER_EVENT_CONFLICT
     assert len(ledger.events(job_id)) == 1
+
+
+def test_events_read_back_are_identical_to_what_was_submitted():
+    """Found by the first real end-to-end run.
+
+    A TRANSFER event carries no CAD usage, but every event shares one wide
+    row, so reconstruction used to return an all-null `cad` object. That
+    changed the event's content fingerprint, and re-recording events read back
+    from the database was rejected as a key collision — which would break any
+    backfill, migration or replication that round-trips the ledger.
+    """
+    ledger = ledger_fixture()
+    job_id = uuid4()
+    submitted = [
+        ResourceEvent(
+            event_key="job:a:transfer:input:drawing",
+            event_type=ResourceEventType.TRANSFER,
+            stage=ResourceStage.IMAGE_PREPROCESSING,
+            started_at=STARTED,
+            finished_at=STARTED + timedelta(milliseconds=9),
+            wall_ms=9,
+            success=True,
+            process={"bytes_read": 11359},
+        ),
+        ai_event("job:a:ai:analysis:1"),
+        cad_event("job:a:cad:extrude:1"),
+    ]
+    ledger.record(job_id, submitted)
+
+    read_back = {event.event_key: event for event in ledger.events(job_id)}
+    for event in submitted:
+        assert content_fingerprint(read_back[event.event_key]) == content_fingerprint(event)
+
+    transfer = read_back["job:a:transfer:input:drawing"]
+    assert transfer.cad is None
+    assert transfer.ai is None
+    assert transfer.process is not None and transfer.process.bytes_read == 11359
+
+    # Re-recording what was read back is a replay, not a conflict.
+    assert ledger.record(job_id, list(read_back.values())) == (0, 3)
 
 
 def test_the_same_key_may_repeat_across_different_jobs():

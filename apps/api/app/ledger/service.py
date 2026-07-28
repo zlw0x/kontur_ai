@@ -165,6 +165,14 @@ class ResourceLedgerService:
 
     @staticmethod
     def _event(row: ResourceEventRow) -> ResourceEvent:
+        """Rebuild the event exactly as it was submitted.
+
+        Sub-objects are omitted when the row holds nothing for them. Returning
+        an all-null `cad` for an upload that never touched CAD would misreport
+        the event to every consumer, and would make its content fingerprint
+        differ from the one stored at ingestion — so re-recording events read
+        back from the database would be rejected as a key collision.
+        """
         ai = None
         if row.event_type == ResourceEventType.AI_RUN.value:
             ai = {
@@ -181,6 +189,25 @@ class ResourceLedgerService:
                 "reasoning_tokens": row.reasoning_tokens,
                 "total_tokens": row.total_tokens,
             }
+
+        process = {
+            "cpu_user_ms": row.cpu_user_ms,
+            "cpu_system_ms": row.cpu_system_ms,
+            "peak_memory_bytes": row.peak_memory_bytes,
+            "bytes_read": row.bytes_read,
+            "bytes_written": row.bytes_written,
+            "exit_code": row.exit_code,
+            "termination_reason": row.termination_reason,
+            "retry_number": row.retry_number,
+        }
+        cad = {
+            "operation_code": row.operation_code,
+            "operation_count": row.operation_count,
+            "failed_feature_count": row.failed_feature_count,
+            "session_reuse_count": row.session_reuse_count,
+            "forced_termination": row.forced_termination,
+            "result_bytes": row.result_bytes,
+        }
         return ResourceEvent(
             event_key=row.event_key,
             event_type=ResourceEventType(row.event_type),
@@ -193,28 +220,26 @@ class ResourceLedgerService:
             success=row.success,
             failure_code=row.failure_code,
             ai=ai,
-            process={
-                "cpu_user_ms": row.cpu_user_ms,
-                "cpu_system_ms": row.cpu_system_ms,
-                "peak_memory_bytes": row.peak_memory_bytes,
-                "bytes_read": row.bytes_read,
-                "bytes_written": row.bytes_written,
-                "exit_code": row.exit_code,
-                "termination_reason": row.termination_reason,
-                "retry_number": row.retry_number,
-            },
-            cad={
-                "operation_code": row.operation_code,
-                "operation_count": row.operation_count,
-                "failed_feature_count": row.failed_feature_count,
-                "session_reuse_count": row.session_reuse_count,
-                "forced_termination": row.forced_termination,
-                "result_bytes": row.result_bytes,
-            },
+            process=process if _carries_data(process, {"retry_number": 0}) else None,
+            cad=cad if _carries_data(cad, {"forced_termination": False}) else None,
             storage_byte_seconds=row.storage_byte_seconds,
             human_minutes=row.human_minutes,
             metadata=row.event_metadata or {},
         )
+
+
+def _carries_data(fields: dict, defaults: dict) -> bool:
+    """True when a sub-object holds anything beyond its column defaults.
+
+    Nullable columns are shared by every event type, so an upload and a CAD
+    operation write to the same row shape. Only the values that were actually
+    set distinguish "this event had process usage" from "these columns were
+    never populated".
+    """
+    return any(
+        value is not None and value != defaults.get(name)
+        for name, value in fields.items()
+    )
 
 
 def _aware(value: datetime | None) -> datetime | None:
