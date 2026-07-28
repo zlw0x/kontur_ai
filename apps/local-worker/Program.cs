@@ -27,8 +27,11 @@ try
                 paths,
                 args.Contains("--fake-cad", StringComparer.OrdinalIgnoreCase));
         case "analyze-drawing":
+            // --inject-cad-ir-fault is an acceptance affordance and is offered
+            // here only. `run` serves real orders and must never reach it.
             return await DrawingJobHandler.RunAsync(
-                args.Skip(1).FirstOrDefault(value => !value.StartsWith("--", StringComparison.Ordinal)));
+                args.Skip(1).FirstOrDefault(value => !value.StartsWith("--", StringComparison.Ordinal)),
+                args.Contains("--inject-cad-ir-fault", StringComparer.OrdinalIgnoreCase));
         case "probe-kompas":
             return await KompasProbe.RunAsync();
         case "probe-codex":
@@ -38,7 +41,7 @@ try
             Console.WriteLine(JsonSerializer.Serialize(new { status = "LOGGED_OUT" }));
             return 0;
         default:
-            Console.Error.WriteLine("Usage: cad-worker doctor | enroll --server URL --token TOKEN | run [--once] | run-job PATH [--fake-cad] | analyze-drawing PATH | probe-kompas | probe-codex | logout");
+            Console.Error.WriteLine("Usage: cad-worker doctor | enroll --server URL --token TOKEN | run [--once] | run-job PATH [--fake-cad] | analyze-drawing PATH [--inject-cad-ir-fault] | probe-kompas | probe-codex | logout");
             return 2;
     }
 }

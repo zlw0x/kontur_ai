@@ -21,7 +21,7 @@ public sealed class ResourceLedgerTests
         }
 
         var recorded = Assert.Single(ledger.Events);
-        Assert.Equal("job:job-1:cad:session:1", recorded.EventKey);
+        Assert.Equal("job:job-1:attempt:1:cad:session:1", recorded.EventKey);
         Assert.Equal("CAD_SESSION", recorded.EventType);
         Assert.True(recorded.Success);
         Assert.Null(recorded.FailureCode);
@@ -76,6 +76,35 @@ public sealed class ResourceLedgerTests
         Assert.Equal(
             first.Key("ai", "drawing_analysis", "1"),
             second.Key("ai", "drawing_analysis", "1"));
+    }
+
+    [Fact]
+    public void ARetriedAttemptGetsItsOwnKeysRatherThanCollidingWithTheFirst()
+    {
+        // Found by the acceptance run's recovery test. A retry re-measures the
+        // same stages; sharing keys with the abandoned attempt would make the
+        // ledger reject the whole batch as a collision and lose the retry's
+        // measurements silently.
+        var firstAttempt = new ResourceLedger("job-1", attempt: 1);
+        var secondAttempt = new ResourceLedger("job-1", attempt: 2);
+
+        Assert.NotEqual(
+            firstAttempt.Key("ai", "drawing_analysis", "1"),
+            secondAttempt.Key("ai", "drawing_analysis", "1"));
+        Assert.Contains(":attempt:2:", secondAttempt.Key("ai", "drawing_analysis", "1"));
+    }
+
+    [Fact]
+    public void TheRecordedAttemptMatchesTheAttemptTheJobIsOn()
+    {
+        var ledger = new ResourceLedger("job-1", attempt: 3);
+        using (var scope = ledger.Begin(
+            ledger.Key("cad", "session", "1"), ResourceEventType.CAD_SESSION, ResourceStage.KOMPAS_STARTUP))
+        {
+            scope.Succeeded();
+        }
+
+        Assert.Equal(3, Assert.Single(ledger.Events).AttemptNo);
     }
 
     [Fact]

@@ -17,7 +17,8 @@ public sealed class DrawingPipeline(
     CodexModelRouter? router = null,
     CodexBudgetState? budget = null,
     CodexBudgetPolicy? policy = null,
-    ResourceLedger? ledger = null)
+    ResourceLedger? ledger = null,
+    bool injectFirstCadIrFault = false)
 {
     /// <summary>
     /// Identifies the prompt text a run used. Token counts are only comparable
@@ -148,6 +149,19 @@ public sealed class DrawingPipeline(
         // The structured-output schema is enforced by Codex CLI. This typed,
         // bounded parser is the second local gate before trusted CAD code.
         var candidatePath = cadIrPath;
+        if (injectFirstCadIrFault)
+        {
+            // Acceptance-only: corrupt the first candidate so the trusted
+            // parser rejects it and exactly one repair is provoked. Reachable
+            // solely from the local `analyze-drawing` diagnostic command, so a
+            // customer order served by the claim loop can never take this path.
+            await CorruptCadIrAsync(candidatePath, cancellationToken);
+            ledger?.Warn(
+                ledger.Key("fault", "injected", "cad_ir"),
+                ResourceStage.SEMANTIC_VALIDATION,
+                "ACCEPTANCE_FAULT_INJECTED",
+                "first CAD-IR candidate was deliberately corrupted");
+        }
         for (var repairAttempt = 0; ; repairAttempt++)
         {
             try
@@ -266,6 +280,22 @@ public sealed class DrawingPipeline(
         {{answers}}
         """;
 
+    /// <summary>
+    /// Replace the first feature's type with one the adapter does not accept.
+    /// The document stays schema-shaped, so it is the trusted semantic gate
+    /// that rejects it — the same path a genuinely wrong CAD-IR would take.
+    /// </summary>
+    private static async Task CorruptCadIrAsync(string path, CancellationToken cancellationToken)
+    {
+        var text = await File.ReadAllTextAsync(path, cancellationToken);
+        var corrupted = text.Replace("\"extrude_add\"", "\"loft_add\"", StringComparison.Ordinal);
+        if (corrupted == text)
+            throw new WorkerException(
+                "FAULT_INJECTION_FAILED",
+                "The CAD-IR candidate did not contain the feature the fault injector targets.");
+        await FakeJobHandler.AtomicWriteAsync(path, corrupted);
+    }
+
     private static async Task<string> ReadBoundedAsync(
         string path,
         int maxBytes,
@@ -292,6 +322,7 @@ public static class DrawingJobHandler
 {
     public static async Task<int> RunAsync(
         string? path,
+        bool injectFirstCadIrFault = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -305,17 +336,27 @@ public static class DrawingJobHandler
                 .ToArray()
             : [];
         var answers = Path.Combine(workspace, "context", "user-answers.json");
-        var result = await new DrawingPipeline(new LocalCodexRunner()).RunAsync(
-            workspace,
-            images,
-            File.Exists(answers) ? answers : null,
-            cancellationToken);
+        var ledger = new ResourceLedger(Path.GetFileName(workspace));
+        var result = await new DrawingPipeline(
+                new LocalCodexRunner(), ledger: ledger, injectFirstCadIrFault: injectFirstCadIrFault)
+            .RunAsync(workspace, images, File.Exists(answers) ? answers : null, cancellationToken);
+
+        // The local command has no API to ship to, so the measurements are
+        // written beside the artifacts where an audit can read them.
+        var ledgerPath = Path.Combine(workspace, "output", "resource-events.json");
+        await FakeJobHandler.AtomicWriteAsync(
+            ledgerPath,
+            JsonSerializer.Serialize(
+                new { schema_version = "1.0", events = ledger.Events },
+                new JsonSerializerOptions { WriteIndented = true }));
+
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             status = result.Status,
             analysis = Path.GetFileName(result.AnalysisPath),
             questions = Path.GetFileName(result.QuestionsPath),
-            cad_ir = result.CadIrPath is null ? null : Path.GetFileName(result.CadIrPath)
+            cad_ir = result.CadIrPath is null ? null : Path.GetFileName(result.CadIrPath),
+            resource_events = ledger.Events.Count
         }));
         return result.Status == "WAITING_FOR_USER_ANSWERS" ? 10 : 0;
     }

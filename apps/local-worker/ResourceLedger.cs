@@ -118,7 +118,17 @@ public sealed class ResourceLedger(string jobId, int attempt = 1)
 
     public IReadOnlyList<ResourceEventPayload> Events => events;
 
-    public string Key(params string[] parts) => string.Join(':', ["job", jobId, .. parts]);
+    /// <summary>
+    /// Deterministic identity for one measurement.
+    /// </summary>
+    /// <remarks>
+    /// The attempt is part of the key. A retried job re-measures the same
+    /// stages, and without it the second attempt would resubmit the first
+    /// attempt's keys carrying different timings — which the ledger correctly
+    /// rejects as a collision, silently discarding the retry's measurements.
+    /// </remarks>
+    public string Key(params string[] parts) =>
+        string.Join(':', ["job", jobId, "attempt", attempt.ToString(), .. parts]);
 
     /// <summary>Start measuring a stage; the returned scope records on dispose.</summary>
     public ResourceScope Begin(

@@ -193,6 +193,57 @@ def test_estimated_tokens_stay_marked_through_storage():
     assert stored.ai.token_count_estimated is True
 
 
+def test_geometry_and_semantic_validation_are_counted_separately():
+    """Found by the acceptance run: both are VALIDATION events, and counting
+    them together claimed two geometry checks on a job that ran one."""
+    ledger = ledger_fixture()
+    job_id = uuid4()
+    ledger.record(
+        job_id,
+        [
+            ResourceEvent(
+                event_key="job:a:validate:cad_ir:1",
+                event_type=ResourceEventType.VALIDATION,
+                stage=ResourceStage.SEMANTIC_VALIDATION,
+                started_at=STARTED,
+                success=True,
+            ),
+            ResourceEvent(
+                event_key="job:a:validate:geometry:1",
+                event_type=ResourceEventType.VALIDATION,
+                stage=ResourceStage.GEOMETRY_VALIDATION,
+                started_at=STARTED,
+                success=True,
+            ),
+        ],
+    )
+
+    assert derive_counters(ledger.events(job_id)).geometry_validation_runs == 1
+
+
+def test_exports_recorded_as_cad_operations_still_count_as_attempts():
+    """The adapter reports its export step as a CAD operation at the EXPORT
+    stage; counting only the EXPORT event type left export_attempts at zero on
+    every real job."""
+    ledger = ledger_fixture()
+    job_id = uuid4()
+    ledger.record(
+        job_id,
+        [
+            ResourceEvent(
+                event_key="job:a:cad:operation:export_step_stl",
+                event_type=ResourceEventType.EXPORT,
+                stage=ResourceStage.EXPORT,
+                started_at=STARTED,
+                success=True,
+                cad={"operation_code": "export_step_stl", "operation_count": 1},
+            )
+        ],
+    )
+
+    assert derive_counters(ledger.events(job_id)).export_attempts == 1
+
+
 def test_counters_are_derived_from_events_and_ignore_replays():
     ledger = ledger_fixture()
     job_id = uuid4()

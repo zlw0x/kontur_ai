@@ -219,7 +219,8 @@ def test_a_provoked_repair_shows_the_expected_counter_shape():
     assert counters.analysis_runs == 1
     assert counters.repair_runs == 1
     assert counters.cad_build_attempts == 2
-    assert counters.geometry_validation_runs == 2
+    # One geometry check ran; the CAD-IR semantic validation is not one.
+    assert counters.geometry_validation_runs == 1
     assert expected_repair_shape(counters) == []
 
 

@@ -286,9 +286,18 @@ def derive_counters(events: list[ResourceEvent]) -> JobIterationCounters:
             bump("cad_build_attempts")
         if event.event_type is ResourceEventType.CAD_OPERATION and not event.success:
             bump("cad_feature_failures")
-        if event.event_type is ResourceEventType.VALIDATION:
+        # Discriminated by stage, not by type. CAD-IR semantic validation and
+        # independent geometry validation are both VALIDATION events, and
+        # counting them together overstated geometry checks on every job.
+        if (
+            event.event_type is ResourceEventType.VALIDATION
+            and event.stage is ResourceStage.GEOMETRY_VALIDATION
+        ):
             bump("geometry_validation_runs")
-        if event.event_type is ResourceEventType.EXPORT:
+        if event.event_type is ResourceEventType.EXPORT or (
+            event.event_type is ResourceEventType.CAD_OPERATION
+            and event.stage is ResourceStage.EXPORT
+        ):
             bump("export_attempts")
         if event.human_minutes is not None:
             human_minutes += event.human_minutes

@@ -170,27 +170,55 @@ public static class LocalCadJobHandler
         ResourceLedger? ledger,
         IReadOnlyList<CadOperationRecord>? operations)
     {
-        if (ledger is null || operations is null) return;
-        var finishedAt = DateTimeOffset.UtcNow;
+        if (ledger is null || operations is null || operations.Count == 0) return;
+
+        // The adapter measures consecutive steps, so they are laid end to end
+        // finishing when the build finished. Giving every step the same finish
+        // time made long steps look like they started first, which put the
+        // ledger in an order the build never ran in.
+        var total = operations.Sum(operation => operation.WallMs);
+        var cursor = DateTimeOffset.UtcNow.AddMilliseconds(-total);
         foreach (var operation in operations)
         {
+            var startedAt = cursor;
+            cursor = cursor.AddMilliseconds(operation.WallMs);
+            var stage = LedgerStageFor(operation.Stage);
             ledger.Add(new ResourceEventPayload(
                 ledger.Key("cad", "operation", operation.OperationCode),
-                nameof(ResourceEventType.CAD_OPERATION),
-                nameof(ResourceStage.FEATURE_BUILD),
+                stage == ResourceStage.EXPORT
+                    ? nameof(ResourceEventType.EXPORT)
+                    : nameof(ResourceEventType.CAD_OPERATION),
+                stage.ToString(),
                 1,
                 null,
-                finishedAt.AddMilliseconds(-operation.WallMs),
-                finishedAt,
+                startedAt,
+                cursor,
                 operation.WallMs,
                 operation.Success,
                 operation.FailureCode,
                 null,
                 null,
                 new CadUsagePayload(operation.OperationCode, 1, operation.Success ? 0 : 1, 0, false, null),
-                new Dictionary<string, string> { ["stage"] = operation.Stage }));
+                new Dictionary<string, string> { ["adapter_stage"] = operation.Stage }));
         }
     }
+
+    /// <summary>
+    /// Map an adapter step onto the ledger's stage vocabulary.
+    /// </summary>
+    /// <remarks>
+    /// Recording every step as FEATURE_BUILD made startup, save and export
+    /// indistinguishable from actual feature work, so export attempts were
+    /// never counted and a slow KOMPAS launch looked like slow modelling.
+    /// </remarks>
+    private static ResourceStage LedgerStageFor(string adapterStage) => adapterStage switch
+    {
+        "activation" => ResourceStage.KOMPAS_STARTUP,
+        "document" => ResourceStage.DOCUMENT_BUILD,
+        "sketch" or "feature" => ResourceStage.FEATURE_BUILD,
+        "save" or "export" => ResourceStage.EXPORT,
+        _ => ResourceStage.FEATURE_BUILD
+    };
 }
 
 public static class ClaimLoop
@@ -254,7 +282,7 @@ public static class ClaimLoop
     {
         var jobPath = Path.Combine(paths.WorkspaceRoot, job.job_id);
         Directory.CreateDirectory(jobPath);
-        var ledger = new ResourceLedger(job.job_id);
+        var ledger = new ResourceLedger(job.job_id, job.attempt);
         var manifest = await client.GetFromJsonAsync<JobManifest>(job.manifest_url, cancellation)
             ?? throw new WorkerException("MANIFEST_INVALID", "Job manifest was empty.");
         if (manifest.manifest_version != "1.0" || manifest.job_id != job.job_id)
@@ -430,6 +458,7 @@ public static class ClaimLoop
     private sealed record ClaimedJob(
         string job_id,
         string job_type,
+        int attempt,
         string idempotency_key,
         string manifest_url);
     private sealed record JobManifest(
