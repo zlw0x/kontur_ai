@@ -1,0 +1,931 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.1",
+  "title": "CadIrDocument",
+  "$defs": {
+    "BodyCountExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "body_count",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "value"
+      ],
+      "title": "BodyCountExpectation",
+      "type": "object"
+    },
+    "BoundingBoxExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "bounding_box",
+          "title": "Type",
+          "type": "string"
+        },
+        "size_mm": {
+          "$ref": "#/$defs/Size3"
+        },
+        "tolerance_mm": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Tolerance Mm",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "size_mm",
+        "tolerance_mm"
+      ],
+      "title": "BoundingBoxExpectation",
+      "type": "object"
+    },
+    "CenterRectangle": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "center_rectangle",
+          "title": "Type",
+          "type": "string"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center",
+          "type": "array"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Height"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "center",
+        "width",
+        "height"
+      ],
+      "title": "CenterRectangle",
+      "type": "object"
+    },
+    "Circle": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "circle",
+          "title": "Type",
+          "type": "string"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center",
+          "type": "array"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Radius"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "center",
+        "radius"
+      ],
+      "title": "Circle",
+      "type": "object"
+    },
+    "CutExtrudeFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "cut.extrude",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 64,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/CutExtrudeInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "CutExtrudeFeature",
+      "type": "object"
+    },
+    "CutExtrudeInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "sketch": {
+          "$ref": "#/$defs/Sketch"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "through_all": {
+          "default": false,
+          "title": "Through All",
+          "type": "boolean"
+        },
+        "distance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distance"
+        },
+        "source_body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "sketch",
+        "direction"
+      ],
+      "title": "CutExtrudeInputs",
+      "type": "object"
+    },
+    "Direction": {
+      "enum": [
+        "+X",
+        "-X",
+        "+Y",
+        "-Y",
+        "+Z",
+        "-Z"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "DocumentHeader": {
+      "additionalProperties": false,
+      "properties": {
+        "units": {
+          "const": "mm",
+          "title": "Units",
+          "type": "string"
+        },
+        "part_type": {
+          "$ref": "#/$defs/PartType",
+          "default": "single_part"
+        },
+        "coordinate_system": {
+          "const": "right_handed",
+          "default": "right_handed",
+          "title": "Coordinate System",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "required": [
+        "units"
+      ],
+      "title": "DocumentHeader",
+      "type": "object"
+    },
+    "DocumentMetadata": {
+      "additionalProperties": false,
+      "description": "Who wrote this document, not which model wrote it.\n\nModel, reasoning effort and CLI version belong to the AI run that produced\nthe document (ADR-017). Putting them here would change the canonical hash\nof an identical part whenever the model changed, which would make the hash\nuseless for the one thing it is for.",
+      "properties": {
+        "generator": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Generator",
+          "type": "string"
+        },
+        "generator_version": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Generator Version",
+          "type": "string"
+        },
+        "prompt_version": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Version"
+        },
+        "generation_attempt_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation Attempt Id"
+        }
+      },
+      "required": [
+        "generator",
+        "generator_version"
+      ],
+      "title": "DocumentMetadata",
+      "type": "object"
+    },
+    "FeatureResult": {
+      "additionalProperties": false,
+      "description": "Something a feature creates that a later feature may refer to.\n\nNaming results explicitly is what lets a later operation say \"the body the\nbase extrusion made\" instead of \"whatever the previous feature left\nbehind\", which stops meaning the same thing as soon as features are\nreordered.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ResultKind"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "FeatureResult",
+      "type": "object"
+    },
+    "Parameter": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/ParameterType"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "status": {
+          "$ref": "#/$defs/ParameterStatus",
+          "default": "confirmed"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "value"
+      ],
+      "title": "Parameter",
+      "type": "object"
+    },
+    "ParameterRef": {
+      "additionalProperties": false,
+      "description": "A reference to a named parameter, the only indirection 1.1 allows.",
+      "properties": {
+        "parameter": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Parameter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parameter"
+      ],
+      "title": "ParameterRef",
+      "type": "object"
+    },
+    "ParameterStatus": {
+      "enum": [
+        "confirmed",
+        "user_confirmed",
+        "inferred",
+        "assumed",
+        "unresolved"
+      ],
+      "title": "ParameterStatus",
+      "type": "string"
+    },
+    "ParameterType": {
+      "enum": [
+        "length",
+        "angle",
+        "count",
+        "ratio",
+        "boolean"
+      ],
+      "title": "ParameterType",
+      "type": "string"
+    },
+    "PartType": {
+      "enum": [
+        "single_part"
+      ],
+      "title": "PartType",
+      "type": "string"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceRegion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ResultKind": {
+      "enum": [
+        "solid_body",
+        "face",
+        "edge",
+        "sketch"
+      ],
+      "title": "ResultKind",
+      "type": "string"
+    },
+    "ResultRef": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "ResultRef",
+      "type": "object"
+    },
+    "Size3": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "exclusiveMinimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "exclusiveMinimum": 0,
+          "title": "Y",
+          "type": "number"
+        },
+        "z": {
+          "exclusiveMinimum": 0,
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "title": "Size3",
+      "type": "object"
+    },
+    "Sketch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/SketchPlane"
+        },
+        "entities": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "center_rectangle": "#/$defs/CenterRectangle",
+                "circle": "#/$defs/Circle"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/CenterRectangle"
+              },
+              {
+                "$ref": "#/$defs/Circle"
+              }
+            ]
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Entities",
+          "type": "array"
+        },
+        "expected_closed_contours": {
+          "default": 1,
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Expected Closed Contours",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "plane",
+        "entities"
+      ],
+      "title": "Sketch",
+      "type": "object"
+    },
+    "SketchPlane": {
+      "enum": [
+        "XY",
+        "XZ",
+        "YZ"
+      ],
+      "title": "SketchPlane",
+      "type": "string"
+    },
+    "SolidExtrudeFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "solid.extrude",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 64,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/SolidExtrudeInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "SolidExtrudeFeature",
+      "type": "object"
+    },
+    "SolidExtrudeInputs": {
+      "additionalProperties": false,
+      "properties": {
+        "sketch": {
+          "$ref": "#/$defs/Sketch"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction"
+        },
+        "distance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Distance"
+        },
+        "source_body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "sketch",
+        "direction",
+        "distance"
+      ],
+      "title": "SolidExtrudeInputs",
+      "type": "object"
+    },
+    "SourceRegion": {
+      "additionalProperties": false,
+      "description": "Where on the drawing a value came from, in normalised page coordinates.\n\nOptional, and kept out of the geometry: it exists so a wrong dimension can\nbe traced back to the mark that produced it.",
+      "properties": {
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "region": {
+          "items": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "title": "Region",
+          "type": "array"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        }
+      },
+      "required": [
+        "page",
+        "region"
+      ],
+      "title": "SourceRegion",
+      "type": "object"
+    },
+    "ThroughHoleCountExpectation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "through_hole_count",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "value"
+      ],
+      "title": "ThroughHoleCountExpectation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "cad-ai/cad-ir",
+      "default": "cad-ai/cad-ir",
+      "title": "Schema",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.1",
+      "default": "1.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "document": {
+      "$ref": "#/$defs/DocumentHeader"
+    },
+    "parameters": {
+      "items": {
+        "$ref": "#/$defs/Parameter"
+      },
+      "maxItems": 500,
+      "title": "Parameters",
+      "type": "array"
+    },
+    "reference_geometry": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "maxItems": 0,
+      "title": "Reference Geometry",
+      "type": "array"
+    },
+    "features": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "cut.extrude": "#/$defs/CutExtrudeFeature",
+            "solid.extrude": "#/$defs/SolidExtrudeFeature"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/SolidExtrudeFeature"
+          },
+          {
+            "$ref": "#/$defs/CutExtrudeFeature"
+          }
+        ]
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Features",
+      "type": "array"
+    },
+    "expectations": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "body_count": "#/$defs/BodyCountExpectation",
+            "bounding_box": "#/$defs/BoundingBoxExpectation",
+            "through_hole_count": "#/$defs/ThroughHoleCountExpectation"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/BodyCountExpectation"
+          },
+          {
+            "$ref": "#/$defs/BoundingBoxExpectation"
+          },
+          {
+            "$ref": "#/$defs/ThroughHoleCountExpectation"
+          }
+        ]
+      },
+      "maxItems": 100,
+      "title": "Expectations",
+      "type": "array"
+    },
+    "metadata": {
+      "$ref": "#/$defs/DocumentMetadata"
+    }
+  },
+  "required": [
+    "document",
+    "features",
+    "metadata"
+  ],
+  "type": "object"
+}

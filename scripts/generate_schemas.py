@@ -12,6 +12,7 @@ from pathlib import Path
 
 root = Path(__file__).parents[1]
 sys.path.insert(0, str(root / "apps" / "api"))
+sys.path.insert(0, str(root / "packages" / "cad-ir"))
 
 from app.contracts import (  # noqa: E402
     JobCostSnapshot,
@@ -19,6 +20,7 @@ from app.contracts import (  # noqa: E402
     ResourceEventBatch,
     WorkerCapabilityManifest,
 )
+from cad_ir.canonical import CAD_IR_VERSION, CadIrDocument  # noqa: E402
 
 
 BASE_ID = "https://cad.example.com/schemas"
@@ -27,6 +29,7 @@ DOCUMENTS = {
     "pricing-profile": (PricingProfile, "1.0", "Versioned pricing profile"),
     "job-cost-snapshot": (JobCostSnapshot, "1.0", "Immutable job cost snapshot"),
     "worker-capability-manifest": (WorkerCapabilityManifest, "1.0", "Worker capability manifest"),
+    "cad-ir-canonical": (CadIrDocument, CAD_IR_VERSION, "Canonical CAD-IR document"),
 }
 
 
