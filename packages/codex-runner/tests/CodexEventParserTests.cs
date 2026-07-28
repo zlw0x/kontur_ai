@@ -50,17 +50,6 @@ public sealed class CodexEventParserTests
     }
 
     [Fact]
-    public void RouterUsesConfiguredModelWithoutInventingFallbacks()
-    {
-        var router = new CodexModelRouter(
-            new Dictionary<CodexStage, string?> { [CodexStage.CadIrCompilation] = "configured-model" });
-        Assert.Equal(
-            new CodexRoute("configured-model", "medium"),
-            router.Route(CodexStage.CadIrCompilation));
-        Assert.Null(router.Route(CodexStage.InputTriage).Model);
-    }
-
-    [Fact]
     public void BudgetRejectsRunsBeforeStartingAnotherProcess()
     {
         var state = new CodexBudgetState();

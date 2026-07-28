@@ -14,7 +14,7 @@ public sealed record DrawingPipelineResult(
 
 public sealed class DrawingPipeline(
     ICodexRunner runner,
-    CodexModelRouter? router = null,
+    CodexRoutingProfile? routingProfile = null,
     CodexBudgetState? budget = null,
     CodexBudgetPolicy? policy = null,
     ResourceLedger? ledger = null,
@@ -27,7 +27,7 @@ public sealed class DrawingPipeline(
     /// </summary>
     private const string PromptVersion = "drawing-mvp-1";
 
-    private readonly CodexModelRouter modelRouter = router ?? new();
+    private readonly CodexRoutingProfile router = routingProfile ?? new();
     private readonly CodexBudgetState budgetState = budget ?? new();
     private readonly CodexBudgetPolicy budgetPolicy = policy ?? new();
 
@@ -56,6 +56,19 @@ public sealed class DrawingPipeline(
                 var process = result.ToProcessUsage();
                 if (process is not null) scope.WithProcess(process);
                 scope.Succeeded();
+            }
+            if (ledger is not null &&
+                result.ModelObservation?.Status == CodexModelObservationStatus.Mismatch)
+            {
+                // The run cannot be attributed to either model, so its cost is
+                // not finalised on a guess. The order still completes: the
+                // output was validated by the same trusted gates regardless.
+                ledger.Warn(
+                    eventKey + ":model-mismatch",
+                    stage,
+                    "CODEX_MODEL_MISMATCH",
+                    $"requested {result.ModelObservation.RequestedModel}, " +
+                    $"CLI reported {result.ModelObservation.ObservedModel}");
             }
             if (ledger is not null && result.UsageReading?.RequiresWarning == true)
             {
@@ -97,7 +110,8 @@ public sealed class DrawingPipeline(
         var cadIrSchema = Path.Combine(workspace, "schemas", "cad-ir-mvp-output.schema.json");
 
         budgetState.Reserve(CodexStage.DrawingExtraction, budgetPolicy);
-        var analysisRoute = modelRouter.Route(CodexStage.DrawingExtraction);
+        var analysisRoute = router.Route(CodexStage.DrawingExtraction, "drawing_analyzer");
+        var analysisPrompt = AnalysisPrompt();
         var analysisRun = await RunStageAsync(
             ledger?.Key("ai", "drawing_analysis", "1") ?? "",
             ResourceStage.DRAWING_ANALYSIS,
@@ -106,11 +120,13 @@ public sealed class DrawingPipeline(
                 workspace,
                 analysisSchema,
                 analysisPath,
-                AnalysisPrompt(),
+                analysisPrompt,
                 imagePaths,
-                analysisRoute.Model,
-                analysisRoute.ReasoningEffort,
-                TimeSpan.FromMinutes(10)),
+                analysisRoute.RequestedModel,
+                analysisRoute.RequestedReasoningEffort,
+                TimeSpan.FromMinutes(10),
+                analysisRoute,
+                CodexProvenance.PromptBundleSha256(PromptVersion, analysisPrompt)),
             cancellationToken);
 
         using var analysisDocument = JsonDocument.Parse(await File.ReadAllBytesAsync(analysisPath, cancellationToken));
@@ -129,8 +145,9 @@ public sealed class DrawingPipeline(
             : """{"schema_version":"0.1.0","answers":[]}""";
         var analysisJson = await ReadBoundedAsync(analysisPath, 1_000_000, cancellationToken);
         budgetState.Reserve(CodexStage.CadIrCompilation, budgetPolicy);
-        var compilationRoute = modelRouter.Route(CodexStage.CadIrCompilation);
+        var compilationRoute = router.Route(CodexStage.CadIrCompilation, "cad_ir_generator");
         var cadIrPath = Path.Combine(output, "cad-ir.json");
+        var compilationPrompt = CompilationPrompt(analysisJson, answersJson, analysisRun.OutputSha256);
         var compilationRun = await RunStageAsync(
             ledger?.Key("ai", "cad_ir_compilation", "1") ?? "",
             ResourceStage.CAD_IR_COMPILATION,
@@ -139,11 +156,13 @@ public sealed class DrawingPipeline(
                 workspace,
                 cadIrSchema,
                 cadIrPath,
-                CompilationPrompt(analysisJson, answersJson, analysisRun.OutputSha256),
+                compilationPrompt,
                 imagePaths,
-                compilationRoute.Model,
-                compilationRoute.ReasoningEffort,
-                TimeSpan.FromMinutes(10)),
+                compilationRoute.RequestedModel,
+                compilationRoute.RequestedReasoningEffort,
+                TimeSpan.FromMinutes(10),
+                compilationRoute,
+                CodexProvenance.PromptBundleSha256(PromptVersion, compilationPrompt)),
             cancellationToken);
 
         // The structured-output schema is enforced by Codex CLI. This typed,
@@ -191,7 +210,7 @@ public sealed class DrawingPipeline(
                 budgetState.Reserve(CodexStage.Repair, budgetPolicy);
                 var previous = await ReadBoundedAsync(candidatePath, 1_000_000, cancellationToken);
                 candidatePath = Path.Combine(output, $"cad-ir-repair-{repairAttempt + 1}.json");
-                var repairRoute = modelRouter.Route(CodexStage.Repair);
+                var repairRoute = router.Route(CodexStage.Repair, "cad_ir_repairer");
                 var repairNumber = (repairAttempt + 1).ToString();
                 if (ledger is not null)
                 {
@@ -202,6 +221,9 @@ public sealed class DrawingPipeline(
                     iteration.Meta("trigger_code", error.Code);
                     iteration.Succeeded();
                 }
+                var repairPrompt = RepairPrompt(
+                    previous, error.Code, error.SafeMessage, analysisJson, answersJson,
+                    analysisRun.OutputSha256);
                 compilationRun = await RunStageAsync(
                     ledger?.Key("ai", "repair", repairNumber) ?? "",
                     ResourceStage.CAD_IR_COMPILATION,
@@ -210,11 +232,13 @@ public sealed class DrawingPipeline(
                         workspace,
                         cadIrSchema,
                         candidatePath,
-                        RepairPrompt(previous, error.Code, error.SafeMessage, analysisJson, answersJson, analysisRun.OutputSha256),
+                        repairPrompt,
                         Images: null,
-                        Model: repairRoute.Model,
-                        ReasoningEffort: repairRoute.ReasoningEffort,
-                        Timeout: TimeSpan.FromMinutes(10)),
+                        Model: repairRoute.RequestedModel,
+                        ReasoningEffort: repairRoute.RequestedReasoningEffort,
+                        Timeout: TimeSpan.FromMinutes(10),
+                        Routing: repairRoute,
+                        PromptBundleSha256: CodexProvenance.PromptBundleSha256(PromptVersion, repairPrompt)),
                     cancellationToken);
             }
         }

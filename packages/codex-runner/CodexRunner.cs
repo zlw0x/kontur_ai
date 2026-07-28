@@ -14,7 +14,9 @@ public sealed record CodexStageRequest(
     IReadOnlyList<string>? Images = null,
     string? Model = null,
     string ReasoningEffort = "medium",
-    TimeSpan? Timeout = null);
+    TimeSpan? Timeout = null,
+    CodexRoutingDecision? Routing = null,
+    string? PromptBundleSha256 = null);
 
 public sealed record CodexUsage(
     long InputTokens,
@@ -39,7 +41,10 @@ public sealed record CodexStageResult(
     CodexProcessMetrics? Process = null,
     string? CliVersion = null,
     string? Model = null,
-    string? ReasoningEffort = null);
+    string? ReasoningEffort = null,
+    CodexRoutingDecision? Routing = null,
+    CodexModelObservation? ModelObservation = null,
+    string? ProvenanceSha256 = null);
 
 public interface ICodexRunner
 {
@@ -130,7 +135,12 @@ public sealed class LocalCodexRunner : ICodexRunner
         var output = RequireContainedPath(workspace, request.OutputPath, "output path");
         if (request.Prompt.Length is < 1 or > 20_000)
             throw Failure("CODEX_PROMPT_INVALID", "Codex stage prompt length is invalid.");
-        if (request.Model is not null && !ModelPattern.IsMatch(request.Model))
+        // A run with no model named takes whatever the CLI defaults to today,
+        // which is external behaviour that can change under us and leaves the
+        // run's cost unattributable. Refuse rather than inherit it.
+        if (string.IsNullOrWhiteSpace(request.Model))
+            throw Failure("CODEX_MODEL_UNSPECIFIED", "Codex stage did not name a model.");
+        if (!ModelPattern.IsMatch(request.Model))
             throw Failure("CODEX_MODEL_INVALID", "Configured Codex model identifier is invalid.");
         if (request.ReasoningEffort is not ("low" or "medium" or "high" or "xhigh"))
             throw Failure("CODEX_CONFIG_INVALID", "Configured reasoning effort is invalid.");
@@ -156,7 +166,8 @@ public sealed class LocalCodexRunner : ICodexRunner
             RedirectStandardError = true,
             CreateNoWindow = true,
         };
-        AddArguments(start, request, workspace, schema, output, images);
+        foreach (var argument in BuildArguments(request, workspace, schema, output, images))
+            start.ArgumentList.Add(argument);
         // Runtime AI must use persisted local ChatGPT auth. API/access-token
         // environment overrides are deliberately removed from the child.
         start.Environment.Remove("OPENAI_API_KEY");
@@ -228,6 +239,8 @@ public sealed class LocalCodexRunner : ICodexRunner
         }
         await using var outputStream = File.OpenRead(output);
         var checksum = Convert.ToHexString(await SHA256.HashDataAsync(outputStream, cancellationToken));
+        var observation = CodexModelObservation.Compare(
+            request.Model, parser.ObservedModel, request.ReasoningEffort, parser.ObservedReasoningEffort);
         return new CodexStageResult(
             parser.ThreadId,
             parser.Usage,
@@ -238,17 +251,32 @@ public sealed class LocalCodexRunner : ICodexRunner
             ReadProcessMetrics(process),
             CliVersion,
             request.Model,
-            request.ReasoningEffort);
+            request.ReasoningEffort,
+            request.Routing,
+            observation,
+            request.Routing is null || request.PromptBundleSha256 is null
+                ? null
+                : CodexProvenance.Fingerprint(
+                    checksum, request.PromptBundleSha256, request.Routing, CliVersion));
     }
 
-    private static void AddArguments(
-        ProcessStartInfo start,
+    /// <summary>
+    /// The exact argument list a stage will be launched with.
+    /// </summary>
+    /// <remarks>
+    /// Built separately from the process so it can be asserted directly. The
+    /// guarantee that matters — that a run's model comes from the routing
+    /// profile and not from the user's config.toml — is a property of these
+    /// arguments, and testing it by launching the CLI would cost a real call.
+    /// </remarks>
+    public static IReadOnlyList<string> BuildArguments(
         CodexStageRequest request,
         string workspace,
         string schema,
         string output,
         IReadOnlyList<string> images)
     {
+        var start = new ProcessStartInfo();
         start.ArgumentList.Add("--ask-for-approval");
         start.ArgumentList.Add("never");
         start.ArgumentList.Add("exec");
@@ -275,11 +303,11 @@ public sealed class LocalCodexRunner : ICodexRunner
         start.ArgumentList.Add("shell_environment_policy.inherit=\"none\"");
         start.ArgumentList.Add("--config");
         start.ArgumentList.Add($"model_reasoning_effort=\"{request.ReasoningEffort}\"");
-        if (request.Model is not null)
-        {
-            start.ArgumentList.Add("--model");
-            start.ArgumentList.Add(request.Model);
-        }
+        // Always explicit. --ignore-user-config already detaches the run from
+        // ~/.codex/config.toml; naming the model on the command line is the
+        // highest-priority layer and the only one this service controls.
+        start.ArgumentList.Add("--model");
+        start.ArgumentList.Add(request.Model!);
         // --image accepts one or more values and would otherwise consume the
         // positional prompt. Put the prompt before the variadic option.
         start.ArgumentList.Add(request.Prompt);
@@ -288,6 +316,7 @@ public sealed class LocalCodexRunner : ICodexRunner
             start.ArgumentList.Add("--image");
             start.ArgumentList.Add(image);
         }
+        return start.ArgumentList;
     }
 
     private static async Task CaptureEventsAsync(
@@ -372,6 +401,19 @@ public sealed class CodexEventParser
 
     public string? ThreadId { get; private set; }
     public CodexUsage? Usage { get; private set; }
+
+    /// <summary>
+    /// Model the CLI said it used, when it says so at all.
+    /// </summary>
+    /// <remarks>
+    /// codex-cli 0.145.0 reports no model in any event, so this stays null
+    /// today. The reader exists so that a CLI which starts reporting one is
+    /// believed immediately rather than after someone notices.
+    /// </remarks>
+    public string? ObservedModel { get; private set; }
+
+    public string? ObservedReasoningEffort { get; private set; }
+
     public bool Failed { get; private set; }
     public bool ToolUseDetected { get; private set; }
     public string ErrorText { get; private set; } = "";
@@ -399,6 +441,14 @@ public sealed class CodexEventParser
             var type = root.TryGetProperty("type", out var typeValue) ? typeValue.GetString() : null;
             if (type == "thread.started" && root.TryGetProperty("thread_id", out var thread))
                 ThreadId = thread.GetString();
+            ObservedModel ??= Text(root, "model");
+            ObservedReasoningEffort ??= Text(root, "reasoning_effort")
+                ?? Text(root, "model_reasoning_effort");
+            if (root.TryGetProperty("turn", out var turn) && turn.ValueKind == JsonValueKind.Object)
+            {
+                ObservedModel ??= Text(turn, "model");
+                ObservedReasoningEffort ??= Text(turn, "reasoning_effort");
+            }
             if (type is "turn.failed" or "error")
             {
                 Failed = true;
@@ -421,6 +471,11 @@ public sealed class CodexEventParser
                 ToolUseDetected = true;
         }
     }
+
+    private static string? Text(JsonElement owner, string name) =>
+        owner.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     // TryGetInt64 throws when the element is not a number, so the kind is
     // checked first: a CLI emitting "many" instead of 12 must not fail a job.
