@@ -202,3 +202,103 @@ Each fix carries a regression test naming this run as its origin.
 
 The ledger's numbers can now be trusted for this pipeline. They still cannot
 be turned into a price, because no calibrated pricing profile exists.
+
+---
+
+# POSTMVP-003C addendum: model provenance, 2026-07-28
+
+The finding this run closed: every AI event above carries `model = NULL`,
+because the router named no model and `codex exec` used the CLI's own default.
+
+## What the ledger now records
+
+Job `85b523e3-bf1c-40d0-8d2a-dc2ab7399ca8`, 21 events, audit **PASS**:
+
+| agent role | requested | observed | status | rule | profile |
+|---|---|---|---|---|---|
+| DRAWING_EXTRACTION | gpt-5.6-terra | — | EXPLICIT_NOT_REPORTED | drawing.standard-analysis | 2026-07-28.1 |
+| CAD_IR_COMPILATION | gpt-5.6-terra | — | EXPLICIT_NOT_REPORTED | cad_ir.generation | 2026-07-28.1 |
+
+Both runs also carry a prompt-bundle hash, a provenance fingerprint, the CLI
+version and the prompt version.
+
+`ai_cost_status` is `ATTRIBUTED` and `model_attribution` is
+`{EXPLICIT_NOT_REPORTED: 2}` — the first job in this ledger whose AI cost can
+be attributed to a model at all.
+
+## The user's own config proves the isolation
+
+No test fixture was needed for acceptance criterion 14. The machine's real
+`~/.codex/config.toml` already contains:
+
+```toml
+model = "gpt-5.6-luna"
+```
+
+The run recorded `gpt-5.6-terra`, the model the routing profile named. The
+command-line `--model`, together with `--ignore-user-config`, outranks the user
+configuration in practice and not only on paper.
+
+It also shows what was really happening before: the earlier runs did not use
+`luna` either. With `--ignore-user-config` and no `-m`, they used the CLI's
+built-in default — a value nothing in this system recorded or controlled.
+
+## `observed_model` is null on every run, and that is not a bug
+
+codex-cli 0.145.0 emits four event types — `thread.started`, `turn.started`,
+`item.completed`, `turn.completed` — and none of them mention a model. So
+`VERIFIED` is unreachable on this CLI and every routed run lands on
+`EXPLICIT_NOT_REPORTED`. The model is still ours: it was chosen by the routing
+profile and passed above every config layer.
+
+`MISMATCH` is therefore also unreachable today. Its handling is covered by unit
+tests rather than by this run.
+
+## Idempotency, re-checked after the schema change
+
+| Check | Result |
+|---|---|
+| resend the 21-event batch | 0 accepted, 21 duplicates |
+| row count and billable time after resend | unchanged |
+| same key, different content | rejected `LEDGER_EVENT_CONFLICT` |
+
+## Historical rows
+
+The 54 events written before this change still load. Their AI runs read as
+`UNKNOWN` with no requested model, and the job containing them is reported
+`UNVERIFIABLE` — an honest statement that its AI cost cannot be attributed,
+rather than a silent zero.
+
+## CAD-IR carries no model
+
+The produced CAD-IR contains no occurrence of `gpt-`, `model`, `codex` or
+`routing`. An identical part keeps its canonical hash across a model or CLI
+change, which is what makes CAD-IR v1.1 hashing meaningful.
+
+## Timing
+
+Billable 60.38 s of 60.41 s wall clock (99.9 % busy); 4.14 s of nested spans
+deduplicated.
+
+## What went wrong during the run, and it was not the code
+
+The first attempt at this acceptance run failed with the worker logging
+`resource_events_rejected status=422`. The cause was a stale container:
+`docker compose up -d` without `--build` reused an API image built before the
+contract change, so the API rejected the new provenance fields as unknown.
+
+Two things follow. The runbook now says to rebuild the API image after a
+contract change. And the shipper's log — a bare status code — was not enough to
+diagnose this; that is recorded as an open finding rather than fixed here.
+
+## Open findings after 003C
+
+- **The shipper logs a status code and no reason.** Diagnosing the 422 above
+  required reproducing the request by hand. It should log the response body.
+- **Reasoning effort is requested but never confirmed**, for the same reason as
+  the model: the CLI does not report it.
+- **`cache_write_input_tokens`** appears in the CLI's usage block and is not
+  captured. It is not needed by the current formula, but it is measured data
+  being discarded.
+- The clarification contract still carries one number per question, and a
+  crashed attempt is still unaccounted for. Both are unchanged from 003B.
