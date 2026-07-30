@@ -82,8 +82,12 @@ internal sealed class KompasSketchBuilder(
         return part.DefaultObject(BasePlaneConstant(feature.BasePlaneName));
     }
 
+    /// <summary>What the last sketch's constraints did, for the ledger.</summary>
+    public KompasConstraintApplier.Outcome? LastConstraintOutcome { get; private set; }
+
     private string BuildExtrusion(ExtrudeFeaturePlan feature, string operationCode)
     {
+        KompasConstraintApplier.Outcome? constraintOutcome = null;
         object? topPartObject = null;
         object? sketchObject = null;
         object? extrusionObject = null;
@@ -94,7 +98,7 @@ internal sealed class KompasSketchBuilder(
             sketchObject = ((ISketchs)part.Sketchs).Add();
             var sketch = (ISketch)sketchObject;
             sketch.Plane = ResolvePlane(feature.Sketch.Plane, part);
-            Draw(sketch, feature.Sketch);
+            constraintOutcome = Draw(sketch, feature.Sketch);
 
             // The first solid extrusion is the base; every later one is a boss.
             // A base extrusion always makes a *new* body, whatever the geometry
@@ -117,6 +121,7 @@ internal sealed class KompasSketchBuilder(
                     "feature",
                     $"KOMPAS did not build {feature.Id}.");
             if (!feature.IsCut) hasBody = true;
+            LastConstraintOutcome = constraintOutcome;
             return operationCode;
         }
         finally
@@ -150,9 +155,12 @@ internal sealed class KompasSketchBuilder(
 
     // --- drawing -----------------------------------------------------------
 
-    private static void Draw(ISketch sketch, SketchPlan plan)
+    private static KompasConstraintApplier.Outcome? Draw(ISketch sketch, SketchPlan plan)
     {
         object? fragmentObject = null;
+        // Keyed by the sketch-local name the document gave, so a constraint can
+        // find the COM object that was drawn for the entity it names.
+        var drawn = new Dictionary<string, object>(StringComparer.Ordinal);
         try
         {
             fragmentObject = sketch.BeginEdit();
@@ -160,32 +168,55 @@ internal sealed class KompasSketchBuilder(
             var manager = (IViewsAndLayersManager)fragment.ViewsAndLayersManager;
             var view = (IView)((IViews)manager.Views).ActiveView;
 
-            DrawContour(view, plan.Outer, KompasSketchStyles.Profile);
-            foreach (var island in plan.Inner) DrawContour(view, island, KompasSketchStyles.Profile);
+            DrawContour(view, plan.Outer, KompasSketchStyles.Profile, drawn);
+            foreach (var island in plan.Inner)
+                DrawContour(view, island, KompasSketchStyles.Profile, drawn);
             // Construction geometry has to carry the construction style, not
             // just be drawn last. A centre line at profile style inside a
             // closed contour makes the extrusion fail outright — found by the
             // first real acceptance run, which is exactly what a centre line on
             // a drawing would have produced.
             foreach (var entity in plan.Construction)
-                DrawConstruction(view, entity, KompasSketchStyles.Construction);
+                DrawConstruction(view, entity, KompasSketchStyles.Construction, drawn);
+
+            KompasConstraintApplier.Outcome? outcome = null;
+            if (plan.Declared.Count > 0 || plan.Measured.Count > 0)
+            {
+                outcome = KompasConstraintApplier.Apply(view, plan, drawn);
+                // Every constraint was already checked true of these coordinates,
+                // so a solver correction here means the document and the kernel
+                // disagree about the part.
+                KompasConstraintApplier.RequireGeometryUnmoved(plan, drawn);
+            }
 
             if (!sketch.EndEdit())
                 throw KompasApi7Adapter.Failure(
                     "SKETCH_INVALID", "sketch", "KOMPAS did not close sketch editing.");
+            return outcome;
         }
-        finally { KompasApi7Adapter.Release(fragmentObject); }
+        finally
+        {
+            foreach (var handle in drawn.Values) KompasApi7Adapter.Release(handle);
+            KompasApi7Adapter.Release(fragmentObject);
+        }
     }
 
-    private static void DrawContour(IView view, ContourPlan contour, int style)
+    private static void DrawContour(
+        IView view,
+        ContourPlan contour,
+        int style,
+        Dictionary<string, object>? drawn = null,
+        string? nameOverride = null)
     {
         switch (contour)
         {
             case CircleContourPlan circle:
-                DrawCircle(view, circle.Center, circle.Radius, style);
+                Remember(drawn, nameOverride ?? contour.Id,
+                    DrawCircle(view, circle.Center, circle.Radius, style));
                 return;
             case PathContourPlan path:
-                foreach (var segment in path.Segments) DrawSegment(view, segment, style);
+                foreach (var segment in path.Segments)
+                    Remember(drawn, nameOverride ?? segment.Id, DrawSegment(view, segment, style));
                 return;
             default:
                 throw KompasApi7Adapter.Failure(
@@ -193,74 +224,72 @@ internal sealed class KompasSketchBuilder(
         }
     }
 
-    private static void DrawConstruction(IView view, ConstructionEntityPlan entity, int style)
+    private static void DrawConstruction(
+        IView view,
+        ConstructionEntityPlan entity,
+        int style,
+        Dictionary<string, object>? collected = null)
     {
         if (entity.At is { } point)
         {
             var pointObject = ((IPoints)view.Points).Add();
-            try
-            {
-                var drawn = (IPoint)pointObject;
-                drawn.X = point.X;
-                drawn.Y = point.Y;
-                drawn.Style = style;
-                if (!drawn.Update())
-                    throw KompasApi7Adapter.Failure(
-                        "SKETCH_INVALID", "sketch", $"KOMPAS rejected construction point {entity.Id}.");
-            }
-            finally { KompasApi7Adapter.Release(pointObject); }
+            var drawn = (IPoint)pointObject;
+            drawn.X = point.X;
+            drawn.Y = point.Y;
+            drawn.Style = style;
+            if (!drawn.Update())
+                throw KompasApi7Adapter.Failure(
+                    "SKETCH_INVALID", "sketch", $"KOMPAS rejected construction point {entity.Id}.");
+            Remember(collected, entity.Id, pointObject);
             return;
         }
-        if (entity.Shape is { } shape) DrawContour(view, shape, style);
+        if (entity.Shape is { } shape) DrawContour(view, shape, style, collected, entity.Id);
     }
 
-    private static void DrawSegment(IView view, SketchSegment segment, int style)
+    /// <remarks>
+    /// The handle is returned rather than released, because a constraint has to be
+    /// able to name the entity it was drawn for. Whoever collected them releases
+    /// them when the sketch is closed.
+    /// </remarks>
+    private static object DrawSegment(IView view, SketchSegment segment, int style)
     {
         switch (segment)
         {
             case LineSegmentPlan line:
             {
                 var lineObject = ((ILineSegments)view.LineSegments).Add();
-                try
-                {
-                    var drawn = (ILineSegment)lineObject;
-                    drawn.X1 = line.From.X; drawn.Y1 = line.From.Y;
-                    drawn.X2 = line.To.X; drawn.Y2 = line.To.Y;
-                    drawn.Style = style;
-                    if (!drawn.Update())
-                        throw KompasApi7Adapter.Failure(
-                            "SKETCH_INVALID", "sketch", "KOMPAS rejected a line segment.");
-                }
-                finally { KompasApi7Adapter.Release(lineObject); }
-                return;
+                var drawn = (ILineSegment)lineObject;
+                drawn.X1 = line.From.X; drawn.Y1 = line.From.Y;
+                drawn.X2 = line.To.X; drawn.Y2 = line.To.Y;
+                drawn.Style = style;
+                if (!drawn.Update())
+                    throw KompasApi7Adapter.Failure(
+                        "SKETCH_INVALID", "sketch", "KOMPAS rejected a line segment.");
+                return lineObject;
             }
             case ArcSegmentPlan arc:
             {
                 var arcObject = ((IArcs)view.Arcs).Add();
-                try
-                {
-                    // Centre, radius and two angles. The endpoint properties
-                    // exist but leave Update() returning false with the radius
-                    // at zero — measured on KOMPAS v22, see TASK-POSTMVP-006.
-                    var drawn = (IArc)arcObject;
-                    drawn.Xc = arc.Center.X;
-                    drawn.Yc = arc.Center.Y;
-                    drawn.Radius = arc.StartRadius;
-                    // Direction 0 sweeps anticlockwise from Angle1 to Angle2;
-                    // 1 and -1 both sweep clockwise. Measured by extruding a
-                    // half-disc and reading which side the material landed on.
-                    // A clockwise arc is therefore the same arc traversed
-                    // anticlockwise from its end to its start.
-                    drawn.Angle1 = arc.CounterClockwise ? arc.StartAngleDegrees : arc.EndAngleDegrees;
-                    drawn.Angle2 = arc.CounterClockwise ? arc.EndAngleDegrees : arc.StartAngleDegrees;
-                    drawn.Direction = 0;
-                    drawn.Style = style;
-                    if (!drawn.Update())
-                        throw KompasApi7Adapter.Failure(
-                            "SKETCH_INVALID", "sketch", "KOMPAS rejected an arc.");
-                }
-                finally { KompasApi7Adapter.Release(arcObject); }
-                return;
+                // Centre, radius and two angles. The endpoint properties exist
+                // but leave Update() returning false with the radius at zero —
+                // measured on KOMPAS v22, see TASK-POSTMVP-006.
+                var drawn = (IArc)arcObject;
+                drawn.Xc = arc.Center.X;
+                drawn.Yc = arc.Center.Y;
+                drawn.Radius = arc.StartRadius;
+                // Direction 0 sweeps anticlockwise from Angle1 to Angle2; 1 and
+                // -1 both sweep clockwise. Measured by extruding a half-disc and
+                // reading which side the material landed on. A clockwise arc is
+                // therefore the same arc traversed anticlockwise from its end to
+                // its start.
+                drawn.Angle1 = arc.CounterClockwise ? arc.StartAngleDegrees : arc.EndAngleDegrees;
+                drawn.Angle2 = arc.CounterClockwise ? arc.EndAngleDegrees : arc.StartAngleDegrees;
+                drawn.Direction = 0;
+                drawn.Style = style;
+                if (!drawn.Update())
+                    throw KompasApi7Adapter.Failure(
+                        "SKETCH_INVALID", "sketch", "KOMPAS rejected an arc.");
+                return arcObject;
             }
             default:
                 throw KompasApi7Adapter.Failure(
@@ -268,21 +297,25 @@ internal sealed class KompasSketchBuilder(
         }
     }
 
-    private static void DrawCircle(IView view, Point2 center, double radius, int style)
+    /// <summary>Record a drawn handle under the name the document gave it.</summary>
+    private static void Remember(Dictionary<string, object>? drawn, string? id, object handle)
+    {
+        if (drawn is not null && id is not null) drawn[id] = handle;
+        else KompasApi7Adapter.Release(handle);
+    }
+
+    private static object DrawCircle(IView view, Point2 center, double radius, int style)
     {
         var circleObject = ((ICircles)view.Circles).Add();
-        try
-        {
-            var drawn = (ICircle)circleObject;
-            drawn.Xc = center.X;
-            drawn.Yc = center.Y;
-            drawn.Radius = radius;
-            drawn.Style = style;
-            if (!drawn.Update())
-                throw KompasApi7Adapter.Failure(
-                    "SKETCH_INVALID", "sketch", "KOMPAS rejected a circle.");
-        }
-        finally { KompasApi7Adapter.Release(circleObject); }
+        var drawn = (ICircle)circleObject;
+        drawn.Xc = center.X;
+        drawn.Yc = center.Y;
+        drawn.Radius = radius;
+        drawn.Style = style;
+        if (!drawn.Update())
+            throw KompasApi7Adapter.Failure(
+                "SKETCH_INVALID", "sketch", "KOMPAS rejected a circle.");
+        return circleObject;
     }
 
     public void Dispose()

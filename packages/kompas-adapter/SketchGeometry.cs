@@ -195,7 +195,11 @@ public sealed record SketchPlan(
             case PathContourPlan path:
                 foreach (var segment in path.Segments)
                 {
-                    if (segment.Id is not { } segmentId) continue;
+                    // A construction line or arc is one segment carrying the
+                    // entity's own name, so the override applies here too — and
+                    // an axis of symmetry is exactly such a line.
+                    var segmentId = path.Segments.Count == 1 ? id ?? segment.Id : segment.Id;
+                    if (segmentId is null) continue;
                     into.Add(segment switch
                     {
                         ArcSegmentPlan arc => new ConstrainedEntity(

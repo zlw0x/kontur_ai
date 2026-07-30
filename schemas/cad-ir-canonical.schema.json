@@ -1814,6 +1814,14 @@
           ],
           "default": null,
           "title": "Axis"
+        },
+        "of_point": {
+          "$ref": "#/$defs/SketchPoint",
+          "default": "start"
+        },
+        "to_point": {
+          "$ref": "#/$defs/SketchPoint",
+          "default": "start"
         }
       },
       "required": [
@@ -1882,6 +1890,16 @@
       ],
       "title": "SketchOnFace",
       "type": "object"
+    },
+    "SketchPoint": {
+      "description": "Which point of an entity a point constraint is about.\n\nNaming it is not optional. In a closed contour consecutive segments meet\nend-to-start, so a coincidence that always meant \"start to start\" would be\nfalse for every corner of every rectangle.",
+      "enum": [
+        "start",
+        "end",
+        "center"
+      ],
+      "title": "SketchPoint",
+      "type": "string"
     },
     "SlotContour": {
       "additionalProperties": false,

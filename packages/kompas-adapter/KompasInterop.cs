@@ -90,6 +90,21 @@ internal interface IView
     [DispId(5003)] object LineSegments { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     [DispId(5004)] object Arcs { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     [DispId(5007)] object Circles { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    [DispId(10001)] object LineDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    [DispId(10002)] object RadialDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    [DispId(10003)] object DiametralDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    /// <summary>
+    /// The variable a driving dimension's constraint created, looked up by name.
+    /// </summary>
+    /// <remarks>
+    /// By name rather than by index: the index is a VARIANT and takes either, and
+    /// a name is the only unambiguous handle. `Variables` returns the whole set as
+    /// a single object when there is one variable and as something else when there
+    /// are several, so reading it works for exactly one dimension and then stops.
+    /// </remarks>
+    [DispId(16)] [return: MarshalAs(UnmanagedType.IDispatch)] object? Variable(
+        [MarshalAs(UnmanagedType.Struct)] object index);
+    [DispId(17)] int VariablesCount();
 }
 
 [ComImport, Guid("B211C782-A830-468E-9F4F-C499A77078D8"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
@@ -265,4 +280,127 @@ internal interface IPoint
     [DispId(2)] double Y { set; }
     [DispId(4)] int Style { set; }
     [DispId(3004)] bool Update();
+}
+
+/// <summary>
+/// The constraint and association half of a sketch entity.
+/// </summary>
+/// <remarks>
+/// `Associate()` takes no arguments: it binds a dimension to whatever its own
+/// points already sit on, and it has to be called before any constraint on a
+/// dimension will create at all. Measured on KOMPAS v22.
+/// </remarks>
+[ComImport, Guid("649F0EB2-EBC0-449B-8B61-DC3CF1953BF9"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IDrawingObject1
+{
+    [DispId(6002)] [return: MarshalAs(UnmanagedType.IDispatch)] object? NewConstraint();
+    [DispId(6003)] bool Associate();
+    [DispId(6001)] object? Constraints { [return: MarshalAs(UnmanagedType.Struct)] get; }
+}
+
+/// <summary>
+/// One constraint. The `ConstraintType` integers were identified by measurement,
+/// not read: the type libraries export no enumerations at all. See
+/// <see cref="KompasConstraintTypes"/> and scripts/probe_kompas_constraints.py.
+/// </summary>
+/// <remarks>
+/// `Valid` is deliberately not declared. It reports false for types 3 to 7,
+/// which plainly work, and true for 9 to 11 — so reading it would invite
+/// treating a working constraint as a failure.
+/// </remarks>
+[ComImport, Guid("131069F4-A4E2-4DB4-A559-85EACCC74CE4"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IParametriticConstraint
+{
+    [DispId(1)] int ConstraintType { set; }
+    [DispId(2)] int Index { set; }
+    [DispId(3)] object Partner { [param: MarshalAs(UnmanagedType.IDispatch)] set; }
+    [DispId(4)] int PartnerIndex { set; }
+    [DispId(8)] string Variable { [param: MarshalAs(UnmanagedType.BStr)] set; }
+    [DispId(13)] bool Create();
+    [DispId(15)] object Axis { [param: MarshalAs(UnmanagedType.IDispatch)] set; }
+}
+
+/// <summary>
+/// The `Update` every drawing object answers on, dimensions included.
+/// </summary>
+/// <remarks>
+/// A dimension has to be updated before `Associate()` will bind it: without the
+/// call the association simply returns false, which reads like a refusal rather
+/// than an unfinished object.
+/// </remarks>
+[ComImport, Guid("07EF021F-11C1-4015-8D87-4DC94A2A71B0"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IDrawingObject
+{
+    [DispId(3004)] bool Update();
+}
+
+/// <summary>Dimensions live here, not on the geometry container.</summary>
+[ComImport, Guid("F46B0086-17F2-4489-A5A7-0AA677610AFD"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface ISymbols2DContainer
+{
+    [DispId(10001)] object LineDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    [DispId(10002)] object RadialDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    [DispId(10003)] object DiametralDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+}
+
+[ComImport, Guid("A6F6A18A-78FA-4A77-BB75-90647E0C545C"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface ILineDimensions
+{
+    [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
+}
+
+[ComImport, Guid("A3767BDA-E605-4FC1-988D-81809DEB36F4"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface ILineDimension
+{
+    [DispId(1)] double X1 { set; }
+    [DispId(2)] double Y1 { set; }
+    [DispId(3)] double X2 { set; }
+    [DispId(4)] double Y2 { set; }
+    [DispId(5)] double X3 { set; }
+    [DispId(6)] double Y3 { set; }
+}
+
+[ComImport, Guid("12D26993-449E-42E2-A909-B047AFD6E27D"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IRadialDimensions
+{
+    [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
+}
+
+[ComImport, Guid("712A9437-D772-4EAE-AF83-ABC9C22EB281"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IRadialDimension
+{
+    [DispId(1)] double Xc { set; }
+    [DispId(2)] double Yc { set; }
+    [DispId(3)] double Radius { set; }
+}
+
+[ComImport, Guid("8E45FEB9-7BCD-4C9F-9767-320736980662"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IDiametralDimensions
+{
+    [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
+}
+
+[ComImport, Guid("2B4CE92F-438D-4D3E-8F8D-4D14E5D0E214"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IDiametralDimension
+{
+    [DispId(1)] double Xc { set; }
+    [DispId(2)] double Yc { set; }
+    [DispId(3)] double Radius { set; }
+}
+
+/// <summary>
+/// The variable a driving dimension's constraint created, on the view.
+/// </summary>
+/// <remarks>
+/// Its `Value` reads back as the measurement KOMPAS took, which is exactly what
+/// the confirmatory design needs. Setting it does *not* move the geometry —
+/// four ways of trying are recorded in
+/// docs/TASK-POSTMVP-007-sketch-constraints.md — and the design does not need
+/// it to, because the document already carries the coordinates.
+/// </remarks>
+[ComImport, Guid("8BAB52D9-8EF6-43A6-A1B8-AF42D5961A94"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IVariable7
+{
+    [DispId(1)] string Name { [return: MarshalAs(UnmanagedType.BStr)] get; }
+    [DispId(3)] double Value { get; }
 }

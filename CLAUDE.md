@@ -30,6 +30,8 @@ end-to-end acceptance run recorded under `docs/acceptance/`:
 - POSTMVP-004 — CAD-IR 1.1 canonical form (`docs/adr/ADR-018-*`)
 - POSTMVP-005 — semantic selectors (`docs/adr/ADR-019-*`)
 - POSTMVP-006 — CAD-IR 1.2 sketch primitives (`docs/adr/ADR-020-*`)
+- Per-operation feature flags (`docs/adr/ADR-021-*`)
+- POSTMVP-007 — CAD-IR 1.3 sketch constraints (`docs/adr/ADR-022-*`)
 
 The adapter now builds a profile of any closed contour of lines and arcs, with
 islands, on a base plane, an auxiliary plane, or a face named by a selector. A
@@ -46,10 +48,15 @@ Every CAD operation is behind a per-operation feature flag on the worker
 `gate.Require` in the parser — otherwise it cannot be rolled back without a
 release.
 
-POSTMVP-007 (sketch constraints) is part-done: all twelve KOMPAS constraint
-constants are identified by measurement, and how a *driving dimension* drives is
-still unknown. See `docs/TASK-POSTMVP-007-sketch-constraints.md` for what is
-established and what four hypotheses have been ruled out.
+A constraint is an **assertion about the coordinates the document states**, never
+an instruction that produces them (ADR-022). The gate checks it holds, the
+adapter applies it, and the geometry is re-read to confirm the solver moved
+nothing. Two ends stay open and are named in
+`docs/TASK-POSTMVP-007-sketch-constraints.md`: point constraints are verified but
+not applied, because the endpoint-index semantics are unmeasured, and no driving
+dimension drives programmatically.
+
+Next in the plan is POSTMVP-008, revolve.
 
 ## Commands
 

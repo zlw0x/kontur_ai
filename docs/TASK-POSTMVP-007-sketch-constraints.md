@@ -167,35 +167,53 @@ validator needs. P1.3's driving dimensions need one more day of probing against
 a spreadsheet API, and grinding at it now would hold up work that does not
 depend on it.
 
-## Not done yet
+## Done
 
-Everything after the probe.
+1. **All twelve constraints** identified by measurement, with the traps that
+   produced wrong tables recorded above.
+2. **CAD-IR 1.3** — `packages/cad-ir/cad_ir/constraints.py`. Entities gain
+   optional ids, constraints and driving dimensions name them, and a point
+   constraint names its point.
+3. **The trusted gate** — `packages/kompas-adapter/ConstraintValidator.cs`. Every
+   constraint checked against the stated coordinates, every dimension against the
+   geometry it dimensions, duplicates and flat contradictions refused, degrees of
+   freedom counted and reported.
+4. **Applied in KOMPAS** — `KompasConstraintApplier.cs`. Constraints and named
+   dimensions go into the delivered model, and the geometry is re-read afterwards
+   to confirm the solver moved nothing.
+5. **A real run** — `docs/acceptance/POSTMVP-007-sketch-constraints.md` — and
+   `docs/adr/ADR-022-constraints-are-assertions.md`.
 
-- **How a driving dimension actually drives.** Types 13 and 14 are the
-  candidates, association is required, and four ways of supplying the value have
-  been ruled out. The remaining candidates are `IVariableTable`'s spreadsheet API
-  and a sketch parametric mode. All of P1.3 waits on this, and nothing else
-  does.
-- **`Index` and `PartnerIndex` semantics** - which endpoint of a segment a
-  coincidence refers to. Every constraint above was created with both left at
-  their defaults, which is why the table says "defining point" rather than
-  naming an end.
-- **Entity identity in CAD-IR.** Constraints have to name the geometry they
-  constrain, and a path's segments are currently a positional list with no ids.
-  A constraint referring to "segment 2" would change meaning when segments are
-  reordered, which is the index problem ADR-019 exists to prevent, one level
-  down. Segments need ids.
-- **CAD-IR 1.3**: constraints, driving dimensions bound to named parameters, and
-  the version negotiation that goes with it.
-- **Trusted validation**: every constraint must hold for the declared
-  coordinates within tolerance; contradictory and duplicate constraints
-  rejected; degrees of freedom computed and reported.
-- **Adapter**: apply constraints and dimensions, let KOMPAS solve, compare the
-  solved coordinates with the declared ones and refuse the difference.
-- **A real acceptance run**, and an ADR.
+Ten constraints and three driving dimensions on a real plate, verified exactly.
+The delivered M3D carries `base_width = 60`, `base_height = 30`,
+`hole_radius = 4`, read back in a fresh KOMPAS process. A misread drawing — the
+top edge declared parallel to the left one — is refused with zero KOMPAS
+processes started.
+
+Three defects came out of the real runs, all written up in the acceptance
+document: a construction line invisible to constraints, a dimension that must be
+updated before it can be associated, and `IView.Variables` working for exactly
+one dimension and then throwing.
+
+## Not done
+
+- **Point constraints are verified but not applied.** `Index` and `PartnerIndex`
+  select which endpoint and their values are unmeasured; applying one with the
+  defaults would put a constraint in the delivered file that the document did not
+  state. Six kinds affected, all six still checked. This is the one remaining
+  probe.
+- **No driving dimension drives programmatically.** The variable reports what
+  KOMPAS measured, which is what the confirmatory design needs. Four ways of
+  supplying a value have been ruled out; what is left is `IVariableTable`'s
+  spreadsheet API and a sketch parametric mode.
+- **Angular dimensions do not exist.** `IAngleDimensions.Add` answers with nothing
+  for every type tried.
+- **Constraints are not offered to Codex.** The structured-output dialect has no
+  optional properties, so `to` and `axis` would be forced onto every constraint.
+  They reach the adapter through the manual API, the same as selectors.
 
 ## Constraint carried forward
 
-No operation may rely on the solver having moved geometry. Until the comparison
-above exists and passes, a constraint is a statement about the part that must
-already be true — not an instruction that makes it true.
+No operation may rely on the solver having moved geometry. A constraint is a
+statement that is already true, not an instruction that makes it true — and the
+check that enforces that is `SOLVER_MOVED_THE_GEOMETRY`.
