@@ -19,3 +19,7 @@ apps/local-worker/.work/
 .tools/
 .tmp/
 .local/
+
+# The local build123d venv, used to read the installed library's own source.
+# The engine itself runs in the container; this is a development convenience.
+.venv-cad/
