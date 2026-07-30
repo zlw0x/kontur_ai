@@ -21,6 +21,10 @@ import sys
 from pathlib import Path
 
 from cad_engine_build123d import CadEngineError, build, describe
+# Imported from the module rather than the package: a submodule named erify` and
+# a function named `verify` cannot both live in one namespace, and the one that
+# wins is whichever was imported last.
+from cad_engine_build123d.verify import Expectations, verify
 from cad_ir.canonical_validator import validate_canonical
 
 #: A document larger than this is not a plate with holes in it. Bounded before
@@ -49,6 +53,24 @@ def _build(job: Path) -> int:
     try:
         document = _read_document(job)
         outcome = build(document, job / "output")
+        # Reopened by a reader that did not build them. A successful export is
+        # not evidence that the model is right, and the expectations come from
+        # the document rather than from the plan that produced the geometry.
+        report = verify(
+            job / "output" / "model.step",
+            job / "output" / "model.stl",
+            Expectations.of(document),
+        )
+        (job / "output" / "validation-report.json").write_text(
+            json.dumps(report.as_dict(), indent=2), encoding="utf-8"
+        )
+        if not report.valid:
+            failed = [item for item in report.checks if not item.passed]
+            raise CadEngineError(
+                "GEOMETRY_VALIDATION_FAILED",
+                "validation",
+                "; ".join(f"{item.name}: {item.detail}" for item in failed),
+            )
     except CadEngineError as error:
         # A typed failure, on stdout as JSON, because the caller is a program.
         # The message describes the document and never the machine.
@@ -69,6 +91,7 @@ def _build(job: Path) -> int:
             {
                 "status": "COMPLETED",
                 "engine": outcome.engine.as_dict(),
+                "verified": report.valid,
                 "artifacts": [
                     {
                         "kind": artifact.kind,

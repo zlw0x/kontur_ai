@@ -13,9 +13,9 @@ the thing ADR-019 exists to stop anyone depending on.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from build123d import GeomType
+
+from .descriptors import Box, EdgeDescriptor, FaceDescriptor
 
 #: How the kernel's surface kinds map onto the vocabulary a document may use.
 #: Everything the contract has no word for is `other`, which a document can still
@@ -35,49 +35,6 @@ _CURVES = {
     GeomType.BSPLINE: "spline",
     GeomType.BEZIER: "spline",
 }
-
-
-@dataclass(frozen=True)
-class Box:
-    min: tuple[float, float, float]
-    max: tuple[float, float, float]
-
-    def min_along(self, axis: str) -> float:
-        return self.min["xyz".index(axis)]
-
-    def max_along(self, axis: str) -> float:
-        return self.max["xyz".index(axis)]
-
-
-@dataclass(frozen=True)
-class FaceDescriptor:
-    """One face, as what it is rather than as where it is in a list."""
-
-    id: str
-    surface_type: str
-    area_mm2: float
-    centroid: tuple[float, float, float]
-    bounds: Box
-    normal: tuple[float, float, float] | None = None
-    radius_mm: float | None = None
-    #: The surface kinds of the faces this one touches, for `adjacent`.
-    adjacent_surface_types: tuple[str, ...] = field(default_factory=tuple)
-    adjacent_face_count: int = 0
-    handle: object | None = None
-
-
-@dataclass(frozen=True)
-class EdgeDescriptor:
-    id: str
-    curve_type: str
-    length_mm: float
-    centroid: tuple[float, float, float]
-    bounds: Box
-    direction: tuple[float, float, float] | None = None
-    radius_mm: float | None = None
-    adjacent_surface_types: tuple[str, ...] = field(default_factory=tuple)
-    adjacent_face_count: int = 0
-    handle: object | None = None
 
 
 def read_faces(part) -> list[FaceDescriptor]:
@@ -213,4 +170,4 @@ def _edge_key(edge) -> tuple:
     return (round(float(edge.length), 6), ends[0], ends[1])
 
 
-__all__ = ["Box", "EdgeDescriptor", "FaceDescriptor", "read_edges", "read_faces"]
+__all__ = ["read_edges", "read_faces"]

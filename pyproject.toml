@@ -1,3 +1,11 @@
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests"]
-pythonpath = ["apps/api", "packages/cad-ir"]
+# The engine's own tests run here too. The ones that need build123d skip
+# themselves when it is not installed, so the suite stays runnable on a machine
+# with no CAD library at all — which is the property ENGINE-MIG-002 set up and
+# the reason the neutral half is worth keeping separate.
+testpaths = ["apps/api/tests", "packages/build123d-adapter/tests"]
+pythonpath = [
+    "apps/api",
+    "packages/cad-ir",
+    "packages/build123d-adapter",
+]
