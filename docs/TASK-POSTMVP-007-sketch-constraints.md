@@ -144,20 +144,38 @@ What is established:
   dimension object. Both fail on geometry, and every other type fails on a
   dimension. So the driving-dimension constraint is one of those two.
 
-What is not established: setting `Value` and `Variable` on type 13 or 14 after
-association still leaves the geometry where it was. The likely missing link is
-the part's variable table - `IPart7.AddVariable` `[21]` exists, and
-`IParametriticConstraint` carries `Variable` `[8]` and `Expression` `[6]` - so a
-dimension probably drives by *naming* a variable which is then set, rather than
-by carrying a value itself. That is one probe away and it is not done.
+What is **not** established is how such a dimension drives anything. Four
+orderings were tried and all four left the segment at its original 16.553 mm:
+
+1. `Value` set before `Create()`.
+2. `Value` set after `Create()`.
+3. `Variable` named at `Create()`, then looked up to be set. `IPart7` has no
+   `Variables` member at all; `IFeature7.Variables` `[2011]` exists but is a
+   named property rather than an indexable collection, so the lookup itself did
+   not work either.
+4. `Expression` set to the literal instead of `Value`.
+
+That is a negative result worth keeping: it rules out the obvious readings and
+says the remaining candidates are `IVariableTable` `[7001-7015]` on the part,
+which is a spreadsheet-shaped API with rows, columns and `ApplyVars()`, or a
+sketch parametric mode that has to be switched on before a dimension can drive
+at all.
+
+**The probe stops here deliberately.** Every constraint P1.2 asks for is
+identified, which is the larger half of the milestone and the half the trusted
+validator needs. P1.3's driving dimensions need one more day of probing against
+a spreadsheet API, and grinding at it now would hold up work that does not
+depend on it.
 
 ## Not done yet
 
 Everything after the probe.
 
 - **How a driving dimension actually drives.** Types 13 and 14 are the
-  candidates and association is required; the variable table is the untested
-  link. Everything in P1.3 waits on this.
+  candidates, association is required, and four ways of supplying the value have
+  been ruled out. The remaining candidates are `IVariableTable`'s spreadsheet API
+  and a sketch parametric mode. All of P1.3 waits on this, and nothing else
+  does.
 - **`Index` and `PartnerIndex` semantics** - which endpoint of a segment a
   coincidence refers to. Every constraint above was created with both left at
   their defaults, which is why the table says "defining point" rather than
