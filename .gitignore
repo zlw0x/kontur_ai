@@ -18,3 +18,4 @@ infra/docker/data/
 apps/local-worker/.work/
 .tools/
 .tmp/
+.local/
