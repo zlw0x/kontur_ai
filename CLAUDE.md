@@ -22,9 +22,18 @@ Restated here only because they are easy to violate accidentally:
 ## Current milestone
 
 The bounded vertical MVP is confirmed (`docs/TASK-011-014-mvp-drawing-web.md`).
-Work now follows `docs/POST-MVP-ROADMAP.md`, starting with the instrumentation
-foundation in `docs/CODEX-START-POST-MVP.md`: resource ledger, cost engine and
-capability registry — **no new KOMPAS operations** until those land.
+Work follows `docs/POST-MVP-ROADMAP.md`. Landed so far, each with a real
+end-to-end acceptance run recorded under `docs/acceptance/`:
+
+- POSTMVP-001/002/003 — resource ledger, cost engine, capability registry
+- POSTMVP-003A/003B/003C — scheduler diagnostics, real telemetry, model provenance
+- POSTMVP-004 — CAD-IR 1.1 canonical form (`docs/adr/ADR-018-*`)
+- POSTMVP-005 — semantic selectors (`docs/adr/ADR-019-*`)
+
+The buildable geometry is still the MVP's: a rectangular plate with circular
+through holes. A new operation may now be added, and **must name its faces and
+edges with a selector, never an index** — that constraint is what POSTMVP-005
+bought. Next in the plan is POSTMVP-006, sketch primitives.
 
 ## Commands
 

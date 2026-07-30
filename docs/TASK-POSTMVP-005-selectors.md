@@ -78,28 +78,61 @@ export, so no new process or authentication path is involved.
 Every predicate the contracts express has a member behind it. No invented
 members, no gaps to fill in later.
 
-## Not done yet
+## Resolver (done)
 
-The resolver itself, and everything downstream of it:
+`packages/kompas-adapter/SelectorResolver.cs` is pure: it takes measured
+descriptors, not COM objects, so the whole matching layer is testable on a
+machine without KOMPAS. Predicates are applied in a fixed order and each one is
+recorded as a trace step. Position is applied last, and the extreme after the
+centre — an extreme is a ranking over the survivors, so applying it earlier
+answers a different question.
 
-- **Face and edge resolvers** in `packages/kompas-adapter`, walking the
-  collections above and filtering by predicate.
-- **Resolution traces** emitted as an audit record, and the six typed errors
-  wired to real failures.
-- **Stability tests**, which are the ones that matter and cannot be faked:
-  resolve the top face, change the width from 40 to 60, rebuild, resolve again
-  and get the same face; then save, close KOMPAS, reopen the M3D in a new
-  process and resolve again. COM handles are not valid across any of those, so
-  selectors must be re-resolved each time and must never be serialised.
-- **Symmetric ambiguity**, which is the test that proves determinism: two
-  identical side faces matched by "planar, parallel to YZ" must produce
-  `SELECTOR_AMBIGUOUS`, not an arbitrary first match. Adding
-  `extreme_along X = maximum` must then resolve exactly one.
-- **Ledger instrumentation** for resolution time.
+`KompasTopologyReader.cs` is the COM half. It reads and releases; it hands back
+values and keeps no handle, because a COM pointer is not valid across a
+rebuild, a reopen or a new KOMPAS process. Edges are deduplicated
+geometrically: every edge is shared by two faces and `ksEdgeDefinition` exposes
+no stable id. A circle's radius is derived from its circumference, which is
+exact rather than a guess.
 
-## Constraint carried forward
+## Stability (done)
 
-No fillet, chamfer, shell, rib, draft, face-selected pattern, loft or sweep
-until the resolver and its stability tests are done. Adding one first is how
-an adapter starts depending on face ordering, and that debt is paid by
-rewriting every operation built on it.
+`cad-worker resolve-selectors` and
+`docs/acceptance/POSTMVP-005-selector-stability.md`. Six selectors resolved in
+four phases on live KOMPAS v22: as built, after the plate is widened from 40 to
+60 and rebuilt, after the M3D is reopened in a second KOMPAS process, and after
+a third hole is drilled.
+
+All six behaved as declared in all four phases. The third hole moved the top
+face from collection index 0 to 1 and the +X side face from 3 to 6, and both
+selectors still found what they meant — which is the claim the milestone
+exists to make. `side_face_ambiguous` returned `SELECTOR_AMBIGUOUS` every time
+rather than picking a side, and the three `exactly_n = 2` selectors reported
+`SELECTOR_CARDINALITY_MISMATCH` once there were three holes.
+
+The verdict is computed by `SelectorStabilityChecks`, a pure function over the
+recorded phases, so the run cannot mark its own homework and the grading is
+itself tested against the failures it must catch.
+
+Two defects came out of the first real runs, both written up in the acceptance
+document: the KOMPAS unit bit vector for `GetLength` and `GetArea` is 1 and not
+0, and the API5 application object must be created once per session rather than
+per read.
+
+## Ledger (done)
+
+`SELECTOR_RESOLUTION` is its own `ResourceStage` in both the API contracts and
+the worker. Reading a nine-face plate's topology takes 85–145 ms; filtering it
+takes under 16 ms. Nothing in the build pipeline resolves a selector yet, so
+the events come from the diagnostic — the stage exists so that the first
+operation to use a selector reports its cost separately from the feature.
+
+## Constraint lifted
+
+The constraint carried into this milestone — no fillet, chamfer, shell, rib,
+draft, face-selected pattern, loft or sweep until the resolver and its
+stability tests are done — is discharged. An operation may now be added, and
+must name its geometry with a selector rather than an index.
+
+What is still unmeasured: resolution on a model with several hundred faces. The
+resolver is a linear scan per predicate, and nine faces prove nothing about
+that.
