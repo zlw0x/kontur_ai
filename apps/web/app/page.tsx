@@ -34,6 +34,7 @@ const artifactOrder = ["M3D", "STEP", "STL", "VALIDATION_REPORT"];
 
 export default function Home() {
   const [token, setToken] = useState("");
+  const [demoMode, setDemoMode] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -44,7 +45,9 @@ export default function Home() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setToken(sessionStorage.getItem("cad-ai-token") ?? "");
+    const storedToken = sessionStorage.getItem("cad-ai-token") ?? "";
+    setToken(storedToken);
+    setDemoMode(!storedToken);
     setComment(localStorage.getItem("cad-ai-drawing-note") ?? "");
     setOrderId(new URLSearchParams(window.location.search).get("order"));
   }, []);
@@ -101,16 +104,34 @@ export default function Home() {
     [order],
   );
   const activeStatus = order?.status ?? (file ? "DRAFT" : "EMPTY");
+  const isDemo = demoMode || !token;
 
   async function submitDrawing(event: FormEvent) {
     event.preventDefault();
-    if (!file || !token) {
-      setError("Выберите PNG/JPEG и укажите локальный API-токен.");
+    if (!file) {
+      setError("Выберите PNG или JPEG чертёж.");
       return;
     }
     setBusy(true);
     setError("");
     try {
+      if (isDemo) {
+        const demoOrder = `demo-${Date.now()}`;
+        setOrderId(demoOrder);
+        setOrder({
+          order_id: demoOrder,
+          job_id: "demo-job-001",
+          status: "WAITING_FOR_USER_ANSWERS",
+          waiting_reason: null,
+          round: 0,
+          questions: [
+            { id: "demo-width", parameter_id: "width", text: "Подтвердите ширину детали" },
+            { id: "demo-depth", parameter_id: "depth", text: "Подтвердите толщину детали" },
+          ],
+          artifacts: [],
+        });
+        return;
+      }
       sessionStorage.setItem("cad-ai-token", token);
       const response = await fetch(`${API_URL}/api/v1/drawing-jobs`, {
         method: "POST",
@@ -139,6 +160,17 @@ export default function Home() {
     setBusy(true);
     setError("");
     try {
+      if (isDemo) {
+        setOrder({
+          ...order,
+          status: "READY",
+          waiting_reason: null,
+          questions: [],
+          artifacts: demoArtifacts(),
+        });
+        setAnswers({});
+        return;
+      }
       const payload = order.questions.map((question) => ({
         question_id: question.id,
         value: Number(answers[question.id]),
@@ -168,16 +200,17 @@ export default function Home() {
   async function download(artifact: Artifact) {
     setError("");
     try {
+      if (isDemo) {
+        const blob = new Blob([demoArtifactContents(artifact.type)], { type: demoMediaType(artifact.type) });
+        triggerDownload(blob, `cad-demo.${extensionFor(artifact.type)}`);
+        return;
+      }
       const response = await fetch(`${API_URL}${artifact.download_url}`, {
         headers: { "x-manual-api-token": token },
       });
       if (!response.ok) throw new Error(await safeError(response));
       const blob = await response.blob();
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `cad-result.${extensionFor(artifact.type)}`;
-      link.click();
-      URL.revokeObjectURL(link.href);
+      triggerDownload(blob, `cad-result.${extensionFor(artifact.type)}`);
     } catch (reason) {
       setError(message(reason));
     }
@@ -193,17 +226,22 @@ export default function Home() {
 
         <form className="side-scroll" onSubmit={submitDrawing}>
           <section className="side-section connection">
-            <div className="section-label">Подключение</div>
-            <label className="compact-label" htmlFor="token">Локальный API-токен</label>
-            <input
-              id="token"
-              type="password"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              placeholder="Токен из .env"
-              autoComplete="off"
-            />
-            <p className="connection-note"><i /> Auth остаётся только в этом браузере</p>
+            <div className="section-heading">
+              <span className="section-label">Режим запуска</span>
+              <button
+                className={`mode-switch ${isDemo ? "active" : ""}`}
+                type="button"
+                onClick={() => setDemoMode((value) => !value)}
+                aria-pressed={isDemo}
+              >
+                {isDemo ? "DEMO" : "API"}
+              </button>
+            </div>
+            <div className="demo-mode-card">
+              <span className="demo-mode-icon">{isDemo ? "◌" : "↗"}</span>
+              <span><b>{isDemo ? "Тест без API" : "Подключённый API"}</b><small>{isDemo ? "Данные остаются в браузере" : "Используется сохранённый токен"}</small></span>
+            </div>
+            <p className="connection-note"><i /> {isDemo ? "Сымитируем уточнения, 3D и скачивания" : "Auth остаётся только в этом браузере"}</p>
           </section>
 
           <section className="side-section">
@@ -246,7 +284,7 @@ export default function Home() {
               placeholder="Например: отверстие должно быть сквозным…"
               maxLength={1000}
             />
-            <p className="field-hint">Черновик остаётся в браузере: API ещё не принимает комментарии.</p>
+            <p className="field-hint">Черновик остаётся в браузере и не меняет CAD-IR автоматически.</p>
           </section>
 
           <button className="primary-action" type="submit" disabled={busy}>
@@ -278,7 +316,7 @@ export default function Home() {
           </div>
 
           {stl ? (
-            <StlPreview url={`${API_URL}${stl.download_url}`} token={token} />
+            <StlPreview url={`${API_URL}${stl.download_url}`} token={token} demo={isDemo} />
           ) : sourceUrl ? (
             <div className="drawing-preview"><img src={sourceUrl} alt="Загруженный чертёж" /></div>
           ) : (
@@ -360,7 +398,7 @@ export default function Home() {
           })}
         </section>
 
-        <div className="security-note"><span>◇</span><p><b>Trusted local build</b>Codex auth и лицензия КОМПАС не покидают ваш ПК.</p></div>
+        <div className="security-note"><span>◇</span><p><b>{isDemo ? "Browser-only demo" : "Trusted local build"}</b>{isDemo ? "Тестовые файлы создаются прямо в браузере." : "Codex auth и лицензия КОМПАС не покидают ваш ПК."}</p></div>
       </aside>
     </main>
   );
@@ -369,6 +407,121 @@ export default function Home() {
 function artifactLabel(type: string) {
   return type === "VALIDATION_REPORT" ? "Отчёт проверки" : type;
 }
+
+function demoArtifacts(): Artifact[] {
+  return ["M3D", "STEP", "STL", "VALIDATION_REPORT"].map((type) => ({
+    type,
+    size_bytes: new TextEncoder().encode(demoArtifactContents(type)).byteLength,
+    sha256: "DEMO-LOCAL-ARTIFACT",
+    download_url: `/demo/${type.toLowerCase()}`,
+  }));
+}
+
+function demoArtifactContents(type: string) {
+  if (type === "STL") return DEMO_STL;
+  if (type === "STEP") return "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('CAD AI demo'),'2;1');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
+  if (type === "M3D") return "CAD AI Studio demo artifact — generated in browser only.\n";
+  return JSON.stringify({ status: "demo", valid: true, body_count: 1, bounding_box_mm: [40, 20, 10] }, null, 2);
+}
+
+function demoMediaType(type: string) {
+  return type === "VALIDATION_REPORT" ? "application/json" : "application/octet-stream";
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+const DEMO_STL = `solid cad_demo
+  facet normal 0 0 -1
+    outer loop
+      vertex -20 -10 0
+      vertex 20 -10 0
+      vertex 20 10 0
+    endloop
+  endfacet
+  facet normal 0 0 -1
+    outer loop
+      vertex -20 -10 0
+      vertex 20 10 0
+      vertex -20 10 0
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -20 -10 10
+      vertex 20 10 10
+      vertex 20 -10 10
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -20 -10 10
+      vertex -20 10 10
+      vertex 20 10 10
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -20 -10 0
+      vertex -20 10 0
+      vertex -20 10 10
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -20 -10 0
+      vertex -20 10 10
+      vertex -20 -10 10
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 20 -10 0
+      vertex 20 -10 10
+      vertex 20 10 10
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 20 -10 0
+      vertex 20 10 10
+      vertex 20 10 0
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -20 -10 0
+      vertex -20 -10 10
+      vertex 20 -10 10
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -20 -10 0
+      vertex 20 -10 10
+      vertex 20 -10 0
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -20 10 0
+      vertex 20 10 0
+      vertex 20 10 10
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -20 10 0
+      vertex 20 10 10
+      vertex -20 10 10
+    endloop
+  endfacet
+endsolid cad_demo`;
 
 function extensionFor(type: string) {
   return ({ M3D: "m3d", STEP: "step", STL: "stl", VALIDATION_REPORT: "json" } as Record<string, string>)[type] ?? "bin";

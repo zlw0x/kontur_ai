@@ -4,7 +4,94 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
-export default function StlPreview({ url, token }: { url: string; token: string }) {
+const DEMO_STL = `solid cad_demo
+  facet normal 0 0 -1
+    outer loop
+      vertex -20 -10 0
+      vertex 20 -10 0
+      vertex 20 10 0
+    endloop
+  endfacet
+  facet normal 0 0 -1
+    outer loop
+      vertex -20 -10 0
+      vertex 20 10 0
+      vertex -20 10 0
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -20 -10 10
+      vertex 20 10 10
+      vertex 20 -10 10
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -20 -10 10
+      vertex -20 10 10
+      vertex 20 10 10
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -20 -10 0
+      vertex -20 10 0
+      vertex -20 10 10
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -20 -10 0
+      vertex -20 10 10
+      vertex -20 -10 10
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 20 -10 0
+      vertex 20 -10 10
+      vertex 20 10 10
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 20 -10 0
+      vertex 20 10 10
+      vertex 20 10 0
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -20 -10 0
+      vertex -20 -10 10
+      vertex 20 -10 10
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -20 -10 0
+      vertex 20 -10 10
+      vertex 20 -10 0
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -20 10 0
+      vertex 20 10 0
+      vertex 20 10 10
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -20 10 0
+      vertex 20 10 10
+      vertex -20 10 10
+    endloop
+  endfacet
+endsolid cad_demo`;
+
+export default function StlPreview({ url, token, demo = false }: { url: string; token: string; demo?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
 
@@ -39,12 +126,15 @@ export default function StlPreview({ url, token }: { url: string; token: string 
     };
     renderer.domElement.addEventListener("pointermove", onPointer);
 
-    fetch(url, { headers: { "x-manual-api-token": token } })
+    const modelSource = demo
+      ? Promise.resolve(new TextEncoder().encode(DEMO_STL).buffer as ArrayBuffer)
+      : fetch(url, { headers: { "x-manual-api-token": token } })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Не удалось загрузить STL (${response.status}).`);
         return response.arrayBuffer();
-      })
-      .then((buffer) => {
+      });
+
+    modelSource.then((buffer) => {
         if (disposed) return;
         const geometry = new STLLoader().parse(buffer);
         geometry.computeVertexNormals();
@@ -91,7 +181,7 @@ export default function StlPreview({ url, token }: { url: string; token: string 
       renderer.dispose();
       container.replaceChildren();
     };
-  }, [token, url]);
+  }, [demo, token, url]);
 
   return (
     <div className="preview">
