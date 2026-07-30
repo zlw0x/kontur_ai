@@ -71,52 +71,97 @@ for when it says every driving dimension gets a stable name.
 
 ### The constants had to be observed, not read
 
-**The type libraries export no enumerations at all** — zero, in both kAPI7 and
+**The type libraries export no enumerations at all** - zero, in both kAPI7 and
 kAPI5. So unlike `pTop_Part` or the plane types, which at least had a discovered
-number, `ConstraintType` had to be identified by applying each candidate to a
-deliberately wrong pair of segments and reading where KOMPAS put them.
+number, `ConstraintType` had to be identified by applying each candidate to
+deliberately wrong geometry and reading where KOMPAS put it.
 
-Two passes are needed. With a horizontal reference segment, "make B horizontal"
-and "make B parallel to A" produce the same answer and the two types cannot be
-told apart; an oblique reference separates them. That trap already caught this
-probe once.
+One reference pair cannot separate everything, so the probe has scenarios. Three
+traps, each of which produced a wrong table before it was understood:
 
-Reference: `A = (0,0)->(20,10)`, `B = (0,14)->(18,20)` — B neither parallel nor
-perpendicular to A, and of a different length, so any of those becoming true is
-the constraint speaking.
+- With a **horizontal** reference segment, "make B horizontal" and "make B
+  parallel to A" give the same answer and the two types are indistinguishable.
+  The reference is oblique for that reason.
+- With a reference **sharing a coordinate** with the subject - the first version
+  started both at x = 0 - a constraint that aligns those coordinates reads as
+  "unchanged". No coordinate is shared now.
+- **Tangency and concentricity cannot appear between two straight lines**, and
+  the types that express them fail to create there. A subset that creates for
+  segments is not the subset that creates for circles, so the probe sweeps 0 to
+  40 rather than a curated list.
 
-| `ConstraintType` | B afterwards | Reading |
+Reference geometry is wrong in every respect the constraints could fix: not
+parallel, not perpendicular, different lengths, not concentric, not tangent.
+
+| `ConstraintType` | Effect measured | Reading |
 |---|---|---|
-| 3 | horizontal, whatever A is | **horizontal** |
-| 4 | vertical | **vertical** |
-| 5 | parallel to A | **parallel** |
-| 6 | perpendicular to A | **perpendicular** |
-| 7 | length equal to A's | **equal** |
-| 9 | B's start moved onto A's start | **coincident** (point to point) |
-| 17 | parallel to A *and* start on A's line | **collinear** |
-| 2 | start moved onto A's line, direction unchanged | **point on curve** |
-| 11 | start onto A's start, **A moved too** | a coincidence that adjusts both |
-| 20 | start onto A's line, **A moved too** | unidentified |
-| 1, 10, 18, 19 | created, nothing moved | unidentified on this geometry |
+| 1 | creates with no partner, moves nothing, `Valid` true | **fixed** |
+| 2 | the defining point moves onto the reference *line*; a circle's centre lands on it | **point on curve** |
+| 3 | the subject becomes horizontal whatever the reference is | **horizontal** |
+| 4 | the subject becomes vertical | **vertical** |
+| 5 | the pair becomes parallel | **parallel** |
+| 6 | the pair becomes perpendicular | **perpendicular** |
+| 7 | equal length; fails between circles | **equal length** |
+| 8 | equal radius; fails between segments | **equal radius** |
+| 9 | defining points end at the same *y* | **horizontally aligned points** |
+| 10 | defining points end at the same *x* | **vertically aligned points** |
+| 11 | defining points coincide; between circles that is centre to centre | **coincident**, which for circles reads as **concentric** |
+| 15 | circles become externally tangent; a circle becomes tangent to a line | **tangent** |
+| 16 | with `Axis` set, the reference lands exactly on the subject's mirror image | **symmetric about an axis** |
+| 17 | parallel *and* the defining point on the reference line | **collinear** |
+| 20 | the defining point lands on the reference's **midpoint** | **midpoint** |
 
-`Valid` is not a success signal: types 3 to 7 plainly worked and all report
-`Valid = False`, while 9, 10 and 11 report true. The geometric effect is the only
+That is all twelve constraints P1.2 asks for, with `equal` turning out to be two
+distinct types rather than one.
+
+Type 16 was confirmed arithmetically rather than by eye: the axis is the vertical
+line x = 10, the subject starts at (3, 14), and the reference's start moved to
+exactly (17, 14) - the mirror image.
+
+**`Valid` is not a success signal.** Types 3 to 7 plainly work and all report
+`Valid = False`; 9, 10 and 11 report true. The geometric effect is the only
 reliable evidence, which is why the probe measures rather than asks.
 
-Reading coordinates after `EndEdit` returns zeros for every entity. That looks
-exactly like a constraint which collapsed the sketch to the origin, and it cost
-one wrong table before the probe read inside the edit instead.
+**Reading coordinates after `EndEdit` returns zeros for every entity.** That
+looks exactly like a constraint which collapsed the sketch to the origin, and it
+cost one wrong table before the probe read inside the edit instead.
+
+### Driving dimensions are a different mechanism, and one link is still missing
+
+Setting `Value` on a geometric constraint does nothing: no type from 0 to 40
+drives a segment's length, span, radius or diameter that way.
+
+Dimensions are separate objects, and they live on `ISymbols2DContainer` rather
+than the geometry container - `LineDimensions` `[10001]`, `RadialDimensions`
+`[10002]`, `DiametralDimensions` `[10003]`, `AngleDimensions` `[10004]`.
+
+What is established:
+
+- A dimension drawn over a segment must be bound to it first.
+  `IDrawingObject1.Associate()` takes no arguments - it binds the dimension to
+  whatever its own points already sit on - and returns true.
+- Only **after** association do constraint types **13 and 14** create on the
+  dimension object. Both fail on geometry, and every other type fails on a
+  dimension. So the driving-dimension constraint is one of those two.
+
+What is not established: setting `Value` and `Variable` on type 13 or 14 after
+association still leaves the geometry where it was. The likely missing link is
+the part's variable table - `IPart7.AddVariable` `[21]` exists, and
+`IParametriticConstraint` carries `Variable` `[8]` and `Expression` `[6]` - so a
+dimension probably drives by *naming* a variable which is then set, rather than
+by carrying a value itself. That is one probe away and it is not done.
 
 ## Not done yet
 
 Everything after the probe.
 
-- **The remaining constants.** Tangent and concentric cannot show up between two
-  straight lines, and symmetry needs an axis, so those need reference geometry
-  the current probe does not build. Five of the roadmap's twelve constraints are
-  still unidentified: tangent, concentric, midpoint, symmetry, fixed.
-- **`Index` and `PartnerIndex` semantics** — which endpoint of a segment a
-  coincidence refers to. Unprobed.
+- **How a driving dimension actually drives.** Types 13 and 14 are the
+  candidates and association is required; the variable table is the untested
+  link. Everything in P1.3 waits on this.
+- **`Index` and `PartnerIndex` semantics** - which endpoint of a segment a
+  coincidence refers to. Every constraint above was created with both left at
+  their defaults, which is why the table says "defining point" rather than
+  naming an end.
 - **Entity identity in CAD-IR.** Constraints have to name the geometry they
   constrain, and a path's segments are currently a positional list with no ids.
   A constraint referring to "segment 2" would change meaning when segments are
