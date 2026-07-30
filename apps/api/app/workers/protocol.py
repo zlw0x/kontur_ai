@@ -64,10 +64,24 @@ class WorkerProtocolService:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def register(self, *, enrollment_token: str, worker_name: str, app_version: str) -> tuple[Worker, str]:
+        """Enrol a worker, or re-enrol a machine that is already known.
+
+        Re-enrolling the same name rotates its credential and keeps its id, so a
+        machine that was rebuilt or lost its credential can come back. The old
+        credential stops working, which is the point.
+        """
         if not secrets.compare_digest(_hash(enrollment_token), _hash(self.enrollment_token)):
             raise WorkerProtocolError(ErrorCode.ENROLLMENT_REJECTED, "worker enrollment was rejected")
         credential = secrets.token_urlsafe(48)
-        worker = Worker(uuid4(), worker_name, _hash(credential), app_version)
+        existing = next(
+            (item for item in self.repo.workers.values() if item.name == worker_name), None
+        )
+        worker = Worker(
+            existing.id if existing is not None else uuid4(),
+            worker_name,
+            _hash(credential),
+            app_version,
+        )
         self.repo.workers[worker.id] = worker
         return worker, credential
 

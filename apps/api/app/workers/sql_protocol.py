@@ -29,11 +29,43 @@ class SqlWorkerProtocolService:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def register(self, *, enrollment_token: str, worker_name: str, app_version: str) -> tuple[Worker, str]:
+        """Enrol a worker, or re-enrol a machine that is already known.
+
+        Re-enrolling the same name rotates its credential rather than failing.
+        A machine that was rebuilt, or whose credential was lost, has to be able
+        to come back — and the previous behaviour was a unique-constraint
+        violation surfacing as a bare "enrollment was rejected", which sends an
+        operator looking at their token instead of at their worker list.
+
+        It grants nothing new: the enrollment token already authorises
+        registering a worker, so anyone holding it could occupy the name anyway.
+        """
         if not secrets.compare_digest(_hash(enrollment_token), _hash(self.enrollment_token)):
             raise WorkerProtocolError(ErrorCode.ENROLLMENT_REJECTED, "worker enrollment was rejected")
-        credential, worker_id = secrets.token_urlsafe(48), uuid4()
+        credential = secrets.token_urlsafe(48)
         with self.sessions.begin() as session:
-            session.add(WorkerRow(id=str(worker_id), name=worker_name, token_hash=_hash(credential), app_version=app_version))
+            existing = session.scalar(select(WorkerRow).where(WorkerRow.name == worker_name))
+            if existing is not None:
+                # The old credential stops working, which is the point: a
+                # rotation that left the previous one valid would be a way to
+                # keep a stale worker alive unnoticed.
+                existing.token_hash = _hash(credential)
+                existing.app_version = app_version
+                existing.status = "READY"
+                existing.available_slots = 0
+                existing.capabilities = []
+                existing.supported_cad_ir = []
+                existing.capability_manifest = None
+                existing.last_seen_at = None
+                worker_id = UUID(existing.id)
+            else:
+                worker_id = uuid4()
+                session.add(WorkerRow(
+                    id=str(worker_id),
+                    name=worker_name,
+                    token_hash=_hash(credential),
+                    app_version=app_version,
+                ))
         return Worker(worker_id, worker_name, _hash(credential), app_version), credential
 
     def authenticate(self, worker_id: UUID, credential: str) -> Worker:
