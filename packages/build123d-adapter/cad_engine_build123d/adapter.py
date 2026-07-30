@@ -1,4 +1,4 @@
-"""Build a CAD-IR document with build123d, and export STEP and STL.
+﻿"""Build a CAD-IR document with build123d, and export STEP and STL.
 
 The trust boundary is unchanged from the KOMPAS era and is the whole reason the
 engine could be replaced at all: the AI writes a document, a versioned schema and
@@ -26,6 +26,8 @@ from cad_ir.canonical import (
 )
 from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
+from .constraints import DegreesOfFreedom, validate
+from .entities import named_entities
 from .errors import CadEngineError, unsupported
 from .parameters import Parameters
 from .identity import ARTIFACTS, EngineDescription, describe
@@ -108,7 +110,7 @@ def build_part(document: CadIrDocument):
 
 def _extrude_feature(feature, part, planes: dict[str, Plane], params):
     sketch = feature.inputs.sketch
-    _refuse_unported_sketch_features(sketch)
+    _check_assertions(sketch, params)
 
     plane = _sketch_plane(sketch.plane, planes)
     face = sketch_face(sketch.outer, list(sketch.inner), params)
@@ -198,28 +200,20 @@ def _through_all_tool(placed_face, part):
     return extrude(placed_face, amount=reach, both=True)
 
 
-def _refuse_unported_sketch_features(sketch) -> None:
-    """Say what this engine does not do yet, instead of quietly not doing it.
+def _check_assertions(sketch, params) -> DegreesOfFreedom | None:
+    """Refuse a sketch whose constraints its own coordinates contradict.
 
-    Constraints and dimensions are assertions about the coordinates the document
-    already states (ADR-022). Building the geometry while ignoring them would
-    produce a part that looks right and skipped the checks that catch a misread
-    drawing — the exact failure the assertions exist to make impossible. They are
-    ported in ENGINE-MIG-004; until then a document carrying them is refused.
+    This is the check, not an application. build123d has no constraint solver and
+    a STEP file cannot carry constraints, so unlike the KOMPAS engine this one
+    cannot put them into the delivered model — ADR-023 records that as a real
+    cost. What survives is the half that catches a misread drawing, and it runs
+    before any geometry is made: a document that says two different things about
+    the same part should fail without starting a build.
     """
-    if sketch.constraints:
-        raise unsupported(
-            f"Sketch {sketch.id} carries {len(sketch.constraints)} constraints, which "
-            "this engine does not check yet (ENGINE-MIG-004). Refused rather than "
-            "ignored: an unchecked assertion is worse than an absent one.",
-            "sketch",
-        )
-    if sketch.dimensions:
-        raise unsupported(
-            f"Sketch {sketch.id} carries {len(sketch.dimensions)} driving dimensions, "
-            "which this engine does not check yet (ENGINE-MIG-004).",
-            "sketch",
-        )
+    if not sketch.constraints and not sketch.dimensions:
+        return None
+    entities = named_entities(sketch, params)
+    return validate(entities, list(sketch.constraints), list(sketch.dimensions), params)
 
 
 def _sketch_plane(spec, planes: dict[str, Plane]) -> Plane:
