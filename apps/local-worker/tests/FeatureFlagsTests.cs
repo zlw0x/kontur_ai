@@ -185,7 +185,7 @@ public sealed class FeatureFlagsTests : IDisposable
         @"""metadata"":{""generator"":""test"",""generator_version"":""1.0""}}";
 
     private const string Head =
-        @"{""schema"":""cad-ai/cad-ir"",""schema_version"":""1.2""," +
+        @"{""schema"":""cad-ai/cad-ir"",""schema_version"":""1.3""," +
         @"""document"":{""units"":""mm""}," +
         @"""parameters"":[{""id"":""param.depth"",""type"":""length"",""unit"":""mm"",""value"":10}],";
 

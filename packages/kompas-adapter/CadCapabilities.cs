@@ -25,6 +25,8 @@ public static class CadCapabilities
     public const string SketchPlaneBase = "sketch.plane.base";
     public const string SketchPlaneDatum = "sketch.plane.datum_offset";
     public const string SketchPlaneFaceSelector = "sketch.plane.face_selector";
+    public const string SketchConstraints = "sketch.constraints";
+    public const string SketchDimensions = "sketch.driving_dimensions";
     public const string FeatureHoleSimpleThrough = "feature.hole.simple_through";
     public const string FeatureBossAdditive = "feature.boss.additive";
     public const string ExportM3d = "export.m3d";
@@ -46,6 +48,7 @@ public static class CadCapabilities
     {
         SolidRectangularPrism, SolidContourProfile,
         SketchArc, SketchSlot, SketchRegularPolygon, SketchIslands, SketchConstruction,
+        SketchConstraints, SketchDimensions,
         SketchPlaneBase, SketchPlaneDatum, SketchPlaneFaceSelector,
         FeatureHoleSimpleThrough, FeatureBossAdditive,
         ExportM3d, ExportStep, ExportStl,

@@ -71,6 +71,33 @@ UNARY_KINDS: frozenset[ConstraintKind] = frozenset(
 AXIAL_KINDS: frozenset[ConstraintKind] = frozenset({ConstraintKind.SYMMETRIC})
 
 
+#: The constraints for which `of_point` and `to_point` mean anything. Everything
+#: else is about a whole entity, and naming a point there would be noise a reader
+#: has to decide to ignore.
+POINT_CONSTRAINT_KINDS: frozenset[ConstraintKind] = frozenset(
+    {
+        ConstraintKind.COINCIDENT,
+        ConstraintKind.MIDPOINT,
+        ConstraintKind.POINT_ON_CURVE,
+        ConstraintKind.ALIGNED_HORIZONTALLY,
+        ConstraintKind.ALIGNED_VERTICALLY,
+        ConstraintKind.COLLINEAR,
+    }
+)
+
+class SketchPoint(StrEnum):
+    """Which point of an entity a point constraint is about.
+
+    Naming it is not optional. In a closed contour consecutive segments meet
+    end-to-start, so a coincidence that always meant "start to start" would be
+    false for every corner of every rectangle.
+    """
+
+    START = "start"
+    END = "end"
+    CENTER = "center"
+
+
 class SketchConstraint(StrictModel):
     """One statement about the sketch that must already be true.
 
@@ -85,6 +112,8 @@ class SketchConstraint(StrictModel):
     of: Id
     to: Id | None = None
     axis: Id | None = None
+    of_point: SketchPoint = SketchPoint.START
+    to_point: SketchPoint = SketchPoint.START
 
     @model_validator(mode="after")
     def validate_operands(self) -> "SketchConstraint":
@@ -103,6 +132,14 @@ class SketchConstraint(StrictModel):
             raise ValueError("a constraint cannot relate an entity to itself")
         if self.axis is not None and self.axis in (self.of, self.to):
             raise ValueError("the axis of a symmetry cannot be one of its operands")
+        if self.kind not in POINT_CONSTRAINT_KINDS:
+            # Stating a point where a point means nothing is noise a reader has
+            # to decide to ignore, and the next reader may decide differently.
+            for field in ("of_point", "to_point"):
+                if getattr(self, field) is not SketchPoint.START:
+                    raise ValueError(
+                        f"a {self.kind} constraint is about whole entities, so {field} means nothing"
+                    )
         return self
 
 

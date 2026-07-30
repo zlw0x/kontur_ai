@@ -19,7 +19,7 @@ namespace CadAi.LocalWorker;
 public static class WorkerCapabilities
 {
     public const string WorkerVersion = "0.4.0";
-    public const string CadIrVersion = "1.2";
+    public const string CadIrVersion = "1.3";
 
     /// <summary>
     /// Behaviour version of a capability, independent of the worker build.
@@ -64,6 +64,8 @@ public static class WorkerCapabilities
             [CadCapabilities.SketchPlaneDatum] = Beta(),
             [CadCapabilities.SketchPlaneFaceSelector] = Beta(),
             [CadCapabilities.FeatureBossAdditive] = Beta(),
+            [CadCapabilities.SketchConstraints] = Beta(),
+            [CadCapabilities.SketchDimensions] = Beta(),
         };
 
     public static WorkerCapabilityManifestPayload Manifest(

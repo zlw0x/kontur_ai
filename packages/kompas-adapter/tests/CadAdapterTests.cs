@@ -207,7 +207,7 @@ public sealed class CadAdapterTests
     public void ParserRejectsADocumentWithNoVersion()
     {
         Assert.Equal("CAD_IR_VERSION_MISSING",
-            CodeOf(Plate().Replace(@"""schema_version"":""1.2"",", "", StringComparison.Ordinal)));
+            CodeOf(Plate().Replace(@"""schema_version"":""1.3"",", "", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -216,9 +216,9 @@ public sealed class CadAdapterTests
         // "Too new" tells an operator to upgrade the worker. "Unsupported"
         // sends them looking for a malformed document.
         Assert.Equal("CAD_IR_VERSION_TOO_NEW", CodeOf(Plate().Replace(
-            @"""schema_version"":""1.2""", @"""schema_version"":""1.3""", StringComparison.Ordinal)));
+            @"""schema_version"":""1.3""", @"""schema_version"":""1.4""", StringComparison.Ordinal)));
         Assert.Equal("CAD_IR_VERSION_UNSUPPORTED", CodeOf(Plate().Replace(
-            @"""schema_version"":""1.2""", @"""schema_version"":""1.1""", StringComparison.Ordinal)));
+            @"""schema_version"":""1.3""", @"""schema_version"":""1.2""", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -317,7 +317,7 @@ public sealed class CadAdapterTests
     private static string Plate() =>
         "{" +
         @"""schema"":""cad-ai/cad-ir""," +
-        @"""schema_version"":""1.2""," +
+        @"""schema_version"":""1.3""," +
         @"""document"":{""units"":""mm""}," +
         Parameters + "," +
         @"""features"":[{" +

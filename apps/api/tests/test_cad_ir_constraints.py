@@ -9,7 +9,13 @@ it is *true* is geometry, and geometry lives in the adapter.
 import pytest
 from pydantic import ValidationError
 
-from cad_ir.constraints import ConstraintKind, DimensionKind, DrivingDimension, SketchConstraint
+from cad_ir.constraints import (
+    ConstraintKind,
+    DimensionKind,
+    DrivingDimension,
+    SketchConstraint,
+    SketchPoint,
+)
 from cad_ir.sketch import Sketch
 
 BASE_XY = {"on": "base", "plane": "XY"}
@@ -139,6 +145,30 @@ def test_a_constraint_cannot_relate_an_entity_to_itself():
 def test_the_axis_of_a_symmetry_cannot_be_one_of_its_operands():
     with pytest.raises(ValidationError, match="cannot be one of its operands"):
         SketchConstraint(id="c.x", kind="symmetric", of="seg.left", to="seg.right", axis="seg.left")
+
+
+def test_a_point_may_be_named_only_where_a_point_is_what_the_constraint_is_about():
+    """Stating a point where a point means nothing is noise a reader has to
+    decide to ignore, and the next reader may decide differently."""
+    with pytest.raises(ValidationError, match="of_point means nothing"):
+        SketchConstraint(id="c.x", kind="parallel", of="seg.top", to="seg.bottom", of_point="end")
+
+    corner = SketchConstraint(
+        id="c.corner", kind="coincident", of="seg.left", to="seg.bottom", to_point="end"
+    )
+    assert corner.to_point is SketchPoint.END
+
+
+def test_a_corner_of_a_closed_contour_is_a_coincidence_end_to_start():
+    """The commonest coincidence there is. A check that always meant "start to
+    start" would be false for every corner of every rectangle, and a check that
+    is false for the commonest case gets turned off rather than fixed."""
+    parsed = Sketch(**rectangle_path(constraints=[
+        {"id": "c.corner", "kind": "coincident", "of": "seg.left", "to": "seg.bottom",
+         "to_point": "end"},
+    ]))
+
+    assert parsed.constraints[0].to_point is SketchPoint.END
 
 
 def test_the_constraint_vocabulary_is_the_one_kompas_was_measured_to_support():

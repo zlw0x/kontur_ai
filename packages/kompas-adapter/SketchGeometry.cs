@@ -25,6 +25,9 @@ public abstract record SketchSegment
 {
     public abstract Point2 Start { get; }
     public abstract Point2 End { get; }
+
+    /// <summary>The sketch-local name, when the document gave one.</summary>
+    public string? Id { get; init; }
 }
 
 public sealed record LineSegmentPlan(Point2 From, Point2 To) : SketchSegment
@@ -67,6 +70,9 @@ public sealed record ArcSegmentPlan(Point2 From, Point2 To, Point2 Center, bool 
 
 public abstract record ContourPlan
 {
+    /// <summary>The sketch-local name, when the document gave one.</summary>
+    public string? Id { get; init; }
+
     /// <summary>
     /// The contour as a closed polygon, for the checks that need one.
     /// </summary>
@@ -147,7 +153,60 @@ public sealed record SketchPlan(
     SketchPlanePlan Plane,
     ContourPlan Outer,
     IReadOnlyList<ContourPlan> Inner,
-    IReadOnlyList<ConstructionEntityPlan> Construction);
+    IReadOnlyList<ConstructionEntityPlan> Construction,
+    IReadOnlyList<SketchConstraintPlan>? Constraints = null,
+    IReadOnlyList<DrivingDimensionPlan>? Dimensions = null)
+{
+    public IReadOnlyList<SketchConstraintPlan> Declared => Constraints ?? [];
+    public IReadOnlyList<DrivingDimensionPlan> Measured => Dimensions ?? [];
+
+    /// <summary>
+    /// Everything in this sketch a constraint can name, flattened.
+    /// </summary>
+    /// <remarks>
+    /// Named entities only. An unnamed segment cannot be constrained and does not
+    /// need to appear, and leaving it out keeps the degree-of-freedom count
+    /// honest about what the constraints are actually holding.
+    /// </remarks>
+    public IReadOnlyList<ConstrainedEntity> NamedEntities()
+    {
+        var entities = new List<ConstrainedEntity>();
+        foreach (var contour in new[] { Outer }.Concat(Inner))
+            Collect(contour, entities);
+        foreach (var entity in Construction)
+        {
+            if (entity.At is { } point)
+                entities.Add(new ConstrainedEntity(entity.Id, "point", point, point));
+            else if (entity.Shape is { } shape)
+                Collect(shape, entities, entity.Id);
+        }
+        return entities;
+    }
+
+    private static void Collect(ContourPlan contour, List<ConstrainedEntity> into, string? id = null)
+    {
+        switch (contour)
+        {
+            case CircleContourPlan circle:
+                if ((id ?? circle.Id) is { } circleId)
+                    into.Add(new ConstrainedEntity(
+                        circleId, "circle", circle.Center, circle.Center, circle.Center, circle.Radius));
+                return;
+            case PathContourPlan path:
+                foreach (var segment in path.Segments)
+                {
+                    if (segment.Id is not { } segmentId) continue;
+                    into.Add(segment switch
+                    {
+                        ArcSegmentPlan arc => new ConstrainedEntity(
+                            segmentId, "arc", arc.From, arc.To, arc.Center, arc.StartRadius),
+                        _ => new ConstrainedEntity(segmentId, "line", segment.Start, segment.End)
+                    });
+                }
+                return;
+        }
+    }
+}
 
 public static class SketchGeometry
 {

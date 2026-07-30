@@ -9,8 +9,8 @@ namespace CadAi.KompasAdapter;
 /// The last gate before COM: canonical CAD-IR in, a build plan out.
 /// </summary>
 /// <remarks>
-/// Deliberately narrower than the CAD-IR schema. The schema says what version
-/// 1.2 can express; this says what this adapter can actually build. Everything
+/// Deliberately narrower than the CAD-IR schema. The schema says what the
+/// version can express; this says what this adapter can actually build. Everything
 /// else is refused here, while the cost is a typed error rather than a
 /// half-built model.
 ///
@@ -26,7 +26,7 @@ public static class CadIrBuildPlanParser
 {
     private const int MaxCadIrBytes = 1_048_576;
     private const string CadIrSchema = "cad-ai/cad-ir";
-    private const string CadIrVersion = "1.2";
+    private const string CadIrVersion = "1.3";
     private const double MaxCoordinateMm = 1_000_000;
 
     public static async Task<CadBuildPlan> ParseFileAsync(
@@ -262,8 +262,96 @@ public static class CadIrBuildPlanParser
             .ToArray();
         if (construction.Length > 0)
             gate.Require(CadCapabilities.SketchConstruction, $"the construction geometry in {path}");
-        return new SketchPlan(id, plane, outer, inner, construction);
+
+        var constraints = ReadArray(sketch, "constraints")
+            .Select((item, index) => ParseConstraint(item, $"{path}.constraints[{index}]"))
+            .ToArray();
+        var dimensions = ReadArray(sketch, "dimensions")
+            .Select((item, index) => ParseDimension(item, $"{path}.dimensions[{index}]", parameters))
+            .ToArray();
+        if (constraints.Length > 0)
+            gate.Require(CadCapabilities.SketchConstraints, $"the constraints in {path}");
+        if (dimensions.Length > 0)
+            gate.Require(CadCapabilities.SketchDimensions, $"the driving dimensions in {path}");
+
+        var plan = new SketchPlan(id, plane, outer, inner, construction, constraints, dimensions);
+        // Checked here, with the geometry, because a constraint is an assertion
+        // about coordinates and this is where the coordinates are numbers.
+        ConstraintValidator.Validate(plan.NamedEntities(), constraints, dimensions);
+        return plan;
     }
+
+    private static SketchConstraintPlan ParseConstraint(JsonElement constraint, string path)
+    {
+        RequireObject(constraint, path);
+        var kind = RequiredString(constraint, "kind", path) switch
+        {
+            "horizontal" => ConstraintKind.Horizontal,
+            "vertical" => ConstraintKind.Vertical,
+            "parallel" => ConstraintKind.Parallel,
+            "perpendicular" => ConstraintKind.Perpendicular,
+            "tangent" => ConstraintKind.Tangent,
+            // One KOMPAS type covers both: a circle's defining point is its
+            // centre, so a coincidence between two circles *is* concentricity.
+            "concentric" or "coincident" => ConstraintKind.Coincident,
+            "midpoint" => ConstraintKind.Midpoint,
+            "equal_length" => ConstraintKind.EqualLength,
+            "equal_radius" => ConstraintKind.EqualRadius,
+            "collinear" => ConstraintKind.Collinear,
+            "symmetric" => ConstraintKind.Symmetric,
+            "fixed" => ConstraintKind.Fixed,
+            "point_on_curve" => ConstraintKind.PointOnCurve,
+            "aligned_horizontally" => ConstraintKind.AlignedHorizontally,
+            "aligned_vertically" => ConstraintKind.AlignedVertically,
+            var other => throw Invalid("UNSUPPORTED_CONSTRAINT",
+                $"{path} is a {other} constraint, which this adapter cannot apply.")
+        };
+        return new SketchConstraintPlan(
+            RequiredString(constraint, "id", path),
+            kind,
+            RequiredString(constraint, "of", path),
+            OptionalString(constraint, "to"),
+            OptionalString(constraint, "axis"),
+            ParsePoint(constraint, "of_point", path),
+            ParsePoint(constraint, "to_point", path));
+    }
+
+    private static SketchPoint ParsePoint(JsonElement owner, string property, string path) =>
+        OptionalString(owner, property) switch
+        {
+            null or "start" => SketchPoint.Start,
+            "end" => SketchPoint.End,
+            "center" => SketchPoint.Center,
+            var other => throw Invalid("CAD_IR_INVALID", $"{path}.{property} cannot be {other}.")
+        };
+
+    private static DrivingDimensionPlan ParseDimension(
+        JsonElement dimension,
+        string path,
+        Parameters parameters)
+    {
+        RequireObject(dimension, path);
+        var kind = RequiredString(dimension, "kind", path) switch
+        {
+            "length" => DimensionKind.Length,
+            "radius" => DimensionKind.Radius,
+            "diameter" => DimensionKind.Diameter,
+            var other => throw Invalid("UNSUPPORTED_DIMENSION",
+                $"{path} is a {other} dimension, which this adapter cannot apply.")
+        };
+        return new DrivingDimensionPlan(
+            RequiredString(dimension, "id", path),
+            kind,
+            RequiredString(dimension, "of", path),
+            Length(dimension, "value", path, parameters));
+    }
+
+    private static string? OptionalString(JsonElement owner, string property) =>
+        owner.ValueKind == JsonValueKind.Object &&
+        owner.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     private static SketchPlanePlan ParsePlane(
         JsonElement plane,
@@ -304,24 +392,25 @@ public static class CadIrBuildPlanParser
     {
         RequireObject(contour, path);
         var type = RequiredString(contour, "type", path);
+        var id = OptionalString(contour, "id");
         switch (type)
         {
             case "circle":
                 return new CircleContourPlan(
                     Point(Required(contour, "center", path), $"{path}.center", parameters),
-                    Length(contour, "radius", path, parameters));
+                    Length(contour, "radius", path, parameters)) { Id = id };
             case "rectangle":
                 return SketchGeometry.Rectangle(
                     Point(Required(contour, "center", path), $"{path}.center", parameters),
                     Length(contour, "width", path, parameters),
                     Length(contour, "height", path, parameters),
-                    Optional(contour, "rotation_deg", path, parameters));
+                    Optional(contour, "rotation_deg", path, parameters)) with { Id = id };
             case "slot":
                 gate.Require(CadCapabilities.SketchSlot, $"the slot at {path}");
                 return SketchGeometry.Slot(
                     Point(Required(contour, "start", path), $"{path}.start", parameters),
                     Point(Required(contour, "end", path), $"{path}.end", parameters),
-                    Length(contour, "radius", path, parameters));
+                    Length(contour, "radius", path, parameters)) with { Id = id };
             case "regular_polygon":
             {
                 gate.Require(CadCapabilities.SketchRegularPolygon, $"the polygon at {path}");
@@ -333,7 +422,7 @@ public static class CadIrBuildPlanParser
                     Point(Required(contour, "center", path), $"{path}.center", parameters),
                     count,
                     Length(contour, "circumradius", path, parameters),
-                    Optional(contour, "rotation_deg", path, parameters));
+                    Optional(contour, "rotation_deg", path, parameters)) with { Id = id };
             }
             case "path":
             {
@@ -344,7 +433,7 @@ public static class CadIrBuildPlanParser
                 return new PathContourPlan(segments.EnumerateArray()
                     .Select((segment, index) =>
                         ParseSegment(segment, $"{path}.segments[{index}]", parameters, gate))
-                    .ToArray());
+                    .ToArray()) { Id = id };
             }
             default:
                 throw Invalid("UNSUPPORTED_CONTOUR", $"This adapter cannot draw a {type} contour.");
@@ -359,13 +448,14 @@ public static class CadIrBuildPlanParser
     {
         RequireObject(segment, path);
         var type = RequiredString(segment, "type", path);
+        var id = OptionalString(segment, "id");
         var start = Point(Required(segment, "start", path), $"{path}.start", parameters);
         var end = Point(Required(segment, "end", path), $"{path}.end", parameters);
         if (type == "arc")
             (gate ?? CapabilityGate.AllEnabled).Require(CadCapabilities.SketchArc, $"the arc at {path}");
         return type switch
         {
-            "line" => new LineSegmentPlan(start, end),
+            "line" => new LineSegmentPlan(start, end) { Id = id },
             "arc" => new ArcSegmentPlan(
                 start,
                 end,
@@ -375,7 +465,7 @@ public static class CadIrBuildPlanParser
                     "ccw" => true,
                     "cw" => false,
                     var other => throw Invalid("CAD_IR_INVALID", $"{path}.sweep cannot be {other}.")
-                }),
+                }) { Id = id },
             _ => throw Invalid("UNSUPPORTED_SEGMENT", $"This adapter cannot draw a {type} segment.")
         };
     }
