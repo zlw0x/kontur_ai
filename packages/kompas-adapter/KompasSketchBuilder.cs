@@ -18,18 +18,23 @@ namespace CadAi.KompasAdapter;
 ///
 /// Runs on the caller's STA thread. See ADR-011.
 /// </remarks>
-internal sealed class KompasSketchBuilder(object document, double baseDepthMm) : IDisposable
+internal sealed class KompasSketchBuilder(
+    object document,
+    double baseDepthMm,
+    KompasApi5Session api5) : IDisposable
 {
     private const int PlaneXY = 1; // o3d_planeXOY
     private const int PlaneXZ = 2; // o3d_planeXOZ
     private const int PlaneYZ = 3; // o3d_planeYOZ
-    private const int BaseExtrusion = 24; // o3d_baseExtrusion
+    private const int BaseExtrusion = 24; // o3d_baseExtrusion: always a new body
+    private const int BossExtrusion = 25; // adds to the body it stands on
     private const int CutExtrusion = 26; // o3d_cutExtrusion
     private const int OffsetPlane = 14; // IPlanes3D.Add, probed live; see TASK-POSTMVP-006
     private const int CutOperation = 2; // ksOperationCut
 
     private readonly Dictionary<string, object> planes = new(StringComparer.Ordinal);
     private readonly List<object> owned = [];
+    private bool hasBody;
 
     /// <summary>Build one feature; returns the operation code for the ledger.</summary>
     public string Build(CadFeaturePlan feature, int number) => feature switch
@@ -91,8 +96,12 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
             sketch.Plane = ResolvePlane(feature.Sketch.Plane, part);
             Draw(sketch, feature.Sketch);
 
+            // The first solid extrusion is the base; every later one is a boss.
+            // A base extrusion always makes a *new* body, whatever the geometry
+            // touches — measured on KOMPAS v22, where a second base extrusion
+            // over the first left two bodies and only type 25 left one.
             extrusionObject = ((IExtrusions)part.Extrusions).Add(
-                feature.IsCut ? CutExtrusion : BaseExtrusion);
+                feature.IsCut ? CutExtrusion : hasBody ? BossExtrusion : BaseExtrusion);
             var extrusion = (IExtrusion)extrusionObject;
             if (feature.IsCut) ((IExtrusion1)extrusionObject).OperationResult = CutOperation;
             extrusion.Sketch = sketchObject;
@@ -107,6 +116,7 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
                     feature.IsCut ? "FEATURE_BUILD_FAILED" : "FEATURE_BUILD_FAILED",
                     "feature",
                     $"KOMPAS did not build {feature.Id}.");
+            if (!feature.IsCut) hasBody = true;
             return operationCode;
         }
         finally
@@ -124,7 +134,7 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
             ? built
             : throw KompasApi7Adapter.Failure(
                 "FEATURE_RESULT_UNAVAILABLE", "sketch", $"No plane named {datum.ResultId} has been built."),
-        FacePlanePlan face => KompasFaceBridge.Resolve(document, part, face.Selector),
+        FacePlanePlan face => KompasFaceBridge.Resolve(api5, part, face.Selector),
         _ => throw KompasApi7Adapter.Failure(
             "UNSUPPORTED_SKETCH_PLANE", "sketch", "The sketch names a plane this adapter cannot resolve.")
     };
@@ -150,13 +160,15 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
             var manager = (IViewsAndLayersManager)fragment.ViewsAndLayersManager;
             var view = (IView)((IViews)manager.Views).ActiveView;
 
-            DrawContour(view, plan.Outer);
-            foreach (var island in plan.Inner) DrawContour(view, island);
-            // Construction geometry is drawn last and never as a profile. It
-            // exists so a later milestone has something to constrain against;
-            // KOMPAS ignores it when deciding what to extrude only because it
-            // is not a closed contour of its own.
-            foreach (var entity in plan.Construction) DrawConstruction(view, entity);
+            DrawContour(view, plan.Outer, KompasSketchStyles.Profile);
+            foreach (var island in plan.Inner) DrawContour(view, island, KompasSketchStyles.Profile);
+            // Construction geometry has to carry the construction style, not
+            // just be drawn last. A centre line at profile style inside a
+            // closed contour makes the extrusion fail outright — found by the
+            // first real acceptance run, which is exactly what a centre line on
+            // a drawing would have produced.
+            foreach (var entity in plan.Construction)
+                DrawConstruction(view, entity, KompasSketchStyles.Construction);
 
             if (!sketch.EndEdit())
                 throw KompasApi7Adapter.Failure(
@@ -165,15 +177,15 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
         finally { KompasApi7Adapter.Release(fragmentObject); }
     }
 
-    private static void DrawContour(IView view, ContourPlan contour)
+    private static void DrawContour(IView view, ContourPlan contour, int style)
     {
         switch (contour)
         {
             case CircleContourPlan circle:
-                DrawCircle(view, circle.Center, circle.Radius);
+                DrawCircle(view, circle.Center, circle.Radius, style);
                 return;
             case PathContourPlan path:
-                foreach (var segment in path.Segments) DrawSegment(view, segment);
+                foreach (var segment in path.Segments) DrawSegment(view, segment, style);
                 return;
             default:
                 throw KompasApi7Adapter.Failure(
@@ -181,7 +193,7 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
         }
     }
 
-    private static void DrawConstruction(IView view, ConstructionEntityPlan entity)
+    private static void DrawConstruction(IView view, ConstructionEntityPlan entity, int style)
     {
         if (entity.At is { } point)
         {
@@ -191,6 +203,7 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
                 var drawn = (IPoint)pointObject;
                 drawn.X = point.X;
                 drawn.Y = point.Y;
+                drawn.Style = style;
                 if (!drawn.Update())
                     throw KompasApi7Adapter.Failure(
                         "SKETCH_INVALID", "sketch", $"KOMPAS rejected construction point {entity.Id}.");
@@ -198,10 +211,10 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
             finally { KompasApi7Adapter.Release(pointObject); }
             return;
         }
-        if (entity.Shape is { } shape) DrawContour(view, shape);
+        if (entity.Shape is { } shape) DrawContour(view, shape, style);
     }
 
-    private static void DrawSegment(IView view, SketchSegment segment)
+    private static void DrawSegment(IView view, SketchSegment segment, int style)
     {
         switch (segment)
         {
@@ -213,6 +226,7 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
                     var drawn = (ILineSegment)lineObject;
                     drawn.X1 = line.From.X; drawn.Y1 = line.From.Y;
                     drawn.X2 = line.To.X; drawn.Y2 = line.To.Y;
+                    drawn.Style = style;
                     if (!drawn.Update())
                         throw KompasApi7Adapter.Failure(
                             "SKETCH_INVALID", "sketch", "KOMPAS rejected a line segment.");
@@ -232,9 +246,15 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
                     drawn.Xc = arc.Center.X;
                     drawn.Yc = arc.Center.Y;
                     drawn.Radius = arc.StartRadius;
+                    // Direction 0 sweeps anticlockwise from Angle1 to Angle2;
+                    // 1 and -1 both sweep clockwise. Measured by extruding a
+                    // half-disc and reading which side the material landed on.
+                    // A clockwise arc is therefore the same arc traversed
+                    // anticlockwise from its end to its start.
                     drawn.Angle1 = arc.CounterClockwise ? arc.StartAngleDegrees : arc.EndAngleDegrees;
                     drawn.Angle2 = arc.CounterClockwise ? arc.EndAngleDegrees : arc.StartAngleDegrees;
-                    drawn.Direction = 1;
+                    drawn.Direction = 0;
+                    drawn.Style = style;
                     if (!drawn.Update())
                         throw KompasApi7Adapter.Failure(
                             "SKETCH_INVALID", "sketch", "KOMPAS rejected an arc.");
@@ -248,7 +268,7 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
         }
     }
 
-    private static void DrawCircle(IView view, Point2 center, double radius)
+    private static void DrawCircle(IView view, Point2 center, double radius, int style)
     {
         var circleObject = ((ICircles)view.Circles).Add();
         try
@@ -257,6 +277,7 @@ internal sealed class KompasSketchBuilder(object document, double baseDepthMm) :
             drawn.Xc = center.X;
             drawn.Yc = center.Y;
             drawn.Radius = radius;
+            drawn.Style = style;
             if (!drawn.Update())
                 throw KompasApi7Adapter.Failure(
                     "SKETCH_INVALID", "sketch", "KOMPAS rejected a circle.");

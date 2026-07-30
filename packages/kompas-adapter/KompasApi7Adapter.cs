@@ -6,7 +6,6 @@ namespace CadAi.KompasAdapter;
 public sealed class KompasApi7Adapter : ICadAdapter
 {
     private const string ProgId = "KOMPAS.Application.7";
-    private const string Api5ProgId = "KOMPAS.Application.5";
 
     public Task<CadBuildResult> BuildAsync(CadBuildRequest request, CancellationToken cancellationToken)
     {
@@ -75,7 +74,8 @@ public sealed class KompasApi7Adapter : ICadAdapter
                 throw Failure("DOCUMENT_CREATE_FAILED", stage, "KOMPAS did not create a part document.");
             operations.Add(new CadOperationRecord("document_create", stage, StepMs(), Success: true));
 
-            var builder = new KompasSketchBuilder(document, request.Plan.Base.DepthMm);
+            using var api5 = new KompasApi5Session();
+            using var builder = new KompasSketchBuilder(document, request.Plan.Base.DepthMm, api5);
             var featureNumber = 0;
             foreach (var feature in request.Plan.Features)
             {
@@ -94,7 +94,7 @@ public sealed class KompasApi7Adapter : ICadAdapter
             operations.Add(new CadOperationRecord("save_m3d", stage, StepMs(), Success: true));
 
             stage = "export";
-            ExportAdditionalFormats(stepPath, stlPath);
+            ExportAdditionalFormats(api5, stepPath, stlPath);
             operations.Add(new CadOperationRecord("export_step_stl", stage, StepMs(), Success: true));
 
             return new CadBuildResult([
@@ -145,26 +145,17 @@ public sealed class KompasApi7Adapter : ICadAdapter
         }
     }
 
-    private static void ExportAdditionalFormats(string stepPath, string stlPath)
+    private static void ExportAdditionalFormats(KompasApi5Session api5, string stepPath, string stlPath)
     {
-        object? api5Object = null;
         object? documentObject = null;
         try
         {
-            var api5Type = Type.GetTypeFromProgID(Api5ProgId, throwOnError: false)
-                ?? throw Failure("EXPORT_FAILED", "export", "KOMPAS API5 registration was not found.");
-            api5Object = Activator.CreateInstance(api5Type)
-                ?? throw Failure("EXPORT_FAILED", "export", "KOMPAS API5 returned no application object.");
-            documentObject = ((IKompasApi5Application)api5Object).ActiveDocument3D();
+            documentObject = api5.ActiveDocument3D("export");
             var document = (IKompasApi5Document3D)documentObject;
             Export(document, stepPath, format: 3, binary: false); // format_STEP=3
             Export(document, stlPath, format: 6, binary: true); // format_STL=6
         }
-        finally
-        {
-            Release(documentObject);
-            Release(api5Object);
-        }
+        finally { Release(documentObject); }
     }
 
     private static void Export(IKompasApi5Document3D document, string path, short format, bool binary)
@@ -179,8 +170,12 @@ public sealed class KompasApi7Adapter : ICadAdapter
             parameters.Format = format;
             parameters.FormatBinary = binary;
             parameters.StepType = 1; // ksSpaceStep=1
-            parameters.Step = 0.05;
-            parameters.Angle = 5.0;
+            // The mesh is what the independent verifier measures, so its chord
+            // error is a floor on what the verifier can prove. 0.05 mm made an
+            // 80 mm part with Ø30 end caps measure 79.898 and fail a 0.05
+            // tolerance it actually met.
+            parameters.Step = 0.01;
+            parameters.Angle = 2.0;
             parameters.LengthUnits = 0;
             parameters.MaxTessellationCellCount = 5_000_000;
             if (!document.SaveAsToAdditionFormat(path, parametersObject) ||

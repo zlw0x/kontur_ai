@@ -9,7 +9,25 @@ public sealed record ExpectedGeometry(
     double Depth,
     int SolidBodyCount,
     int ThroughHoleCount,
-    double Tolerance = 0.05);
+    double Tolerance = 0.05)
+{
+    /// <summary>
+    /// How far inside the true surface a tessellated mesh may sit, per side.
+    /// </summary>
+    /// <remarks>
+    /// The bounding box is measured from the STL, and an STL of a curved
+    /// surface is an inscribed approximation: its extremes fall short of the
+    /// solid's by up to the exporter's chord tolerance. On a flat-sided prism
+    /// the difference is zero, which is why this only surfaced when arcs
+    /// arrived — a Ø30 end cap made an 80 mm part measure 79.898.
+    ///
+    /// Must stay at least as large as the sag the STL export is configured for,
+    /// or a correct model fails the check. It is a floor on what the mesh can
+    /// prove, not a relaxation of the tolerance the document stated: a mesh
+    /// wider than expected is still refused at the stated tolerance.
+    /// </remarks>
+    public const double MeshChordToleranceMm = 0.02;
+}
 
 public sealed record GeometryMetrics(
     uint TriangleCount,
@@ -48,7 +66,7 @@ public static class GeometryValidator
             $"{mesh.BoundaryOrNonManifoldEdgeCount} edges do not have exactly two incident triangles."));
         checks.Add(new("solid_body_count", mesh.MeshComponentCount == expected.SolidBodyCount,
             $"expected {expected.SolidBodyCount}, measured {mesh.MeshComponentCount}."));
-        checks.Add(new("bounding_box", MatchesBounds(mesh.BoundingBox, expected),
+        checks.Add(new("bounding_box", BoundsMatch(mesh.BoundingBox, expected),
             $"expected [{expected.Width}, {expected.Height}, {expected.Depth}], measured [{string.Join(", ", mesh.BoundingBox.Select(value => value.ToString("G8")))}]."));
         checks.Add(new("through_hole_count", mesh.Genus == expected.ThroughHoleCount,
             $"expected {expected.ThroughHoleCount}, topology-derived genus {mesh.Genus?.ToString() ?? "unavailable"}."));
@@ -216,10 +234,22 @@ public static class GeometryValidator
         return count;
     }
 
-    private static bool MatchesBounds(IReadOnlyList<double> actual, ExpectedGeometry expected)
+    /// <summary>
+    /// Compare the mesh's bounds with what the document expects, asymmetrically.
+    /// </summary>
+    /// <remarks>
+    /// An inscribed mesh can only ever be too small, so being short by up to
+    /// the chord tolerance is the tessellation rather than the model. Being too
+    /// large is not: the mesh cannot exceed the solid, so any excess is a real
+    /// dimensional error and is held to the tolerance the document stated.
+    /// </remarks>
+    internal static bool BoundsMatch(IReadOnlyList<double> actual, ExpectedGeometry expected)
     {
         var wanted = new[] { expected.Width, expected.Height, expected.Depth };
-        return actual.Select((value, index) => Math.Abs(value - wanted[index]) <= expected.Tolerance).All(value => value);
+        return actual.Select((value, index) =>
+            value - wanted[index] <= expected.Tolerance &&
+            wanted[index] - value <= expected.Tolerance + ExpectedGeometry.MeshChordToleranceMm)
+            .All(matched => matched);
     }
 
     private static float ReadFloat(byte[] bytes, int offset) =>

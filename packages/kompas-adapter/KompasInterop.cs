@@ -2,6 +2,21 @@ using System.Runtime.InteropServices;
 
 namespace CadAi.KompasAdapter;
 
+internal static class KompasSketchStyles
+{
+    /// <summary>The only curve style an extrusion's profile is built from.</summary>
+    /// <remarks>
+    /// Measured on KOMPAS v22: with a stray line at style 1 inside a closed
+    /// rectangle the extrusion fails, and at every style from 2 to 8 it
+    /// succeeds. So the style is not decoration — it is what separates profile
+    /// geometry from geometry that is merely present.
+    /// </remarks>
+    public const int Profile = 1;
+
+    /// <summary>`Вспомогательная`: drawn, ignored by the profile.</summary>
+    public const int Construction = 7;
+}
+
 internal static class KompasApi5Constants
 {
     /// <summary>
@@ -97,8 +112,12 @@ internal interface IArcs
 /// </summary>
 /// <remarks>
 /// The endpoint properties X1/Y1/X2/Y2 exist and are readable, but setting them
-/// instead leaves `Update()` returning false with the radius at zero. Measured
-/// on KOMPAS v22; see docs/TASK-POSTMVP-006-sketch-primitives.md.
+/// instead leaves `Update()` returning false with the radius at zero.
+///
+/// `Direction` 0 sweeps anticlockwise from Angle1 to Angle2; 1 and -1 both
+/// sweep clockwise. Both facts measured on KOMPAS v22 — the direction by
+/// extruding a half-disc and reading which side of the chord the material
+/// landed on. See docs/TASK-POSTMVP-006-sketch-primitives.md.
 /// </remarks>
 [ComImport, Guid("A22DFB7E-21E0-4B28-9CA1-29B7950CF256"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
 internal interface IArc
@@ -109,6 +128,7 @@ internal interface IArc
     [DispId(4)] double Yc { get; set; }
     [DispId(11)] double Angle1 { get; set; }
     [DispId(12)] double Angle2 { get; set; }
+    [DispId(13)] int Style { set; }
     [DispId(3004)] bool Update();
 }
 
@@ -119,6 +139,7 @@ internal interface ILineSegment
     [DispId(2)] double Y1 { get; set; }
     [DispId(3)] double X2 { get; set; }
     [DispId(4)] double Y2 { get; set; }
+    [DispId(7)] int Style { set; }
     [DispId(3004)] bool Update();
 }
 
@@ -134,6 +155,7 @@ internal interface ICircle
     [DispId(1)] double Xc { set; }
     [DispId(2)] double Yc { set; }
     [DispId(5)] double Radius { set; }
+    [DispId(6)] int Style { set; }
     [DispId(3004)] bool Update();
 }
 
@@ -241,5 +263,6 @@ internal interface IPoint
 {
     [DispId(1)] double X { set; }
     [DispId(2)] double Y { set; }
+    [DispId(4)] int Style { set; }
     [DispId(3004)] bool Update();
 }

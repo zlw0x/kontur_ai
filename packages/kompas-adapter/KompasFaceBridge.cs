@@ -37,9 +37,9 @@ internal static class KompasFaceBridge
 
     private const int Millimetres = 1; // the unit bit vector; see KompasTopologyReader
 
-    public static object Resolve(object document, IPart7 part, GeometrySelector selector)
+    public static object Resolve(KompasApi5Session api5, IPart7 part, GeometrySelector selector)
     {
-        var (descriptor, resolution) = Measure(document, selector);
+        var (descriptor, resolution) = Measure(api5, selector);
         var probe = ProbePoint(descriptor);
         var found = part.FindObjectsByPoint(probe.X, probe.Y, probe.Z, firstLevel: true);
         var candidates = found as object[] ?? (found is null ? [] : [found]);
@@ -69,15 +69,12 @@ internal static class KompasFaceBridge
     }
 
     private static (FaceDescriptor Face, SelectorResolution Resolution) Measure(
-        object document,
+        KompasApi5Session api5,
         GeometrySelector selector)
     {
-        object? partObject = null;
+        var (documentObject, partObject) = api5.TopPart("sketch");
         try
         {
-            partObject = Api5TopPart(document)
-                ?? throw KompasApi7Adapter.Failure(
-                    "TOPOLOGY_READ_FAILED", "sketch", "KOMPAS returned no top part to measure.");
             var faces = KompasTopologyReader.ReadFaces(partObject);
             var resolution = SelectorResolver.ResolveFaces(selector, faces);
             if (!resolution.Satisfied)
@@ -88,31 +85,10 @@ internal static class KompasFaceBridge
             var index = resolution.MatchedIndexes[0];
             return (faces.First(face => face.Index == index), resolution);
         }
-        finally { KompasApi7Adapter.Release(partObject); }
-    }
-
-    private static object? Api5TopPart(object document)
-    {
-        object? api5 = null;
-        object? documentObject = null;
-        try
-        {
-            var api5Type = Type.GetTypeFromProgID("KOMPAS.Application.5", throwOnError: false)
-                ?? throw KompasApi7Adapter.Failure(
-                    "TOPOLOGY_READ_FAILED", "sketch", "KOMPAS API5 registration was not found.");
-            api5 = Activator.CreateInstance(api5Type)
-                ?? throw KompasApi7Adapter.Failure(
-                    "TOPOLOGY_READ_FAILED", "sketch", "KOMPAS API5 returned no application object.");
-            documentObject = ((IKompasApi5Application)api5).ActiveDocument3D()
-                ?? throw KompasApi7Adapter.Failure(
-                    "TOPOLOGY_READ_FAILED", "sketch", "KOMPAS reported no active 3D document.");
-            return ((IKompasApi5Document3D)documentObject).GetPart(KompasApi5Constants.TopPart);
-        }
         finally
         {
+            KompasApi7Adapter.Release(partObject);
             KompasApi7Adapter.Release(documentObject);
-            KompasApi7Adapter.Release(api5);
-            _ = document;
         }
     }
 
