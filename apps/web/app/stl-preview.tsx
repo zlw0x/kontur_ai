@@ -26,13 +26,25 @@ export default function StlPreview({
   token?: string;
   local?: boolean;
   material?: MaterialName;
-  dimensions: Dimensions;
+  dimensions: Dimensions | null;
   ready?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
   const [wireframe, setWireframe] = useState(false);
   const [resetKey, setResetKey] = useState(0);
+  /**
+   * Proportions for the stand-in shape only, never displayed as fact.
+   *
+   * `dimensions` is null until something has actually been measured. The chips
+   * used to print whatever it held, so before a build a visitor was told their
+   * drawing was 80 x 40 x 12 — numbers that came from the layout, not from any
+   * model. The stand-in shape still needs a size to be drawn at; it just may not
+   * claim one.
+   */
+  const layoutLength = dimensions?.length ?? 80;
+  const layoutWidth = dimensions?.width ?? 40;
+  const layoutHeight = dimensions?.height ?? 12;
 
   useEffect(() => {
     const container = host.current;
@@ -100,7 +112,7 @@ export default function StlPreview({
       }),
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -dimensions.height / 2 - 1.2;
+    floor.position.y = -layoutHeight / 2 - 1.2;
     floor.receiveShadow = true;
     scene.add(floor);
 
@@ -179,14 +191,16 @@ export default function StlPreview({
       camera.updateProjectionMatrix();
       controls.minDistance = Math.max(span * 0.62, 26);
       controls.maxDistance = Math.max(span * 6, 260);
-      controls.target.set(0, Math.max(dimensions.height * 0.12, 1), 0);
+      controls.target.set(0, Math.max(layoutHeight * 0.12, 1), 0);
       controls.update();
     };
 
     const buildProceduralModel = () => {
-      const length = clamp(dimensions.length, 50, 130);
-      const width = clamp(dimensions.width, 28, 80);
-      const height = clamp(dimensions.height, 7, 28);
+      // A stand-in so the stage is not empty before a build. It is not the
+      // visitor's part, so the chips above stay empty while it is on screen.
+      const length = clamp(layoutLength, 50, 130);
+      const width = clamp(layoutWidth, 28, 80);
+      const height = clamp(layoutHeight, 7, 28);
       const cornerRadius = Math.min(width * 0.16, 8);
       const plate = roundedRectangle(length, width, cornerRadius);
       const holeRadius = Math.max(Math.min(width * 0.075, 3.8), 2.3);
@@ -299,7 +313,7 @@ export default function StlPreview({
       renderer.dispose();
       container.replaceChildren();
     };
-  }, [dimensions.height, dimensions.length, dimensions.width, local, material, ready, resetKey, token, url, wireframe]);
+  }, [layoutHeight, layoutLength, layoutWidth, local, material, ready, resetKey, token, url, wireframe]);
 
   function toggleFullscreen() {
     const element = host.current?.parentElement;
@@ -336,11 +350,13 @@ export default function StlPreview({
         <span className="axis-x">X</span>
         <i />
       </div>
-      <div className="dimension-chips">
-        <span><i>L</i>{dimensions.length} мм</span>
-        <span><i>W</i>{dimensions.width} мм</span>
-        <span><i>H</i>{dimensions.height} мм</span>
-      </div>
+      {dimensions && (
+        <div className="dimension-chips">
+          <span><i>L</i>{dimensions.length} мм</span>
+          <span><i>W</i>{dimensions.width} мм</span>
+          <span><i>H</i>{dimensions.height} мм</span>
+        </div>
+      )}
       <div className="preview-hint">Вращайте · Приближайте · Перемещайте</div>
       {error && <p className="preview-error">{error}</p>}
     </div>

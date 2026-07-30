@@ -54,11 +54,9 @@ export default function LandingPage({ onOpenStudio }: LandingPageProps) {
           <div className="demo-stage">
             <div className="source-panel">
               <div className="demo-panel-label"><span>01</span><b>Исходный чертёж</b><small>даже если от руки</small></div>
-              <div className="rough-drawing" aria-hidden="true">
-                <span className="rough-plate"><i /><i /><i /><i /><b /></span>
-                <span className="rough-line rough-line-a" /><span className="rough-line rough-line-b" />
-                <span className="rough-dim dim-top">80</span><span className="rough-dim dim-side">40</span>
-                <span className="rough-note">Ø 8 THRU</span><span className="rough-note note-two">12</span>
+              <div className="rough-drawing sketch-photo">
+                <img src="/pencil-part-sketch.webp" alt="Непрофессиональный карандашный чертёж детали на листе бумаги" />
+                <span className="paper-scan-line" aria-hidden="true" />
               </div>
               <div className="source-caption"><span className="sketch-icon">⌁</span><span><b>part-sketch.jpg</b><small>Загружено только что</small></span><i>✓</i></div>
             </div>

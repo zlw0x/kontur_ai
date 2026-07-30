@@ -22,6 +22,7 @@ type OrderState = {
   questions: Question[];
   artifacts: Artifact[];
 };
+type Dimensions = { length: number; width: number; height: number };
 type ViewMode = "model" | "drawing";
 type Material = "aluminum" | "steel" | "polymer";
 type IconName =
@@ -79,6 +80,17 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
+  /**
+   * What was measured on the model that was actually built.
+   *
+   * Read out of the validation report the worker wrote from the exported file.
+   * The page has no other way to know a size, so until this arrives it states
+   * none: the summary used to fall back to 80 x 40 x 12, which is a number out
+   * of the layout, and it was shown next to a real 60 x 30 x 8 plate.
+   */
+  const [measured, setMeasured] = useState<Dimensions | null>(null);
+  /** The sizes the visitor confirmed, shown until a model has been measured. */
+  const [confirmed, setConfirmed] = useState<Dimensions | null>(null);
 
   useEffect(() => {
     setShowLanding(!window.location.pathname.startsWith("/studio"));
@@ -134,6 +146,32 @@ export default function Home() {
     () => order?.artifacts.find((artifact) => artifact.type.toUpperCase() === "STL"),
     [order],
   );
+  const report = useMemo(
+    () => order?.artifacts.find((artifact) => artifact.type.toUpperCase() === "VALIDATION_REPORT"),
+    [order],
+  );
+
+  useEffect(() => {
+    if (!token || !report || order?.status !== "READY") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}${report.download_url}`, {
+          headers: { "x-manual-api-token": token },
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const box = readBoundingBox(await response.json());
+        if (!cancelled && box) setMeasured(box);
+      } catch {
+        // The model is delivered either way. A report the page cannot read means
+        // it says nothing about the size, not that it may invent one.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [order?.status, report?.download_url, report?.sha256, token]);
   const artifacts = useMemo(
     () =>
       artifactOrder
@@ -143,11 +181,7 @@ export default function Home() {
   );
   const activeStatus = order?.status ?? (file ? "DRAFT" : "EMPTY");
   const progress = getProgress(activeStatus);
-  const dimensions = {
-    length: numberOr(answers["local-length"], 80),
-    width: numberOr(answers["local-width"], 40),
-    height: numberOr(answers["local-height"], 12),
-  };
+  const dimensions = measured ?? confirmed;
 
   if (showLanding) return <LandingPage />;
 
@@ -165,9 +199,30 @@ export default function Home() {
     setOrder(null);
     setOrderId(null);
     setAnswers({});
+    setMeasured(null);
+    setConfirmed(null);
     setError("");
     setViewMode("drawing");
     window.history.replaceState(null, "", window.location.pathname);
+  }
+
+  /**
+   * Load the sample drawing that ships with the site.
+   *
+   * Trying the service should not require having a drawing to hand. The sample
+   * is the same plate the acceptance run builds, so what a visitor sees here is
+   * what the pipeline is actually tested against.
+   */
+  async function useSampleDrawing() {
+    setError("");
+    try {
+      const response = await fetch("/sample-drawing.png");
+      if (!response.ok) throw new Error("Образец чертежа недоступен.");
+      const blob = await response.blob();
+      chooseFile(new File([blob], "sample-drawing.png", { type: "image/png" }));
+    } catch (reason) {
+      setError(message(reason));
+    }
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) {
@@ -228,6 +283,8 @@ export default function Home() {
       const created = (await response.json()) as { order_id: string };
       setOrder(null);
       setAnswers({});
+      setMeasured(null);
+      setConfirmed(null);
       setOrderId(created.order_id);
       window.history.replaceState(null, "", `?order=${created.order_id}`);
     } catch (reason) {
@@ -251,6 +308,14 @@ export default function Home() {
       if (payload.some((answer) => !Number.isFinite(answer.value) || answer.value <= 0)) {
         throw new Error("Проверьте указанные размеры.");
       }
+      // What the visitor confirmed, so the summary has something true to show
+      // while the model is being built and before its report can be read.
+      const of = (parameter: string) =>
+        Number(answers[order.questions.find((item) => item.parameter_id === parameter)?.id ?? ""]);
+      const box = { length: of("length"), width: of("width"), height: of("height") };
+      setConfirmed(
+        Object.values(box).every((value) => Number.isFinite(value) && value > 0) ? box : null,
+      );
       if (!token) {
         setOrder({ ...order, status: "LEASED", questions: [] });
         await delay(1100);
@@ -565,13 +630,18 @@ export default function Home() {
                 />
               )}
 
-              {!file && (
+              {/* An order opened by link has no local file, and the invitation
+                  to upload one used to cover the finished model. */}
+              {!file && !order && (
                 <div className="viewer-welcome">
                   <span><Icon name="sparkles" /></span>
                   <h2>Превратите чертёж в точную 3D-модель</h2>
                   <p>Загрузите изображение — мы распознаем геометрию и подготовим файлы.</p>
                   <button type="button" onClick={() => fileInput.current?.click()}>
                     Выбрать чертёж <Icon name="arrow" />
+                  </button>
+                  <button type="button" className="ghost" onClick={useSampleDrawing}>
+                    Попробовать на образце
                   </button>
                 </div>
               )}
@@ -647,7 +717,14 @@ export default function Home() {
                 </div>
               </div>
               <div className="summary-metrics">
-                <div><span>Габариты</span><b>{dimensions.length} × {dimensions.width} × {dimensions.height} мм</b></div>
+                <div>
+                  <span>{measured ? "Габариты, измерено" : "Габариты"}</span>
+                  <b>
+                    {dimensions
+                      ? `${dimensions.length} × ${dimensions.width} × ${dimensions.height} мм`
+                      : "будут известны после построения"}
+                  </b>
+                </div>
                 <div><span>Единицы</span><b>Миллиметры</b></div>
                 <div><span>Качество</span><b>{precision === "high" ? "Высокое" : "Стандартное"}</b></div>
               </div>
@@ -940,9 +1017,23 @@ function cleanFileName(value: string) {
   return value.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
 }
 
-function numberOr(value: string | undefined, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+/**
+ * The measured bounding box out of a validation report, or nothing.
+ *
+ * The report is written by the worker and owned there, so this reads it
+ * defensively: a shape it does not recognise produces null and the page shows no
+ * dimensions, which is the correct answer when it does not know them.
+ */
+function readBoundingBox(report: unknown): Dimensions | null {
+  const box = (report as { geometry?: { Mesh?: { BoundingBox?: unknown } } })?.geometry?.Mesh
+    ?.BoundingBox;
+  if (!Array.isArray(box) || box.length < 3) return null;
+  const [length, width, height] = box.slice(0, 3).map(Number);
+  if (![length, width, height].every((value) => Number.isFinite(value) && value > 0)) return null;
+  // Two decimals: the mesh is a tessellation, so more digits would claim a
+  // precision the measurement does not have.
+  const round = (value: number) => Number(value.toFixed(2));
+  return { length: round(length), width: round(width), height: round(height) };
 }
 
 function getProgress(status: string) {
