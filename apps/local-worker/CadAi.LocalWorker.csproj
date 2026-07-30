@@ -4,6 +4,11 @@
     <AssemblyName>cad-worker</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The prompt version is worth asserting against its own declaration rather
+         than a literal in a test, so editing a prompt cannot fail a ledger test. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>CadAi.LocalWorker.Tests</_Parameter1>
+    </AssemblyAttribute>
     <Compile Remove="tests\**\*.cs" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <ProjectReference Include="..\..\packages\codex-runner\CadAi.CodexRunner.csproj" />

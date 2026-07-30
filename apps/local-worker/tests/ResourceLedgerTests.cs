@@ -194,7 +194,11 @@ public sealed class ResourceLedgerTests
             Assert.Contains(aiRuns, item => item.AgentRole == "DRAWING_EXTRACTION");
             Assert.Contains(aiRuns, item => item.AgentRole == "CAD_IR_COMPILATION");
             Assert.Contains(ledger.Events, item => item.EventType == "VALIDATION" && item.Success);
-            Assert.All(aiRuns, item => Assert.Equal("drawing-mvp-3", item.Ai!.PromptVersion));
+            // Against the pipeline's own constant, not a literal: what matters is
+            // that both stages record the version they were actually asked with.
+            // A literal here only breaks every time the prompt is edited, which
+            // says nothing about the ledger.
+            Assert.All(aiRuns, item => Assert.Equal(DrawingPipeline.PromptVersion, item.Ai!.PromptVersion));
             // Every run names the model the routing profile chose, and carries
             // the profile version that chose it.
             Assert.All(aiRuns, item => Assert.Equal("gpt-5.6-terra", item.Ai!.RequestedModel));
