@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.2",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.3",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -96,6 +96,19 @@
         },
         "sweep": {
           "$ref": "#/$defs/Sweep"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
         }
       },
       "required": [
@@ -230,6 +243,19 @@
             }
           ],
           "title": "Radius"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
         }
       },
       "required": [
@@ -239,6 +265,29 @@
       ],
       "title": "CircleContour",
       "type": "object"
+    },
+    "ConstraintKind": {
+      "description": "Every constraint KOMPAS v22 was measured to support.\n\nNamed after what they mean rather than after the integers KOMPAS uses. The\nintegers were identified by measurement — the type libraries export no\nenumerations at all — and live in the adapter, next to the COM call they\nbelong to.",
+      "enum": [
+        "horizontal",
+        "vertical",
+        "parallel",
+        "perpendicular",
+        "tangent",
+        "concentric",
+        "coincident",
+        "midpoint",
+        "equal_length",
+        "equal_radius",
+        "collinear",
+        "symmetric",
+        "fixed",
+        "point_on_curve",
+        "aligned_horizontally",
+        "aligned_vertically"
+      ],
+      "title": "ConstraintKind",
+      "type": "string"
     },
     "ConstructionArc": {
       "additionalProperties": false,
@@ -665,6 +714,16 @@
       "title": "DatumPlaneOffsetInputs",
       "type": "object"
     },
+    "DimensionKind": {
+      "description": "The dimension kinds KOMPAS was measured to bind to a named variable.\n\nAngular is absent deliberately: `IAngleDimensions.Add` answers with nothing\nfor every type tried, so an angular dimension cannot yet be created at all.\nRecorded in docs/TASK-POSTMVP-007-sketch-constraints.md rather than guessed\nat here.",
+      "enum": [
+        "length",
+        "radius",
+        "diameter"
+      ],
+      "title": "DimensionKind",
+      "type": "string"
+    },
     "DocumentHeader": {
       "additionalProperties": false,
       "properties": {
@@ -751,6 +810,44 @@
         "generator_version"
       ],
       "title": "DocumentMetadata",
+      "type": "object"
+    },
+    "DrivingDimension": {
+      "additionalProperties": false,
+      "description": "A named measurement of the sketch, stated and then verified.\n\nThe `id` is the stable name the roadmap asks for — `base_width`,\n`hole_pitch_x`, `wall_thickness` — and it becomes the variable's name in the\nKOMPAS model, so the same word appears in the document, in the delivered\nfile and in any later diff.\n\n`value` is what the document says the measurement is. The adapter reads what\nKOMPAS measured and refuses the difference: a dimension that disagrees with\nthe geometry it dimensions is a document contradicting itself.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/DimensionKind"
+        },
+        "of": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Of",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "of",
+        "value"
+      ],
+      "title": "DrivingDimension",
       "type": "object"
     },
     "ExactlyN": {
@@ -972,6 +1069,19 @@
           "minItems": 2,
           "title": "End",
           "type": "array"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
         }
       },
       "required": [
@@ -1185,6 +1295,19 @@
           "minItems": 2,
           "title": "Segments",
           "type": "array"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
         }
       },
       "required": [
@@ -1347,6 +1470,19 @@
           ],
           "default": 0.0,
           "title": "Rotation Deg"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
         }
       },
       "required": [
@@ -1410,6 +1546,19 @@
           ],
           "default": 0.0,
           "title": "Rotation Deg"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
         }
       },
       "required": [
@@ -1597,6 +1746,22 @@
           "maxItems": 64,
           "title": "Construction",
           "type": "array"
+        },
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/SketchConstraint"
+          },
+          "maxItems": 256,
+          "title": "Constraints",
+          "type": "array"
+        },
+        "dimensions": {
+          "items": {
+            "$ref": "#/$defs/DrivingDimension"
+          },
+          "maxItems": 128,
+          "title": "Dimensions",
+          "type": "array"
         }
       },
       "required": [
@@ -1605,6 +1770,58 @@
         "outer"
       ],
       "title": "Sketch",
+      "type": "object"
+    },
+    "SketchConstraint": {
+      "additionalProperties": false,
+      "description": "One statement about the sketch that must already be true.\n\n`of` and `to` name entities by their sketch-local ids, never by position in\na list. A constraint on \"segment 2\" would change meaning when segments are\nreordered, which is the index problem ADR-019 exists to prevent, one level\ndown.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ConstraintKind"
+        },
+        "of": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Of",
+          "type": "string"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To"
+        },
+        "axis": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axis"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "of"
+      ],
+      "title": "SketchConstraint",
       "type": "object"
     },
     "SketchOnBasePlane": {
@@ -1717,6 +1934,19 @@
             }
           ],
           "title": "Radius"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
         }
       },
       "required": [
@@ -1945,8 +2175,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.2",
-      "default": "1.2",
+      "const": "1.3",
+      "default": "1.3",
       "title": "Schema Version",
       "type": "string"
     },

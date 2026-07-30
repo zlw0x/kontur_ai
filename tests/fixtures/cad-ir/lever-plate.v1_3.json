@@ -1,0 +1,360 @@
+{
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.3",
+  "document": {
+    "units": "mm",
+    "part_type": "single_part",
+    "coordinate_system": "right_handed",
+    "name": "lever plate"
+  },
+  "parameters": [
+    {
+      "id": "param.length",
+      "type": "length",
+      "value": 80.0,
+      "unit": "mm",
+      "name": "Overall length",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.cap_radius",
+      "type": "length",
+      "value": 15.0,
+      "unit": "mm",
+      "name": "End radius",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.cap_centre_x",
+      "type": "length",
+      "value": 25.0,
+      "unit": "mm",
+      "name": "End centre offset",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.thickness",
+      "type": "length",
+      "value": 8.0,
+      "unit": "mm",
+      "name": "Plate thickness",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.hole_radius",
+      "type": "length",
+      "value": 2.5,
+      "unit": "mm",
+      "name": "Hole radius",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.hole_x",
+      "type": "length",
+      "value": 28.0,
+      "unit": "mm",
+      "name": "Hole offset",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.hub_circumradius",
+      "type": "length",
+      "value": 10.0,
+      "unit": "mm",
+      "name": "Hub across corners",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.hub_height",
+      "type": "length",
+      "value": 4.0,
+      "unit": "mm",
+      "name": "Hub height",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.pin_radius",
+      "type": "length",
+      "value": 4.0,
+      "unit": "mm",
+      "name": "Pin radius",
+      "status": "confirmed"
+    },
+    {
+      "id": "param.pin_height",
+      "type": "length",
+      "value": 3.0,
+      "unit": "mm",
+      "name": "Pin height",
+      "status": "confirmed"
+    }
+  ],
+  "reference_geometry": [],
+  "features": [
+    {
+      "id": "feature.plate",
+      "type": "solid.extrude",
+      "enabled": true,
+      "depends_on": [],
+      "produces": [
+        {
+          "id": "body.main",
+          "kind": "solid_body"
+        }
+      ],
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "param.thickness"
+        },
+        "sketch": {
+          "id": "sketch.plate",
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          },
+          "outer": {
+            "type": "path",
+            "segments": [
+              {
+                "type": "line",
+                "start": [
+                  -25.0,
+                  15.0
+                ],
+                "end": [
+                  25.0,
+                  15.0
+                ]
+              },
+              {
+                "type": "arc",
+                "start": [
+                  25.0,
+                  15.0
+                ],
+                "end": [
+                  25.0,
+                  -15.0
+                ],
+                "center": [
+                  25.0,
+                  0.0
+                ],
+                "sweep": "cw"
+              },
+              {
+                "type": "line",
+                "start": [
+                  25.0,
+                  -15.0
+                ],
+                "end": [
+                  -25.0,
+                  -15.0
+                ]
+              },
+              {
+                "type": "arc",
+                "start": [
+                  -25.0,
+                  -15.0
+                ],
+                "end": [
+                  -25.0,
+                  15.0
+                ],
+                "center": [
+                  -25.0,
+                  0.0
+                ],
+                "sweep": "cw"
+              }
+            ]
+          },
+          "inner": [
+            {
+              "type": "circle",
+              "center": [
+                {
+                  "parameter": "param.hole_x"
+                },
+                0.0
+              ],
+              "radius": {
+                "parameter": "param.hole_radius"
+              }
+            },
+            {
+              "type": "circle",
+              "center": [
+                -28.0,
+                0.0
+              ],
+              "radius": {
+                "parameter": "param.hole_radius"
+              }
+            }
+          ],
+          "construction": [
+            {
+              "type": "point",
+              "id": "point.hub_centre",
+              "at": [
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "type": "line",
+              "id": "line.axis",
+              "start": [
+                -40.0,
+                0.0
+              ],
+              "end": [
+                40.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "feature.hub_plane",
+      "type": "datum.plane.offset",
+      "enabled": true,
+      "depends_on": [
+        "feature.plate"
+      ],
+      "produces": [
+        {
+          "id": "plane.hub",
+          "kind": "plane"
+        }
+      ],
+      "inputs": {
+        "base": "XY",
+        "offset_mm": {
+          "parameter": "param.thickness"
+        }
+      }
+    },
+    {
+      "id": "feature.hub",
+      "type": "solid.extrude",
+      "enabled": true,
+      "depends_on": [
+        "feature.hub_plane"
+      ],
+      "produces": [],
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "param.hub_height"
+        },
+        "sketch": {
+          "id": "sketch.hub",
+          "plane": {
+            "on": "datum",
+            "plane": {
+              "result": "plane.hub"
+            }
+          },
+          "outer": {
+            "type": "regular_polygon",
+            "center": [
+              0.0,
+              0.0
+            ],
+            "sides": 6,
+            "circumradius": {
+              "parameter": "param.hub_circumradius"
+            },
+            "rotation_deg": 0.0
+          },
+          "inner": [],
+          "construction": []
+        }
+      }
+    },
+    {
+      "id": "feature.pin",
+      "type": "solid.extrude",
+      "enabled": true,
+      "depends_on": [
+        "feature.hub"
+      ],
+      "produces": [],
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "param.pin_height"
+        },
+        "sketch": {
+          "id": "sketch.pin",
+          "plane": {
+            "on": "face",
+            "face": {
+              "id": "selector.hub_top",
+              "kind": "face",
+              "from_result": "body.main",
+              "cardinality": "exactly_one",
+              "where": {
+                "surface_type": "planar",
+                "normal": {
+                  "parallel_to": "axis.z",
+                  "direction": "positive"
+                },
+                "position": {
+                  "extreme_along": "axis.z",
+                  "extreme": "maximum"
+                }
+              }
+            }
+          },
+          "outer": {
+            "type": "circle",
+            "center": [
+              0.0,
+              0.0
+            ],
+            "radius": {
+              "parameter": "param.pin_radius"
+            }
+          },
+          "inner": [],
+          "construction": []
+        }
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "expect.bounds",
+      "type": "bounding_box",
+      "size_mm": {
+        "x": 80.0,
+        "y": 30.0,
+        "z": 15.0
+      },
+      "tolerance_mm": 0.05
+    },
+    {
+      "id": "expect.bodies",
+      "type": "body_count",
+      "value": 1
+    },
+    {
+      "id": "expect.holes",
+      "type": "through_hole_count",
+      "value": 2
+    }
+  ],
+  "metadata": {
+    "generator": "acceptance-fixture",
+    "generator_version": "1.0",
+    "prompt_version": "manual"
+  }
+}

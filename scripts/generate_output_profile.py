@@ -16,13 +16,19 @@ accepting for months and from three real rejections that each cost an AI run:
   4. every object lists all its properties as required
   5. every object sets `additionalProperties: false`
 
-This profile is deliberately narrower than CAD-IR 1.2. It offers base-plane
-sketches only: an auxiliary plane and a face selector are expressible in 1.2
-and buildable by the adapter, but a selector's predicates are individually
-optional, and rule 4 would force the model to emit every one of them — which
-the canonical validator then rejects, because a planar face has no radius. A
-schema that cannot express optionality must not be handed a model that needs
-it. Those two sketch planes reach the adapter through the manual API instead.
+This profile is deliberately narrower than the canonical schema. It offers
+base-plane sketches only, and no constraints or driving dimensions.
+
+The reason is the same in every case: rule 4 has no notion of an optional
+property. A selector's predicates are individually optional, so the model would
+be forced to emit every one of them — and the canonical validator then rejects
+the result, because a planar face has no radius. A constraint's `to` and `axis`
+are optional in exactly the same way, and forcing them would make every
+constraint binary and axial. A schema that cannot express optionality must not
+be handed a model that needs it.
+
+Auxiliary planes, face selectors, constraints and driving dimensions all reach
+the adapter through the manual API instead.
 """
 
 from __future__ import annotations
@@ -35,8 +41,8 @@ from typing import Any
 ROOT = Path(__file__).parents[1]
 TARGET = ROOT / "schemas" / "cad-ir-mvp-output.schema.json"
 
-SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.2"
-CAD_IR_VERSION = "1.2"
+SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.3"
+CAD_IR_VERSION = "1.3"
 
 MAX_COORDINATE = 1_000_000
 
@@ -152,6 +158,10 @@ def build() -> dict[str, Any]:
         outer=ref("contour"),
         inner=array(ref("contour"), 0, 32),
         construction=array(ref("construction_entity"), 0, 32),
+        # Present and always empty. Rule 4 makes every property mandatory, so
+        # the alternative to an empty array is a schema the model cannot satisfy.
+        constraints=array(obj(), 0, 0),
+        dimensions=array(obj(), 0, 0),
     )
 
     defs["base_extrusion"] = obj(

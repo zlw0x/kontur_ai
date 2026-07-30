@@ -1,4 +1,4 @@
-"""CAD-IR 1.1: the canonical form.
+"""CAD-IR: the canonical form.
 
 Version 0.1.0 was shaped around the one part the MVP builds. This version is
 shaped around what the next few dozen operations will need, without adding any
@@ -44,22 +44,28 @@ from .base import (  # re-exported: this is still the one place to read the docu
     SourceRegion,
     StrictModel,
 )
+from .constraints import (  # re-exported alongside the document
+    ConstraintKind,
+    DimensionKind,
+    DrivingDimension,
+    SketchConstraint,
+)
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.2"
+CAD_IR_VERSION = "1.3"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.2",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.3",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
-#: 1.1 is migratable rather than supported even though 1.2 only adds to it.
-#: One shape reaches the adapter, and a 1.1 document that used a 1.2 sketch
-#: entity would otherwise be accepted — a document lying about its version is
-#: the start of a compatibility problem, not the end of one.
-MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1")
+#: Older versions are migratable rather than supported, so one shape reaches the
+#: adapter. A document declaring an old version while using a new entity would
+#: otherwise be accepted — and a document lying about its version is the start of
+#: a compatibility problem, not the end of one.
+MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2")
 
 class ParameterType(StrEnum):
     LENGTH = "length"
@@ -90,7 +96,7 @@ class ParameterStatus(StrEnum):
 
 
 class FeatureType(StrEnum):
-    """What version 1.2 can express.
+    """What the canonical version can express.
 
     Adding an operation here is an additive version change that comes with an
     adapter, a verifier and fixtures — not a widening of this enum on its own.

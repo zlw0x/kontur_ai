@@ -28,7 +28,7 @@ def profile() -> Draft202012Validator:
 
 
 def canonical_fixture(name: str) -> dict:
-    return json.loads((FIXTURES / f"{name}.v1_2.json").read_text(encoding="utf-8"))
+    return json.loads((FIXTURES / f"{name}.v1_3.json").read_text(encoding="utf-8"))
 
 
 def profile_shaped_document() -> dict:
@@ -86,6 +86,8 @@ def profile_shaped_document() -> dict:
                         },
                         "inner": [],
                         "construction": [],
+                        "constraints": [],
+                        "dimensions": [],
                     },
                 },
             },
@@ -109,6 +111,8 @@ def profile_shaped_document() -> dict:
                         },
                         "inner": [],
                         "construction": [],
+                        "constraints": [],
+                        "dimensions": [],
                     },
                 },
             },

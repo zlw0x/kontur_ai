@@ -6,9 +6,11 @@ or guesses at intent. Anything the canonical version cannot express is a typed
 `CAD_IR_MIGRATION_FAILED` rather than a silent approximation — a migration that
 quietly drops a recorded assumption is worse than one that refuses.
 
-Two paths: 0.1.0 and 1.1, both arriving at 1.2. They share the sketch
+Three paths arriving at the canonical version. 0.1.0 and 1.1 share the sketch
 translation, because both express exactly the same two shapes — a centred
-rectangle and a circle — and 1.2 turns each of those into a contour.
+rectangle and a circle — and each of those becomes a contour. 1.2 needs no
+translation at all: 1.3 only adds names, constraints and dimensions, so a 1.2
+document is already a 1.3 document that happens to use none of them.
 
 The original document is kept as an artifact and its hash is recorded in the
 lineage, so nothing an older version carried is lost even where the canonical
@@ -36,10 +38,11 @@ from .errors import CadIrValidationError, ValidationIssue
 #: Bumped whenever this translation changes. Two documents normalised by
 #: different versions may differ, and the lineage has to say which produced
 #: the canonical form on file.
-NORMALIZER_VERSION = "1.1"
+NORMALIZER_VERSION = "1.2"
 
 LEGACY_VERSION = "0.1.0"
-PREVIOUS_VERSION = "1.1"
+SKETCH_ENTITY_VERSION = "1.1"
+PRE_CONSTRAINT_VERSION = "1.2"
 
 _FEATURE_TYPES = {"extrude_add": "solid.extrude", "extrude_cut": "cut.extrude"}
 
@@ -98,8 +101,13 @@ def normalize(value: dict[str, Any], metadata: DocumentMetadata | None = None) -
         document = validate_canonical(value)
     elif version == LEGACY_VERSION:
         document = validate_canonical(_translate(value, metadata))
-    elif version == PREVIOUS_VERSION:
-        document = validate_canonical(_lift_sketches(value))
+    elif version == SKETCH_ENTITY_VERSION:
+        document = validate_canonical(_relabel(_lift_sketches(value)))
+    elif version == PRE_CONSTRAINT_VERSION:
+        # Purely additive: 1.3 only adds names, constraints and dimensions, and
+        # a 1.2 document has none of them. Nothing about the part changes, so
+        # this is the one migration that is genuinely a relabelling.
+        document = validate_canonical(_relabel(value))
     elif version is None:
         raise CadIrValidationError(
             [ValidationIssue("CAD_IR_VERSION_MISSING", "$.schema_version", "the document declares no version")]
@@ -271,6 +279,11 @@ def _inputs(legacy_type: str, inputs: dict[str, Any], path: str) -> dict[str, An
     return translated
 
 
+def _relabel(value: dict[str, Any]) -> dict[str, Any]:
+    """Declare the canonical version without touching anything else."""
+    return {**value, "schema_version": CAD_IR_VERSION}
+
+
 def _lift_sketches(value: dict[str, Any]) -> dict[str, Any]:
     """Restate a 1.1 document's sketches in the 1.2 form.
 
@@ -279,7 +292,6 @@ def _lift_sketches(value: dict[str, Any]) -> dict[str, Any]:
     becomes an outer contour.
     """
     lifted = dict(value)
-    lifted["schema_version"] = CAD_IR_VERSION
     features = _require(value, "features", "$")
     lifted["features"] = [
         _lift_feature_sketch(feature, index) for index, feature in enumerate(features)

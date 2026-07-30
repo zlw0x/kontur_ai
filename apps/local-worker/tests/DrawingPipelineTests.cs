@@ -43,7 +43,7 @@ public sealed class DrawingPipelineTests
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
                 FindRepositoryRoot(),
-                "tests", "fixtures", "cad-ir", "plate.v1_2.json"));
+                "tests", "fixtures", "cad-ir", "plate.v1_3.json"));
             var invalid = valid.Replace(
                 @"""type"": ""solid.extrude""",
                 @"""type"": ""cut.extrude""",

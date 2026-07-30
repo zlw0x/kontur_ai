@@ -1,7 +1,7 @@
 {
   "document": {
     "coordinate_system": "right_handed",
-    "name": "plate-with-hole",
+    "name": "plate",
     "part_type": "single_part",
     "units": "mm"
   },
@@ -20,11 +20,6 @@
       "id": "inv_bodies",
       "type": "body_count",
       "value": 1
-    },
-    {
-      "id": "inv_holes",
-      "type": "through_hole_count",
-      "value": 1
     }
   ],
   "features": [
@@ -38,7 +33,9 @@
           "parameter": "p_depth"
         },
         "sketch": {
+          "constraints": [],
           "construction": [],
+          "dimensions": [],
           "id": "sk_base",
           "inner": [],
           "outer": {
@@ -72,51 +69,11 @@
         }
       ],
       "type": "solid.extrude"
-    },
-    {
-      "depends_on": [
-        "f_base"
-      ],
-      "enabled": true,
-      "id": "f_hole",
-      "inputs": {
-        "direction": "+Z",
-        "sketch": {
-          "construction": [],
-          "id": "sk_hole",
-          "inner": [],
-          "outer": {
-            "center": [
-              0.0,
-              0.0
-            ],
-            "radius": {
-              "parameter": "p_hole_radius"
-            },
-            "type": "circle"
-          },
-          "plane": {
-            "on": "base",
-            "plane": "XY"
-          }
-        },
-        "source_body": {
-          "result": "body.main"
-        },
-        "through_all": true
-      },
-      "produces": [
-        {
-          "id": "face.f_hole.cylinder",
-          "kind": "face"
-        }
-      ],
-      "type": "cut.extrude"
     }
   ],
   "metadata": {
     "generator": "cad-ir-normalizer",
-    "generator_version": "1.1"
+    "generator_version": "1.2"
   },
   "parameters": [
     {
@@ -154,21 +111,9 @@
       "type": "length",
       "unit": "mm",
       "value": 10.0
-    },
-    {
-      "id": "p_hole_radius",
-      "name": "Hole radius",
-      "provenance": {
-        "confidence": 1.0,
-        "note": "{\"type\": \"fixture\"}"
-      },
-      "status": "confirmed",
-      "type": "length",
-      "unit": "mm",
-      "value": 3.0
     }
   ],
   "reference_geometry": [],
   "schema": "cad-ai/cad-ir",
-  "schema_version": "1.2"
+  "schema_version": "1.3"
 }

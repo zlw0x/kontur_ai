@@ -1,4 +1,4 @@
-"""CAD-IR 1.2 sketch geometry: contours, segments and the plane they sit on.
+"""CAD-IR sketch geometry: contours, segments and the plane they sit on.
 
 Version 1.1 could express two shapes on one plane, so every part the service
 could build was a rectangular plate with round holes. This is the sketch as a
@@ -8,11 +8,10 @@ named by a semantic selector.
 
 Three boundaries are deliberate.
 
-*Explicit coordinates only.* There is no constraint solver in this version and
-nothing infers a dimension. A value is a number or a named parameter, exactly
-as everywhere else in 1.1. Constraints are their own milestone, and a
-half-solver that resolves some sketches and quietly mis-resolves others is
-worse than none.
+*Explicit coordinates only.* Nothing here is solved for, and nothing infers a
+dimension. A value is a number or a named parameter. Constraints exist as of 1.3
+and are *assertions* about these coordinates rather than a way of producing
+them — see `constraints.py` and ADR-022.
 
 *One level of nesting, by construction.* A sketch has one `outer` contour and a
 list of `inner` ones. An island inside an island is not rejected by a
@@ -37,7 +36,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import Field, model_validator
 
-from .canonical import Id, ResultRef, Scalar, StrictModel
+from .base import Id, ResultRef, Scalar, StrictModel
+from .constraints import ConstraintList, DimensionList
 from .selectors import Cardinality, FaceSelector
 
 #: A sketch-plane coordinate pair. Either component may be a parameter
@@ -102,6 +102,10 @@ class LineSegment(StrictModel):
     type: Literal["line"]
     start: Point2
     end: Point2
+    #: Optional, and required only to be constrained. A sketch with no
+    #: constraints should not have to invent a name for every side of a
+    #: rectangle.
+    id: Id | None = None
 
 
 class ArcSegment(StrictModel):
@@ -121,6 +125,7 @@ class ArcSegment(StrictModel):
     end: Point2
     center: Point2
     sweep: Sweep
+    id: Id | None = None
 
 
 PathSegment = Annotated[Union[LineSegment, ArcSegment], Field(discriminator="type")]
@@ -135,12 +140,14 @@ class PathContour(StrictModel):
 
     type: Literal["path"]
     segments: Annotated[list[PathSegment], Field(min_length=2, max_length=400)]
+    id: Id | None = None
 
 
 class CircleContour(StrictModel):
     type: Literal["circle"]
     center: Point2
     radius: Scalar
+    id: Id | None = None
 
 
 class RectangleContour(StrictModel):
@@ -149,6 +156,7 @@ class RectangleContour(StrictModel):
     width: Scalar
     height: Scalar
     rotation_deg: Scalar = 0.0
+    id: Id | None = None
 
 
 class SlotContour(StrictModel):
@@ -158,6 +166,7 @@ class SlotContour(StrictModel):
     start: Point2
     end: Point2
     radius: Scalar
+    id: Id | None = None
 
 
 class RegularPolygonContour(StrictModel):
@@ -166,6 +175,7 @@ class RegularPolygonContour(StrictModel):
     sides: Annotated[int, Field(ge=3, le=64)]
     circumradius: Scalar
     rotation_deg: Scalar = 0.0
+    id: Id | None = None
 
 
 Contour = Annotated[
@@ -217,15 +227,60 @@ class Sketch(StrictModel):
     construction: Annotated[list[ConstructionEntity], Field(max_length=64)] = Field(
         default_factory=list
     )
+    constraints: ConstraintList = Field(default_factory=list)
+    dimensions: DimensionList = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_construction_ids(self) -> "Sketch":
-        seen: set[str] = set()
-        for entity in self.construction:
-            if entity.id in seen:
-                raise ValueError(f"duplicate construction entity id: {entity.id}")
-            seen.add(entity.id)
+    def validate_names(self) -> "Sketch":
+        """Every name in a sketch is unique, and every reference resolves.
+
+        Checked here rather than in the adapter because it is about the document
+        rather than about geometry: two entities with the same id make a
+        constraint mean two things, and a constraint naming nothing is a
+        statement about a part that does not exist.
+        """
+        named: set[str] = set()
+        for entity in self.entities():
+            identifier = getattr(entity, "id", None)
+            if identifier is None:
+                continue
+            if identifier in named:
+                raise ValueError(f"duplicate sketch entity id: {identifier}")
+            named.add(identifier)
+
+        for constraint in self.constraints:
+            for role, reference in (("of", constraint.of), ("to", constraint.to),
+                                    ("axis", constraint.axis)):
+                if reference is not None and reference not in named:
+                    raise ValueError(
+                        f"constraint {constraint.id} names {reference} as its {role}, "
+                        "which no sketch entity carries"
+                    )
+        seen_constraints: set[str] = set()
+        for constraint in self.constraints:
+            if constraint.id in seen_constraints:
+                raise ValueError(f"duplicate constraint id: {constraint.id}")
+            seen_constraints.add(constraint.id)
+
+        seen_dimensions: set[str] = set()
+        for dimension in self.dimensions:
+            if dimension.id in seen_dimensions:
+                raise ValueError(f"duplicate dimension id: {dimension.id}")
+            seen_dimensions.add(dimension.id)
+            if dimension.of not in named:
+                raise ValueError(
+                    f"dimension {dimension.id} measures {dimension.of}, "
+                    "which no sketch entity carries"
+                )
         return self
+
+    def entities(self):
+        """Everything in the sketch a constraint could name, contours first."""
+        for contour in [self.outer, *self.inner]:
+            yield contour
+            if isinstance(contour, PathContour):
+                yield from contour.segments
+        yield from self.construction
 
 
 class DatumPlaneOffsetInputs(StrictModel):
