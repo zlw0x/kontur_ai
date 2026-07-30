@@ -28,6 +28,10 @@ internal interface IPart7
 {
     [DispId(19)] [return: MarshalAs(UnmanagedType.IDispatch)] object DefaultObject(int type);
     [DispId(22)] bool RebuildModel(bool redraw);
+    // Answers with a VARIANT holding a SAFEARRAY of IDispatch: the objects at
+    // that coordinate, of which one may be a face.
+    [DispId(32)] [return: MarshalAs(UnmanagedType.Struct)] object? FindObjectsByPoint(
+        double x, double y, double z, [MarshalAs(UnmanagedType.VariantBool)] bool firstLevel);
     [DispId(10002)] object Sketchs { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     [DispId(10003)] object Extrusions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
 }
@@ -67,7 +71,9 @@ internal interface IViews
 [ComImport, Guid("21A7BA87-1C8B-41B4-8247-CDD593546F37"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
 internal interface IView
 {
+    [DispId(5008)] object Points { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     [DispId(5003)] object LineSegments { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    [DispId(5004)] object Arcs { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     [DispId(5007)] object Circles { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
 }
 
@@ -78,6 +84,32 @@ internal interface ILineSegments
     // asking for indexes until one comes back empty.
     [DispId(1)] [return: MarshalAs(UnmanagedType.IDispatch)] object? LineSegment(int index);
     [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
+}
+
+[ComImport, Guid("4FCB4C17-3B9E-45E8-B83C-9284027BAA0D"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IArcs
+{
+    [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
+}
+
+/// <summary>
+/// An arc is set from its centre, radius and two angles.
+/// </summary>
+/// <remarks>
+/// The endpoint properties X1/Y1/X2/Y2 exist and are readable, but setting them
+/// instead leaves `Update()` returning false with the radius at zero. Measured
+/// on KOMPAS v22; see docs/TASK-POSTMVP-006-sketch-primitives.md.
+/// </remarks>
+[ComImport, Guid("A22DFB7E-21E0-4B28-9CA1-29B7950CF256"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IArc
+{
+    [DispId(1)] double Radius { get; set; }
+    [DispId(2)] int Direction { get; set; }
+    [DispId(3)] double Xc { get; set; }
+    [DispId(4)] double Yc { get; set; }
+    [DispId(11)] double Angle1 { get; set; }
+    [DispId(12)] double Angle2 { get; set; }
+    [DispId(3004)] bool Update();
 }
 
 [ComImport, Guid("64ACC86F-4B10-4897-8552-BC0A556D228B"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
@@ -160,4 +192,54 @@ internal interface IAdditionFormatParam
     [DispId(9)] double Angle { set; }
     [DispId(11)] int MaxTessellationCellCount { set; }
     [DispId(12)] int LengthUnits { set; }
+}
+
+[ComImport, Guid("950FEBE2-F916-4E77-A37D-B061E5C22FA8"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IAuxiliaryGeomContainer
+{
+    [DispId(14028)] object Planes3D { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+}
+
+[ComImport, Guid("71B69C8B-FEAE-484F-BBDA-F7C71A94DDC7"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IPlanes3D
+{
+    // 14 is the offset plane, 15 by angle, 16 through three points. The type
+    // library exports no named constant; probed live on KOMPAS v22.
+    [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object? Add(int planeType);
+}
+
+[ComImport, Guid("5F5E0FA2-84D7-44D1-A946-018EBEB82926"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IPlane3DByOffset
+{
+    [DispId(101)] double Offset { set; }
+    [DispId(102)] bool Direction { set; }
+    [DispId(103)] object BasePlane { [param: MarshalAs(UnmanagedType.IDispatch)] set; }
+}
+
+/// <summary>A model feature, as opposed to a sketch entity: Update is 503.</summary>
+[ComImport, Guid("E37256D4-9021-47AC-8FAF-3713FB2A50C3"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IModelObject
+{
+    [DispId(503)] bool Update();
+}
+
+[ComImport, Guid("299A549E-3F82-4F60-98A3-258D632AA635"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IFace
+{
+    [DispId(11)] double GetArea(int units);
+    [DispId(15)] bool IsPlanar { get; }
+}
+
+[ComImport, Guid("8C6846A4-EE3B-4C00-A708-5C0FD01E21B7"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IPoints
+{
+    [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
+}
+
+[ComImport, Guid("D0C19C87-14E7-401D-AEF5-A2E88E899F6E"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IPoint
+{
+    [DispId(1)] double X { set; }
+    [DispId(2)] double Y { set; }
+    [DispId(3004)] bool Update();
 }

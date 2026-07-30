@@ -5,17 +5,60 @@ using System.Text.Json;
 
 namespace CadAi.KompasAdapter;
 
-public sealed record RectangleExtrusionPlan(
-    double CenterX,
-    double CenterY,
-    double Width,
-    double Height,
-    double Depth,
-    IReadOnlyList<CircularCutPlan>? CircularCuts = null);
+/// <summary>
+/// One feature to build, with every parameter already a number.
+/// </summary>
+/// <remarks>
+/// A flat ordered list rather than a graph: CAD-IR states the dependencies and
+/// the trusted validator has already checked that they are acyclic and declared
+/// before use, so by the time a plan exists array order is a valid build order.
+/// Re-deriving the topology here would be a second implementation of something
+/// already proved correct.
+/// </remarks>
+public abstract record CadFeaturePlan(string Id);
 
-public sealed record CircularCutPlan(double CenterX, double CenterY, double Radius);
+public sealed record ExtrudeFeaturePlan(
+    string Id,
+    SketchPlan Sketch,
+    double DepthMm,
+    bool IsCut) : CadFeaturePlan(Id);
 
-public sealed record CadBuildRequest(RectangleExtrusionPlan Plan, string OutputDirectory);
+public sealed record DatumPlaneFeaturePlan(
+    string Id,
+    string ResultId,
+    string? BasePlaneName,
+    string? BaseResultId,
+    double OffsetMm,
+    bool Flip) : CadFeaturePlan(Id);
+
+/// <summary>
+/// What the document says the finished solid must be.
+/// </summary>
+/// <remarks>
+/// Carried through from the document's `expectations` rather than derived from
+/// the features. Deriving them would make the check circular: a build that
+/// computed its own expectations from its own plan would satisfy them by
+/// construction, and a verifier that cannot disagree is not verifying (ADR-018).
+/// </remarks>
+public sealed record ExpectedGeometryPlan(
+    double SizeXMm,
+    double SizeYMm,
+    double SizeZMm,
+    double ToleranceMm,
+    int BodyCount,
+    int ThroughHoleCount);
+
+public sealed record CadBuildPlan(
+    IReadOnlyList<CadFeaturePlan> Features,
+    ExpectedGeometryPlan Expectations)
+{
+    public ExtrudeFeaturePlan Base =>
+        Features.OfType<ExtrudeFeaturePlan>().FirstOrDefault(feature => !feature.IsCut)
+        ?? throw new CadAdapterException(
+            "UNSUPPORTED_FEATURE_SET", "cad-ir", "The plan contains no base extrusion.");
+}
+
+public sealed record CadBuildRequest(CadBuildPlan Plan, string OutputDirectory);
 
 public sealed record CadArtifact(string Kind, string Path, long SizeBytes, string Sha256);
 
@@ -78,23 +121,43 @@ public sealed class FakeCadAdapter : ICadAdapter
         var payload = JsonSerializer.Serialize(new
         {
             adapter = "fake",
-            geometry = "rectangle_extrusion",
-            request.Plan.CenterX,
-            request.Plan.CenterY,
-            request.Plan.Width,
-            request.Plan.Height,
-            request.Plan.Depth
+            features = request.Plan.Features.Select(feature => feature switch
+            {
+                ExtrudeFeaturePlan extrude => new
+                {
+                    id = extrude.Id,
+                    kind = extrude.IsCut ? "cut.extrude" : "solid.extrude",
+                    depth_mm = extrude.DepthMm,
+                    outer = extrude.Sketch.Outer.GetType().Name,
+                    islands = extrude.Sketch.Inner.Count
+                },
+                DatumPlaneFeaturePlan plane => new
+                {
+                    id = plane.Id,
+                    kind = "datum.plane.offset",
+                    depth_mm = plane.OffsetMm,
+                    outer = plane.ResultId,
+                    islands = 0
+                },
+                _ => throw new CadAdapterException(
+                    "UNSUPPORTED_FEATURE_TYPE", "prepare", "Unknown feature in the plan.")
+            })
         });
         await File.WriteAllTextAsync(path, payload, Encoding.UTF8, cancellationToken);
         // The fake reports timings too, so instrumentation is exercised by CI
         // instead of only on a machine with KOMPAS installed.
-        var operations = new List<CadOperationRecord>
-        {
-            new("rectangular_prism", "sketch",
-                (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, Success: true)
-        };
-        operations.AddRange((request.Plan.CircularCuts ?? []).Select((_, index) =>
-            new CadOperationRecord($"hole_{index + 1:D3}", "feature", 0, Success: true)));
+        var operations = request.Plan.Features
+            .Select((feature, index) => new CadOperationRecord(
+                feature switch
+                {
+                    ExtrudeFeaturePlan { IsCut: false } => "rectangular_prism",
+                    ExtrudeFeaturePlan => $"cut_{index:D3}",
+                    _ => $"datum_plane_{index:D3}"
+                },
+                feature is DatumPlaneFeaturePlan ? "feature" : "sketch",
+                index == 0 ? (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds : 0,
+                Success: true))
+            .ToList();
         return new CadBuildResult([CreateArtifact("FAKE_CAD", path)], operations);
     }
 

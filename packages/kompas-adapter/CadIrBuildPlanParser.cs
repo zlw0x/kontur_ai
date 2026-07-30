@@ -1,5 +1,8 @@
 using System.Text.Json;
 
+// A resolved parameter table: a value and whether it may be used at all.
+using Parameters = System.Collections.Generic.IReadOnlyDictionary<string, (double Value, string Status)>;
+
 namespace CadAi.KompasAdapter;
 
 /// <summary>
@@ -7,22 +10,26 @@ namespace CadAi.KompasAdapter;
 /// </summary>
 /// <remarks>
 /// Deliberately narrower than the CAD-IR schema. The schema says what version
-/// 1.1 can express; this says what this adapter can actually build, which is
-/// one rectangular prism and any number of circular through-cuts. Everything
+/// 1.2 can express; this says what this adapter can actually build. Everything
 /// else is refused here, while the cost is a typed error rather than a
 /// half-built model.
 ///
-/// There is no expression evaluator any more. Version 1.1 has no expression
-/// language, so a value is a number or a named parameter — and a parser for
-/// untrusted arithmetic that nothing calls is attack surface with no purpose.
+/// Two jobs beyond reading JSON. Parameters are resolved, so nothing after this
+/// point carries a parameter table. And shapes are expanded into contours, so
+/// the builder draws lines, arcs and circles and never learns what a slot is.
+///
+/// There is no expression evaluator. CAD-IR has no expression language, so a
+/// value is a number or a named parameter — and a parser for untrusted
+/// arithmetic that nothing calls is attack surface with no purpose.
 /// </remarks>
 public static class CadIrBuildPlanParser
 {
     private const int MaxCadIrBytes = 1_048_576;
     private const string CadIrSchema = "cad-ai/cad-ir";
-    private const string CadIrVersion = "1.1";
+    private const string CadIrVersion = "1.2";
+    private const double MaxCoordinateMm = 1_000_000;
 
-    public static async Task<RectangleExtrusionPlan> ParseFileAsync(
+    public static async Task<CadBuildPlan> ParseFileAsync(
         string path,
         CancellationToken cancellationToken = default)
     {
@@ -46,7 +53,7 @@ public static class CadIrBuildPlanParser
         }
     }
 
-    public static RectangleExtrusionPlan Parse(JsonElement root)
+    public static CadBuildPlan Parse(JsonElement root)
     {
         RequireObject(root, "$");
         RequireSupportedVersion(root);
@@ -60,50 +67,355 @@ public static class CadIrBuildPlanParser
             .Where(feature => !feature.TryGetProperty("enabled", out var flag) ||
                               flag.ValueKind != JsonValueKind.False)
             .ToArray();
-        if (enabled.Length is < 1 or > 20)
-            throw Invalid("UNSUPPORTED_FEATURE_SET", "Adapter v0 requires one to twenty enabled features.");
-        var feature = enabled[0];
-        if (RequiredString(feature, "type", "$.features[]") != "solid.extrude")
-            throw Invalid("UNSUPPORTED_FEATURE_TYPE", "Adapter v0 supports only solid.extrude as the base feature.");
+        if (enabled.Length is < 1 or > 40)
+            throw Invalid("UNSUPPORTED_FEATURE_SET", "This adapter builds one to forty enabled features.");
 
-        var inputs = Required(feature, "inputs", "$.features[]");
-        RequireObject(inputs, "$.features[].inputs");
-        if (RequiredString(inputs, "direction", "$.features[].inputs") != "+Z")
-            throw Invalid("UNSUPPORTED_DIRECTION", "Adapter v0 supports only +Z extrusion.");
-        var depth = ResolveScalar(Required(inputs, "distance", "$.features[].inputs"), parameters);
+        var planes = new HashSet<string>(StringComparer.Ordinal);
+        var plans = new List<CadFeaturePlan>(enabled.Length);
+        for (var index = 0; index < enabled.Length; index++)
+        {
+            var path = $"$.features[{index}]";
+            var feature = enabled[index];
+            var type = RequiredString(feature, "type", path);
+            CadFeaturePlan plan = type switch
+            {
+                "solid.extrude" => ParseExtrude(feature, path, parameters, planes, isCut: false),
+                "cut.extrude" => ParseExtrude(feature, path, parameters, planes, isCut: true),
+                "datum.plane.offset" => ParseDatumPlane(feature, path, parameters, planes),
+                _ => throw Invalid("UNSUPPORTED_FEATURE_TYPE", $"This adapter cannot build {type}.")
+            };
+            if (plan is DatumPlaneFeaturePlan datum) planes.Add(datum.ResultId);
+            plans.Add(plan);
+        }
 
-        var sketch = Required(inputs, "sketch", "$.features[].inputs");
-        if (RequiredString(sketch, "plane", "$.features[].inputs.sketch") != "XY")
-            throw Invalid("UNSUPPORTED_PLANE", "Adapter v0 supports only the XY sketch plane.");
-        var entities = Required(sketch, "entities", "$.features[].inputs.sketch");
-        if (entities.ValueKind != JsonValueKind.Array || entities.GetArrayLength() != 1)
-            throw Invalid("UNSUPPORTED_SKETCH", "Adapter v0 requires one center_rectangle entity.");
-        var rectangle = entities[0];
-        if (RequiredString(rectangle, "type", "$.features[].inputs.sketch.entities[0]") != "center_rectangle")
-            throw Invalid("UNSUPPORTED_SKETCH", "Adapter v0 requires a center_rectangle entity.");
-        var center = Required(rectangle, "center", "$.features[].inputs.sketch.entities[0]");
-        if (center.ValueKind != JsonValueKind.Array || center.GetArrayLength() != 2)
-            throw Invalid("CAD_IR_INVALID", "Rectangle center must contain two coordinates.");
+        if (plans.OfType<ExtrudeFeaturePlan>().FirstOrDefault() is not { IsCut: false } profile)
+            throw Invalid("UNSUPPORTED_FEATURE_SET", "The first geometric feature must be a base extrusion.");
+        if (profile.Sketch.Plane is BasePlanePlan basis)
+        {
+            var cuts = plans.OfType<ExtrudeFeaturePlan>()
+                .Where(feature => feature.IsCut &&
+                                  feature.Sketch.Plane is BasePlanePlan other && other.Name == basis.Name);
+            foreach (var cut in cuts)
+                SketchValidator.RequireCutTouchesProfile(profile.Sketch.Outer, cut.Sketch.Outer, cut.Id);
+        }
+        return new CadBuildPlan(plans, ReadExpectations(Required(root, "expectations", "$")));
+    }
 
-        var cuts = enabled.Skip(1).Select(item => ParseCircularCut(item, parameters)).ToArray();
-        var plan = new RectangleExtrusionPlan(
-            ResolveScalar(center[0], parameters),
-            ResolveScalar(center[1], parameters),
-            ResolveScalar(Required(rectangle, "width", "$.features[].inputs.sketch.entities[0]"), parameters),
-            ResolveScalar(Required(rectangle, "height", "$.features[].inputs.sketch.entities[0]"), parameters),
-            depth,
-            cuts);
-        if (plan.Width <= 0 || plan.Height <= 0 || plan.Depth <= 0 ||
-            cuts.Any(cut => cut.Radius <= 0) ||
-            new[] { plan.CenterX, plan.CenterY, plan.Width, plan.Height, plan.Depth }
-                .Concat(cuts.SelectMany(cut => new[] { cut.CenterX, cut.CenterY, cut.Radius }))
-                .Any(value => !double.IsFinite(value) || Math.Abs(value) > 1_000_000))
-            throw Invalid("DIMENSION_OUT_OF_RANGE", "Resolved CAD dimensions are outside safe bounds.");
-        if (cuts.Any(cut =>
-            Math.Abs(cut.CenterX - plan.CenterX) + cut.Radius > plan.Width / 2 ||
-            Math.Abs(cut.CenterY - plan.CenterY) + cut.Radius > plan.Height / 2))
-            throw Invalid("HOLE_OUTSIDE_BODY", "A circular cut is not contained by the base rectangle.");
-        return plan;
+    /// <summary>
+    /// Carry the document's expectations through untouched.
+    /// </summary>
+    /// <remarks>
+    /// Not derived from the features on purpose. A build that computed its own
+    /// expectations from its own plan would satisfy them by construction, and a
+    /// verifier that cannot disagree with the builder is not verifying
+    /// anything — the argument in ADR-018.
+    /// </remarks>
+    private static ExpectedGeometryPlan ReadExpectations(JsonElement expectations)
+    {
+        if (expectations.ValueKind != JsonValueKind.Array)
+            throw Invalid("CAD_IR_INVALID", "$.expectations must be an array.");
+        double? x = null, y = null, z = null;
+        var tolerance = 0.05;
+        int? bodies = null;
+        var holes = 0;
+        foreach (var expectation in expectations.EnumerateArray())
+        {
+            var path = "$.expectations[]";
+            switch (RequiredString(expectation, "type", path))
+            {
+                case "bounding_box":
+                {
+                    var size = Required(expectation, "size_mm", path);
+                    x = Number(size, "x", $"{path}.size_mm");
+                    y = Number(size, "y", $"{path}.size_mm");
+                    z = Number(size, "z", $"{path}.size_mm");
+                    tolerance = Number(expectation, "tolerance_mm", path);
+                    break;
+                }
+                case "body_count":
+                    bodies = (int)Number(expectation, "value", path);
+                    break;
+                case "through_hole_count":
+                    holes = (int)Number(expectation, "value", path);
+                    break;
+            }
+        }
+        if (x is null || y is null || z is null || bodies is null)
+            throw Invalid("REQUIRED_EXPECTATION_MISSING",
+                "A build needs a bounding_box and a body_count expectation to be checked against.");
+        return new ExpectedGeometryPlan(x.Value, y.Value, z.Value, tolerance, bodies.Value, holes);
+    }
+
+    private static double Number(JsonElement owner, string property, string path)
+    {
+        var value = Required(owner, property, path);
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) ||
+            !double.IsFinite(number))
+            throw Invalid("CAD_IR_INVALID", $"{path}.{property} must be a finite number.");
+        return number;
+    }
+
+    private static ExtrudeFeaturePlan ParseExtrude(
+        JsonElement feature,
+        string path,
+        Parameters parameters,
+        IReadOnlySet<string> planes,
+        bool isCut)
+    {
+        var id = RequiredString(feature, "id", path);
+        var inputs = Required(feature, "inputs", path);
+        RequireObject(inputs, $"{path}.inputs");
+        if (RequiredString(inputs, "direction", $"{path}.inputs") != "+Z")
+            throw Invalid("UNSUPPORTED_DIRECTION", "This adapter extrudes along +Z only.");
+
+        var sketch = ParseSketch(Required(inputs, "sketch", $"{path}.inputs"), $"{path}.inputs.sketch",
+            parameters, planes);
+        // A cut states through_all or a distance; the depth of a through cut is
+        // decided by the adapter from the body it passes through, so a
+        // placeholder here would be a number nothing reads.
+        var depth = isCut && inputs.TryGetProperty("through_all", out var through) &&
+                    through.ValueKind == JsonValueKind.True
+            ? 0
+            : ResolveScalar(Required(inputs, "distance", $"{path}.inputs"), parameters);
+        if (!isCut && !(depth > 0))
+            throw Invalid("DIMENSION_OUT_OF_RANGE", "A base extrusion needs a positive distance.");
+        RequireInRange(depth, $"{path}.inputs.distance");
+
+        SketchValidator.Validate(sketch);
+        return new ExtrudeFeaturePlan(id, sketch, depth, isCut);
+    }
+
+    private static DatumPlaneFeaturePlan ParseDatumPlane(
+        JsonElement feature,
+        string path,
+        Parameters parameters,
+        IReadOnlySet<string> planes)
+    {
+        var id = RequiredString(feature, "id", path);
+        var produces = Required(feature, "produces", path);
+        if (produces.ValueKind != JsonValueKind.Array || produces.GetArrayLength() != 1)
+            throw Invalid("CAD_IR_INVALID", $"{path}.produces must name exactly one plane.");
+        var resultId = RequiredString(produces[0], "id", $"{path}.produces[0]");
+
+        var inputs = Required(feature, "inputs", path);
+        var basis = Required(inputs, "base", $"{path}.inputs");
+        string? basePlaneName = null;
+        string? baseResultId = null;
+        if (basis.ValueKind == JsonValueKind.String)
+        {
+            basePlaneName = RequireBasePlane(basis.GetString()!);
+        }
+        else
+        {
+            baseResultId = RequiredString(basis, "result", $"{path}.inputs.base");
+            if (!planes.Contains(baseResultId))
+                throw Invalid("FEATURE_RESULT_UNAVAILABLE",
+                    $"{path}.inputs.base names {baseResultId}, which no earlier feature produced.");
+        }
+
+        var offset = ResolveScalar(Required(inputs, "offset_mm", $"{path}.inputs"), parameters);
+        RequireInRange(offset, $"{path}.inputs.offset_mm");
+        if (Math.Abs(offset) <= SketchGeometry.PointToleranceMm)
+            // A plane offset by nothing is the plane it was offset from, and a
+            // sketch on it means something different from what was written.
+            throw Invalid("DIMENSION_OUT_OF_RANGE", "An offset plane needs a non-zero offset.");
+        var flip = inputs.TryGetProperty("flip", out var flag) && flag.ValueKind == JsonValueKind.True;
+        return new DatumPlaneFeaturePlan(id, resultId, basePlaneName, baseResultId, offset, flip);
+    }
+
+    // --- sketches ----------------------------------------------------------
+
+    private static SketchPlan ParseSketch(
+        JsonElement sketch,
+        string path,
+        Parameters parameters,
+        IReadOnlySet<string> planes)
+    {
+        RequireObject(sketch, path);
+        var id = RequiredString(sketch, "id", path);
+        var plane = ParsePlane(Required(sketch, "plane", path), $"{path}.plane", planes);
+        var outer = ParseContour(Required(sketch, "outer", path), $"{path}.outer", parameters);
+        var inner = ReadArray(sketch, "inner")
+            .Select((item, index) => ParseContour(item, $"{path}.inner[{index}]", parameters))
+            .ToArray();
+        var construction = ReadArray(sketch, "construction")
+            .Select((item, index) => ParseConstruction(item, $"{path}.construction[{index}]", parameters))
+            .ToArray();
+        return new SketchPlan(id, plane, outer, inner, construction);
+    }
+
+    private static SketchPlanePlan ParsePlane(JsonElement plane, string path, IReadOnlySet<string> planes)
+    {
+        RequireObject(plane, path);
+        var on = RequiredString(plane, "on", path);
+        switch (on)
+        {
+            case "base":
+                return new BasePlanePlan(RequireBasePlane(RequiredString(plane, "plane", path)));
+            case "datum":
+            {
+                var result = RequiredString(Required(plane, "plane", path), "result", $"{path}.plane");
+                if (!planes.Contains(result))
+                    throw Invalid("FEATURE_RESULT_UNAVAILABLE",
+                        $"{path} sits on {result}, which no earlier feature produced.");
+                return new DatumPlanePlan(result);
+            }
+            case "face":
+                return new FacePlanePlan(
+                    GeometrySelectorParser.Parse(Required(plane, "face", path), $"{path}.face"));
+            default:
+                throw Invalid("UNSUPPORTED_SKETCH_PLANE", $"A sketch plane cannot sit on a {on}.");
+        }
+    }
+
+    private static ContourPlan ParseContour(JsonElement contour, string path, Parameters parameters)
+    {
+        RequireObject(contour, path);
+        var type = RequiredString(contour, "type", path);
+        switch (type)
+        {
+            case "circle":
+                return new CircleContourPlan(
+                    Point(Required(contour, "center", path), $"{path}.center", parameters),
+                    Length(contour, "radius", path, parameters));
+            case "rectangle":
+                return SketchGeometry.Rectangle(
+                    Point(Required(contour, "center", path), $"{path}.center", parameters),
+                    Length(contour, "width", path, parameters),
+                    Length(contour, "height", path, parameters),
+                    Optional(contour, "rotation_deg", path, parameters));
+            case "slot":
+                return SketchGeometry.Slot(
+                    Point(Required(contour, "start", path), $"{path}.start", parameters),
+                    Point(Required(contour, "end", path), $"{path}.end", parameters),
+                    Length(contour, "radius", path, parameters));
+            case "regular_polygon":
+            {
+                var sides = Required(contour, "sides", path);
+                if (sides.ValueKind != JsonValueKind.Number || !sides.TryGetInt32(out var count) ||
+                    count is < 3 or > 64)
+                    throw Invalid("CAD_IR_INVALID", $"{path}.sides must be a whole number from 3 to 64.");
+                return SketchGeometry.RegularPolygon(
+                    Point(Required(contour, "center", path), $"{path}.center", parameters),
+                    count,
+                    Length(contour, "circumradius", path, parameters),
+                    Optional(contour, "rotation_deg", path, parameters));
+            }
+            case "path":
+            {
+                var segments = Required(contour, "segments", path);
+                if (segments.ValueKind != JsonValueKind.Array || segments.GetArrayLength() < 2)
+                    throw Invalid("CAD_IR_INVALID", $"{path}.segments needs at least two entries.");
+                return new PathContourPlan(segments.EnumerateArray()
+                    .Select((segment, index) =>
+                        ParseSegment(segment, $"{path}.segments[{index}]", parameters))
+                    .ToArray());
+            }
+            default:
+                throw Invalid("UNSUPPORTED_CONTOUR", $"This adapter cannot draw a {type} contour.");
+        }
+    }
+
+    private static SketchSegment ParseSegment(JsonElement segment, string path, Parameters parameters)
+    {
+        RequireObject(segment, path);
+        var type = RequiredString(segment, "type", path);
+        var start = Point(Required(segment, "start", path), $"{path}.start", parameters);
+        var end = Point(Required(segment, "end", path), $"{path}.end", parameters);
+        return type switch
+        {
+            "line" => new LineSegmentPlan(start, end),
+            "arc" => new ArcSegmentPlan(
+                start,
+                end,
+                Point(Required(segment, "center", path), $"{path}.center", parameters),
+                RequiredString(segment, "sweep", path) switch
+                {
+                    "ccw" => true,
+                    "cw" => false,
+                    var other => throw Invalid("CAD_IR_INVALID", $"{path}.sweep cannot be {other}.")
+                }),
+            _ => throw Invalid("UNSUPPORTED_SEGMENT", $"This adapter cannot draw a {type} segment.")
+        };
+    }
+
+    private static ConstructionEntityPlan ParseConstruction(
+        JsonElement entity,
+        string path,
+        Parameters parameters)
+    {
+        RequireObject(entity, path);
+        var id = RequiredString(entity, "id", path);
+        var type = RequiredString(entity, "type", path);
+        return type switch
+        {
+            "point" => new ConstructionEntityPlan(
+                id, "point", null, Point(Required(entity, "at", path), $"{path}.at", parameters)),
+            "line" => new ConstructionEntityPlan(id, "line",
+                new PathContourPlan([
+                    new LineSegmentPlan(
+                        Point(Required(entity, "start", path), $"{path}.start", parameters),
+                        Point(Required(entity, "end", path), $"{path}.end", parameters))
+                ]), null),
+            "circle" => new ConstructionEntityPlan(id, "circle",
+                new CircleContourPlan(
+                    Point(Required(entity, "center", path), $"{path}.center", parameters),
+                    Length(entity, "radius", path, parameters)), null),
+            "arc" => new ConstructionEntityPlan(id, "arc",
+                new PathContourPlan([ParseSegment(entity, path, parameters)]), null),
+            _ => throw Invalid("UNSUPPORTED_CONSTRUCTION",
+                $"This adapter cannot draw {type} construction geometry.")
+        };
+    }
+
+    private static string RequireBasePlane(string name) => name switch
+    {
+        "XY" or "XZ" or "YZ" => name,
+        _ => throw Invalid("UNSUPPORTED_PLANE", $"{name} is not a base plane.")
+    };
+
+    // --- scalars -----------------------------------------------------------
+
+    private static Point2 Point(JsonElement value, string path, Parameters parameters)
+    {
+        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 2)
+            throw Invalid("CAD_IR_INVALID", $"{path} must contain two coordinates.");
+        var x = ResolveScalar(value[0], parameters);
+        var y = ResolveScalar(value[1], parameters);
+        RequireInRange(x, $"{path}[0]");
+        RequireInRange(y, $"{path}[1]");
+        return new Point2(x, y);
+    }
+
+    private static double Length(JsonElement owner, string property, string path, Parameters parameters)
+    {
+        var value = ResolveScalar(Required(owner, property, path), parameters);
+        RequireInRange(value, $"{path}.{property}");
+        if (!(value > 0))
+            throw Invalid("DIMENSION_OUT_OF_RANGE", $"{path}.{property} must be positive.");
+        return value;
+    }
+
+    private static double Optional(JsonElement owner, string property, string path, Parameters parameters)
+    {
+        if (!owner.TryGetProperty(property, out var value)) return 0;
+        var resolved = ResolveScalar(value, parameters);
+        RequireInRange(resolved, $"{path}.{property}");
+        return resolved;
+    }
+
+    private static void RequireInRange(double value, string path)
+    {
+        if (!double.IsFinite(value) || Math.Abs(value) > MaxCoordinateMm)
+            throw Invalid("DIMENSION_OUT_OF_RANGE", $"{path} is outside safe bounds.");
+    }
+
+    private static IEnumerable<JsonElement> ReadArray(JsonElement owner, string property)
+    {
+        if (!owner.TryGetProperty(property, out var value)) return [];
+        if (value.ValueKind != JsonValueKind.Array)
+            throw Invalid("CAD_IR_INVALID", $"{property} must be an array.");
+        return value.EnumerateArray();
     }
 
     /// <summary>
@@ -148,37 +460,7 @@ public static class CadIrBuildPlanParser
         return false;
     }
 
-    private static CircularCutPlan ParseCircularCut(
-        JsonElement feature,
-        IReadOnlyDictionary<string, (double Value, string Status)> parameters)
-    {
-        if (RequiredString(feature, "type", "$.features[]") != "cut.extrude")
-            throw Invalid("UNSUPPORTED_FEATURE_TYPE", "Adapter v0 supports cut.extrude after the base feature.");
-        var inputs = Required(feature, "inputs", "$.features[]");
-        if (RequiredString(inputs, "direction", "$.features[].inputs") != "+Z")
-            throw Invalid("UNSUPPORTED_DIRECTION", "Circular cuts support only +Z.");
-        if (!inputs.TryGetProperty("through_all", out var throughAll) ||
-            throughAll.ValueKind != JsonValueKind.True)
-            throw Invalid("UNSUPPORTED_CUT_DEPTH", "Circular cuts must use through_all=true.");
-        var sketch = Required(inputs, "sketch", "$.features[].inputs");
-        if (RequiredString(sketch, "plane", "$.features[].inputs.sketch") != "XY")
-            throw Invalid("UNSUPPORTED_PLANE", "Circular cuts support only the XY plane.");
-        var entities = Required(sketch, "entities", "$.features[].inputs.sketch");
-        if (entities.ValueKind != JsonValueKind.Array || entities.GetArrayLength() != 1)
-            throw Invalid("UNSUPPORTED_SKETCH", "Circular cut requires one circle entity.");
-        var circle = entities[0];
-        if (RequiredString(circle, "type", "$.features[].inputs.sketch.entities[0]") != "circle")
-            throw Invalid("UNSUPPORTED_SKETCH", "Circular cut requires one circle entity.");
-        var center = Required(circle, "center", "$.features[].inputs.sketch.entities[0]");
-        if (center.ValueKind != JsonValueKind.Array || center.GetArrayLength() != 2)
-            throw Invalid("CAD_IR_INVALID", "Circle center must contain two coordinates.");
-        return new CircularCutPlan(
-            ResolveScalar(center[0], parameters),
-            ResolveScalar(center[1], parameters),
-            ResolveScalar(Required(circle, "radius", "$.features[].inputs.sketch.entities[0]"), parameters));
-    }
-
-    private static Dictionary<string, (double Value, string Status)> ReadParameters(JsonElement element)
+    private static Parameters ReadParameters(JsonElement element)
     {
         if (element.ValueKind != JsonValueKind.Array)
             throw Invalid("CAD_IR_INVALID", "$.parameters must be an array.");
@@ -186,14 +468,16 @@ public static class CadIrBuildPlanParser
         foreach (var parameter in element.EnumerateArray())
         {
             var id = RequiredString(parameter, "id", "$.parameters[]");
-            // `status` is optional in 1.1 and defaults to confirmed; only an
-            // explicitly unresolved value blocks a build.
+            // `status` is optional and defaults to confirmed; only an explicitly
+            // unresolved value blocks a build.
             var status = parameter.TryGetProperty("status", out var declared) &&
                          declared.ValueKind == JsonValueKind.String
                 ? declared.GetString()!
                 : "confirmed";
-            if (RequiredString(parameter, "type", "$.parameters[]") != "length")
-                throw Invalid("UNSUPPORTED_PARAMETER_TYPE", $"Adapter v0 supports only length parameters: {id}.");
+            var type = RequiredString(parameter, "type", "$.parameters[]");
+            if (type is not ("length" or "angle"))
+                throw Invalid("UNSUPPORTED_PARAMETER_TYPE",
+                    $"This adapter supports length and angle parameters: {id} is {type}.");
             var value = Required(parameter, "value", "$.parameters[]");
             if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number))
                 throw Invalid("CAD_IR_INVALID", $"Parameter {id} has no numeric value.");
@@ -203,9 +487,7 @@ public static class CadIrBuildPlanParser
         return result;
     }
 
-    private static double ResolveScalar(
-        JsonElement value,
-        IReadOnlyDictionary<string, (double Value, string Status)> parameters)
+    private static double ResolveScalar(JsonElement value, Parameters parameters)
     {
         if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number))
             return number;
@@ -215,9 +497,7 @@ public static class CadIrBuildPlanParser
         throw Invalid("CAD_IR_INVALID", "A scalar must be a number or a parameter reference.");
     }
 
-    private static double ResolveParameter(
-        string? id,
-        IReadOnlyDictionary<string, (double Value, string Status)> parameters)
+    private static double ResolveParameter(string? id, Parameters parameters)
     {
         if (id is null || !parameters.TryGetValue(id, out var parameter))
             throw Invalid("PARAMETER_NOT_FOUND", $"Unknown parameter: {id ?? "<null>"}.");

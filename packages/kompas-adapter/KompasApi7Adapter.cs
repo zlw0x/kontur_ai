@@ -75,20 +75,15 @@ public sealed class KompasApi7Adapter : ICadAdapter
                 throw Failure("DOCUMENT_CREATE_FAILED", stage, "KOMPAS did not create a part document.");
             operations.Add(new CadOperationRecord("document_create", stage, StepMs(), Success: true));
 
-            cancellationToken.ThrowIfCancellationRequested();
-            stage = "sketch";
-            BuildRectangleExtrusion(document, request.Plan);
-            operations.Add(new CadOperationRecord("rectangular_prism", stage, StepMs(), Success: true));
-
-            var holeNumber = 0;
-            foreach (var cut in request.Plan.CircularCuts ?? [])
+            var builder = new KompasSketchBuilder(document, request.Plan.Base.DepthMm);
+            var featureNumber = 0;
+            foreach (var feature in request.Plan.Features)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                stage = "feature";
-                holeNumber++;
-                BuildCircularCut(document, cut, request.Plan.Depth);
-                operations.Add(new CadOperationRecord(
-                    $"hole_{holeNumber:D3}", stage, StepMs(), Success: true));
+                featureNumber++;
+                stage = feature is DatumPlaneFeaturePlan ? "feature" : "sketch";
+                var code = builder.Build(feature, featureNumber);
+                operations.Add(new CadOperationRecord(code, stage, StepMs(), Success: true));
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -150,55 +145,6 @@ public sealed class KompasApi7Adapter : ICadAdapter
         }
     }
 
-    private static void BuildCircularCut(object document, CircularCutPlan cut, double baseDepth)
-    {
-        object? topPartObject = null;
-        object? sketchObject = null;
-        object? fragmentObject = null;
-        object? extrusionObject = null;
-        try
-        {
-            topPartObject = ((IKompasDocument3D)document).TopPart;
-            var part = (IPart7)topPartObject;
-            sketchObject = ((ISketchs)part.Sketchs).Add();
-            var sketch = (ISketch)sketchObject;
-            sketch.Plane = part.DefaultObject(1); // o3d_planeXOY=1
-            fragmentObject = sketch.BeginEdit();
-            var fragment = (IFragmentDocument)fragmentObject;
-            var view = (IView)((IViews)((IViewsAndLayersManager)fragment.ViewsAndLayersManager).Views).ActiveView;
-            var circleObject = ((ICircles)view.Circles).Add();
-            try
-            {
-                var circle = (ICircle)circleObject;
-                circle.Xc = cut.CenterX;
-                circle.Yc = cut.CenterY;
-                circle.Radius = cut.Radius;
-                if (!circle.Update())
-                    throw Failure("SKETCH_INVALID", "sketch", "KOMPAS rejected a circular cut contour.");
-            }
-            finally { Release(circleObject); }
-            if (!sketch.EndEdit())
-                throw Failure("SKETCH_INVALID", "sketch", "KOMPAS did not close circular sketch editing.");
-
-            extrusionObject = ((IExtrusions)part.Extrusions).Add(26); // o3d_cutExtrusion=26
-            var extrusion = (IExtrusion)extrusionObject;
-            ((IExtrusion1)extrusionObject).OperationResult = 2; // ksOperationCut=2
-            extrusion.Sketch = sketchObject;
-            extrusion.Direction = 1; // dtReverse=1; enters the +Z body from XOY in KOMPAS v22
-            if (!extrusion.SetSideParameters(false, 0, baseDepth, 0, false, null) || // exact full body depth
-                !extrusion.Update() ||
-                !part.RebuildModel(false))
-                throw Failure("FEATURE_BUILD_FAILED", "feature", "KOMPAS did not build the circular through cut.");
-        }
-        finally
-        {
-            Release(extrusionObject);
-            Release(fragmentObject);
-            Release(sketchObject);
-            Release(topPartObject);
-        }
-    }
-
     private static void ExportAdditionalFormats(string stepPath, string stlPath)
     {
         object? api5Object = null;
@@ -245,68 +191,6 @@ public sealed class KompasApi7Adapter : ICadAdapter
         finally { Release(parametersObject); }
     }
 
-    private static void BuildRectangleExtrusion(object document, RectangleExtrusionPlan plan)
-    {
-        object? topPartObject = null;
-        object? sketchObject = null;
-        object? fragmentObject = null;
-        object? extrusionObject = null;
-        try
-        {
-            topPartObject = ((IKompasDocument3D)document).TopPart;
-            var part = (IPart7)topPartObject;
-            var sketchCollection = (ISketchs)part.Sketchs;
-            sketchObject = sketchCollection.Add();
-            var sketch = (ISketch)sketchObject;
-            sketch.Plane = part.DefaultObject(1); // o3d_planeXOY=1
-            fragmentObject = sketch.BeginEdit();
-            var fragment = (IFragmentDocument)fragmentObject;
-            var manager = (IViewsAndLayersManager)fragment.ViewsAndLayersManager;
-            var views = (IViews)manager.Views;
-            var view = (IView)views.ActiveView;
-            var lines = (ILineSegments)view.LineSegments;
-            var left = plan.CenterX - plan.Width / 2;
-            var right = plan.CenterX + plan.Width / 2;
-            var bottom = plan.CenterY - plan.Height / 2;
-            var top = plan.CenterY + plan.Height / 2;
-            foreach (var edge in new[]
-            {
-                (left, bottom, right, bottom), (right, bottom, right, top),
-                (right, top, left, top), (left, top, left, bottom)
-            })
-            {
-                var lineObject = lines.Add();
-                try
-                {
-                    var line = (ILineSegment)lineObject;
-                    line.X1 = edge.Item1; line.Y1 = edge.Item2;
-                    line.X2 = edge.Item3; line.Y2 = edge.Item4;
-                    if (!line.Update())
-                        throw Failure("SKETCH_INVALID", "sketch", "KOMPAS rejected a rectangle edge.");
-                }
-                finally { Release(lineObject); }
-            }
-            if (!sketch.EndEdit())
-                throw Failure("SKETCH_INVALID", "sketch", "KOMPAS did not close sketch editing.");
-
-            extrusionObject = ((IExtrusions)part.Extrusions).Add(24); // o3d_baseExtrusion=24
-            var extrusion = (IExtrusion)extrusionObject;
-            extrusion.Sketch = sketchObject;
-            extrusion.Direction = 0; // dtNormal=0
-            if (!extrusion.SetSideParameters(true, 0, plan.Depth, 0, false, null) ||
-                !extrusion.Update() ||
-                !part.RebuildModel(false))
-                throw Failure("FEATURE_BUILD_FAILED", "feature", "KOMPAS did not build the extrusion.");
-        }
-        finally
-        {
-            Release(extrusionObject);
-            Release(fragmentObject);
-            Release(sketchObject);
-            Release(topPartObject);
-        }
-    }
-
     private static Process? WaitForOwnedProcess(HashSet<int> existingPids)
     {
         for (var attempt = 0; attempt < 20; attempt++)
@@ -319,7 +203,7 @@ public sealed class KompasApi7Adapter : ICadAdapter
         return null;
     }
 
-    private static void Release(object? value)
+    internal static void Release(object? value)
     {
         if (value is not null && Marshal.IsComObject(value))
             Marshal.FinalReleaseComObject(value);
@@ -336,6 +220,7 @@ public sealed class KompasApi7Adapter : ICadAdapter
         _ => "KOMPAS_OPERATION_FAILED"
     };
 
-    private static CadAdapterException Failure(string code, string stage, string message, Exception? inner = null) =>
+    internal static CadAdapterException Failure(
+        string code, string stage, string message, Exception? inner = null) =>
         new(code, stage, message, inner);
 }

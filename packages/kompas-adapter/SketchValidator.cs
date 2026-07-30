@@ -56,6 +56,26 @@ public static class SketchValidator
         }
     }
 
+    /// <summary>
+    /// A cut has to meet the material it is cutting.
+    /// </summary>
+    /// <remarks>
+    /// A through-cut entirely clear of the body leaves the solid unchanged and
+    /// reports success, which is the quiet kind of wrong. Only checked for cuts
+    /// sketched on the same base plane as the profile: a cut on a face or an
+    /// auxiliary plane has its own coordinate system, and comparing the two sets
+    /// of numbers would be comparing nothing.
+    /// </remarks>
+    public static void RequireCutTouchesProfile(ContourPlan profile, ContourPlan cut, string label)
+    {
+        var outline = profile.Tessellate(Tessellation);
+        var opening = cut.Tessellate(Tessellation);
+        if (Crosses(outline, opening)) return;
+        if (opening.Any(point => Contains(outline, point))) return;
+        throw Invalid("CUT_OUTSIDE_BODY",
+            $"The {label} does not meet the profile it cuts, so it would remove nothing.");
+    }
+
     private static void Check(ContourPlan contour, string label)
     {
         switch (contour)

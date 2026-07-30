@@ -102,12 +102,16 @@ public static class LocalCadJobHandler
                     Path.Combine(output, "model.m3d"),
                     Path.Combine(output, "model.step"),
                     Path.Combine(output, "model.stl"),
+                    // The document's own expectations, not numbers derived
+                    // from the plan: a verifier that cannot disagree with the
+                    // builder is not verifying anything.
                     new ExpectedGeometry(
-                        plan.Width,
-                        plan.Height,
-                        plan.Depth,
-                        SolidBodyCount: 1,
-                        ThroughHoleCount: plan.CircularCuts?.Count ?? 0));
+                        plan.Expectations.SizeXMm,
+                        plan.Expectations.SizeYMm,
+                        plan.Expectations.SizeZMm,
+                        plan.Expectations.BodyCount,
+                        plan.Expectations.ThroughHoleCount,
+                        plan.Expectations.ToleranceMm));
                 if (validation.Valid) check?.Succeeded();
                 else check?.Failed("GEOMETRY_VALIDATION_FAILED");
             }
