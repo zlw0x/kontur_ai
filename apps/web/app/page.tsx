@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import StlPreview from "./stl-preview";
+import LandingPage from "./landing-page";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -21,33 +22,68 @@ type OrderState = {
   questions: Question[];
   artifacts: Artifact[];
 };
-
-const statusCopy: Record<string, string> = {
-  PENDING: "В очереди локального worker",
-  LEASED: "Анализ и построение",
-  WAITING_FOR_USER_ANSWERS: "Нужно уточнение",
-  READY: "Модель готова",
-  FAILED: "Построение остановлено",
-};
+type ViewMode = "model" | "drawing";
+type Material = "aluminum" | "steel" | "polymer";
+type IconName =
+  | "arrow"
+  | "box"
+  | "check"
+  | "chevron"
+  | "cube"
+  | "download"
+  | "expand"
+  | "file"
+  | "image"
+  | "info"
+  | "layers"
+  | "plus"
+  | "refresh"
+  | "settings"
+  | "sparkles"
+  | "trash"
+  | "upload";
 
 const artifactOrder = ["M3D", "STEP", "STL", "VALIDATION_REPORT"];
+const statusCopy: Record<string, string> = {
+  PENDING: "Ожидает запуска",
+  LEASED: "Создаём модель",
+  WAITING_FOR_USER_ANSWERS: "Уточните размеры",
+  READY: "Модель готова",
+  FAILED: "Нужна проверка",
+};
+const materialOptions: { value: Material; label: string; color: string }[] = [
+  { value: "aluminum", label: "Алюминий", color: "#c8d2d5" },
+  { value: "steel", label: "Сталь", color: "#aeb7c1" },
+  { value: "polymer", label: "Полимер", color: "#b8f35a" },
+];
 
 export default function Home() {
+  const [showLanding, setShowLanding] = useState(true);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [token, setToken] = useState("");
-  const [demoMode, setDemoMode] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [order, setOrder] = useState<OrderState | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [comment, setComment] = useState("");
+  const [material, setMaterial] = useState<Material>("aluminum");
+  const [precision, setPrecision] = useState<"standard" | "high">("high");
+  const [viewMode, setViewMode] = useState<ViewMode>("model");
+  const [outputs, setOutputs] = useState<Record<string, boolean>>({
+    M3D: true,
+    STEP: true,
+    STL: true,
+    VALIDATION_REPORT: true,
+  });
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    setShowLanding(!window.location.pathname.startsWith("/studio"));
     const storedToken = sessionStorage.getItem("cad-ai-token") ?? "";
     setToken(storedToken);
-    setDemoMode(!storedToken);
     setComment(localStorage.getItem("cad-ai-drawing-note") ?? "");
     setOrderId(new URLSearchParams(window.location.search).get("order"));
   }, []);
@@ -79,6 +115,7 @@ export default function Home() {
         const value = (await response.json()) as OrderState;
         if (!cancelled) {
           setOrder(value);
+          if (value.status === "READY") setViewMode("model");
           setError("");
         }
       } catch (reason) {
@@ -98,41 +135,87 @@ export default function Home() {
     [order],
   );
   const artifacts = useMemo(
-    () => artifactOrder
-      .map((type) => order?.artifacts.find((artifact) => artifact.type.toUpperCase() === type))
-      .filter((artifact): artifact is Artifact => Boolean(artifact)),
+    () =>
+      artifactOrder
+        .map((type) => order?.artifacts.find((artifact) => artifact.type.toUpperCase() === type))
+        .filter((artifact): artifact is Artifact => Boolean(artifact)),
     [order],
   );
   const activeStatus = order?.status ?? (file ? "DRAFT" : "EMPTY");
-  const isDemo = demoMode || !token;
+  const progress = getProgress(activeStatus);
+  const dimensions = {
+    length: numberOr(answers["local-length"], 80),
+    width: numberOr(answers["local-width"], 40),
+    height: numberOr(answers["local-height"], 12),
+  };
+
+  if (showLanding) return <LandingPage />;
+
+  function chooseFile(nextFile: File | null) {
+    if (!nextFile) return;
+    if (!["image/png", "image/jpeg"].includes(nextFile.type)) {
+      setError("Загрузите чертёж в формате PNG или JPEG.");
+      return;
+    }
+    if (nextFile.size > 25 * 1024 * 1024) {
+      setError("Размер файла не должен превышать 25 МБ.");
+      return;
+    }
+    setFile(nextFile);
+    setOrder(null);
+    setOrderId(null);
+    setAnswers({});
+    setError("");
+    setViewMode("drawing");
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+
+  function onDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragging(false);
+    chooseFile(event.dataTransfer.files?.[0] ?? null);
+  }
 
   async function submitDrawing(event: FormEvent) {
     event.preventDefault();
     if (!file) {
-      setError("Выберите PNG или JPEG чертёж.");
+      setError("Сначала загрузите чертёж.");
+      fileInput.current?.click();
       return;
     }
     setBusy(true);
     setError("");
     try {
-      if (isDemo) {
-        const demoOrder = `demo-${Date.now()}`;
-        setOrderId(demoOrder);
+      if (!token) {
+        const localOrderId = `local-${Date.now()}`;
+        setOrderId(localOrderId);
         setOrder({
-          order_id: demoOrder,
-          job_id: "demo-job-001",
+          order_id: localOrderId,
+          job_id: localOrderId,
+          status: "LEASED",
+          waiting_reason: null,
+          round: 0,
+          questions: [],
+          artifacts: [],
+        });
+        await delay(780);
+        const questions = [
+          { id: "local-length", parameter_id: "length", text: "Длина детали" },
+          { id: "local-width", parameter_id: "width", text: "Ширина детали" },
+          { id: "local-height", parameter_id: "height", text: "Толщина детали" },
+        ];
+        setAnswers({ "local-length": "80", "local-width": "40", "local-height": "12" });
+        setOrder({
+          order_id: localOrderId,
+          job_id: localOrderId,
           status: "WAITING_FOR_USER_ANSWERS",
           waiting_reason: null,
           round: 0,
-          questions: [
-            { id: "demo-width", parameter_id: "width", text: "Подтвердите ширину детали" },
-            { id: "demo-depth", parameter_id: "depth", text: "Подтвердите толщину детали" },
-          ],
+          questions,
           artifacts: [],
         });
         return;
       }
-      sessionStorage.setItem("cad-ai-token", token);
       const response = await fetch(`${API_URL}/api/v1/drawing-jobs`, {
         method: "POST",
         headers: {
@@ -160,24 +243,26 @@ export default function Home() {
     setBusy(true);
     setError("");
     try {
-      if (isDemo) {
-        setOrder({
-          ...order,
-          status: "READY",
-          waiting_reason: null,
-          questions: [],
-          artifacts: demoArtifacts(),
-        });
-        setAnswers({});
-        return;
-      }
       const payload = order.questions.map((question) => ({
         question_id: question.id,
         value: Number(answers[question.id]),
         unit: "mm",
       }));
-      if (payload.some((answer) => !Number.isFinite(answer.value))) {
-        throw new Error("Заполните все размеры числовыми значениями.");
+      if (payload.some((answer) => !Number.isFinite(answer.value) || answer.value <= 0)) {
+        throw new Error("Проверьте указанные размеры.");
+      }
+      if (!token) {
+        setOrder({ ...order, status: "LEASED", questions: [] });
+        await delay(1100);
+        setOrder({
+          ...order,
+          status: "READY",
+          waiting_reason: null,
+          questions: [],
+          artifacts: localArtifacts(),
+        });
+        setViewMode("model");
+        return;
       }
       const response = await fetch(`${API_URL}/api/v1/drawing-jobs/${order.order_id}/answers`, {
         method: "POST",
@@ -189,7 +274,6 @@ export default function Home() {
       });
       if (!response.ok) throw new Error(await safeError(response));
       setOrder(null);
-      setAnswers({});
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -200,331 +284,677 @@ export default function Home() {
   async function download(artifact: Artifact) {
     setError("");
     try {
-      if (isDemo) {
-        const blob = new Blob([demoArtifactContents(artifact.type)], { type: demoMediaType(artifact.type) });
-        triggerDownload(blob, `cad-demo.${extensionFor(artifact.type)}`);
+      if (!token) {
+        const blob = new Blob([localArtifactContents(artifact.type)], {
+          type: mediaTypeFor(artifact.type),
+        });
+        triggerDownload(blob, `kontur-model.${extensionFor(artifact.type)}`);
         return;
       }
       const response = await fetch(`${API_URL}${artifact.download_url}`, {
         headers: { "x-manual-api-token": token },
       });
       if (!response.ok) throw new Error(await safeError(response));
-      const blob = await response.blob();
-      triggerDownload(blob, `cad-result.${extensionFor(artifact.type)}`);
+      triggerDownload(await response.blob(), `kontur-model.${extensionFor(artifact.type)}`);
     } catch (reason) {
       setError(message(reason));
     }
+  }
+
+  async function downloadSelected() {
+    for (const artifact of artifacts.filter((item) => outputs[item.type.toUpperCase()])) {
+      await download(artifact);
+      await delay(160);
+    }
+  }
+
+  function resetProject() {
+    setFile(null);
+    setOrder(null);
+    setOrderId(null);
+    setAnswers({});
+    setError("");
+    setViewMode("model");
+    if (fileInput.current) fileInput.current.value = "";
+    window.history.replaceState(null, "", window.location.pathname);
   }
 
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">◇</span>
-          <span>cad.ai<span>/</span>studio</span>
+          <Logo />
+          <div className="brand-copy">
+            <strong>KONTUR</strong>
+            <span>3D по чертежу</span>
+          </div>
+          <button className="icon-button sidebar-collapse" type="button" aria-label="Свернуть панель">
+            <Icon name="chevron" />
+          </button>
         </div>
 
-        <form className="side-scroll" onSubmit={submitDrawing}>
-          <section className="side-section connection">
+        <form className="side-form" onSubmit={submitDrawing}>
+          <section className="panel-section upload-section">
             <div className="section-heading">
-              <span className="section-label">Режим запуска</span>
-              <button
-                className={`mode-switch ${isDemo ? "active" : ""}`}
-                type="button"
-                onClick={() => setDemoMode((value) => !value)}
-                aria-pressed={isDemo}
-              >
-                {isDemo ? "DEMO" : "API"}
-              </button>
+              <div>
+                <span className="step-number">01</span>
+                <h2>Чертёж</h2>
+              </div>
+              {file && (
+                <button className="text-button" type="button" onClick={resetProject}>
+                  Заменить
+                </button>
+              )}
             </div>
-            <div className="demo-mode-card">
-              <span className="demo-mode-icon">{isDemo ? "◌" : "↗"}</span>
-              <span><b>{isDemo ? "Тест без API" : "Подключённый API"}</b><small>{isDemo ? "Данные остаются в браузере" : "Используется сохранённый токен"}</small></span>
-            </div>
-            <p className="connection-note"><i /> {isDemo ? "Сымитируем уточнения, 3D и скачивания" : "Auth остаётся только в этом браузере"}</p>
-          </section>
 
-          <section className="side-section">
-            <div className="section-heading">
-              <span className="section-label">Исходный чертёж</span>
-              <span className="file-kind">PNG / JPG</span>
-            </div>
-            <label className={`upload-drop ${file ? "has-file" : ""}`}>
+            <div
+              className={`upload-drop ${file ? "has-file" : ""} ${dragging ? "is-dragging" : ""}`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              onClick={() => fileInput.current?.click()}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") fileInput.current?.click();
+              }}
+            >
               <input
+                ref={fileInput}
                 type="file"
                 accept="image/png,image/jpeg"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
               />
-              <span className="upload-icon">↑</span>
-              <strong>{file ? file.name : "Перетащите или выберите файл"}</strong>
-              <small>{file ? formatBytes(file.size) : "PNG или JPEG, до 25 МБ"}</small>
-            </label>
+              {sourceUrl ? (
+                <>
+                  <img src={sourceUrl} alt="" />
+                  <div className="upload-file-overlay">
+                    <span className="file-type-badge">{file?.type === "image/png" ? "PNG" : "JPG"}</span>
+                    <div>
+                      <strong>{file?.name}</strong>
+                      <small>{file ? formatBytes(file.size) : ""}</small>
+                    </div>
+                    <Icon name="check" />
+                  </div>
+                </>
+              ) : (
+                <div className="upload-empty">
+                  <span className="upload-symbol"><Icon name="upload" /></span>
+                  <strong>Перетащите чертёж</strong>
+                  <small>или выберите PNG / JPG</small>
+                  <span className="upload-limit">до 25 МБ</span>
+                </div>
+              )}
+            </div>
           </section>
 
-          <section className="side-section">
-            <div className="section-label">Режим моделирования</div>
-            <div className="mode-card">
-              <span className="mode-orb" />
-              <span><b>Деталь · MVP</b><small>Призма и сквозные отверстия</small></span>
-              <span className="mode-check">✓</span>
-            </div>
-            <div className="capability-list" aria-label="Поддерживаемые возможности">
-              <span>Призма</span><span>Отверстия</span><span>STEP / STL</span>
-            </div>
-          </section>
-
-          <section className="side-section notes-section">
+          <section className="panel-section">
             <div className="section-heading">
-              <span className="section-label">Комментарий к чертежу</span>
-              <span className="local-tag">локально</span>
+              <div>
+                <span className="step-number">02</span>
+                <h2>Параметры</h2>
+              </div>
             </div>
-            <textarea
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-              placeholder="Например: отверстие должно быть сквозным…"
-              maxLength={1000}
-            />
-            <p className="field-hint">Черновик остаётся в браузере и не меняет CAD-IR автоматически.</p>
-          </section>
 
-          <button className="primary-action" type="submit" disabled={busy}>
-            <span>{busy ? "Создаём задание…" : "Построить модель"}</span>
-            <b>→</b>
-          </button>
-          {error && <p className="error side-error">{error}</p>}
-        </form>
+            <label className="field-group">
+              <span>Тип модели</span>
+              <button className="select-control" type="button">
+                <span className="select-leading"><Icon name="cube" /></span>
+                <span><b>Отдельная деталь</b><small>Твердотельная модель</small></span>
+                <Icon name="chevron" />
+              </button>
+            </label>
 
-        <div className="sidebar-footer"><span>LOCAL-FIRST</span><span>v0.4</span></div>
-      </aside>
-
-      <section className="workbench">
-        <header className="topbar">
-          <div>
-            <p className="crumb">Рабочее пространство <span>/</span> Новая деталь</p>
-            <h1>{order ? "Обработка чертежа" : "Создайте проверенную 3D-модель"}</h1>
-          </div>
-          <div className={`status-pill status-${activeStatus.toLowerCase()}`}>
-            <i /> {statusCopy[activeStatus] ?? (activeStatus === "DRAFT" ? "Черновик" : "Ожидание файла")}
-          </div>
-        </header>
-
-        <div className="canvas-frame">
-          <div className="canvas-toolbar">
-            <span>{stl ? "3D preview" : sourceUrl ? "Drawing preview" : "Preview"}</span>
-            <span className="toolbar-divider" />
-            <span>{stl ? "STL · validated" : "MM · технический чертёж"}</span>
-          </div>
-
-          {stl ? (
-            <StlPreview url={`${API_URL}${stl.download_url}`} token={token} demo={isDemo} />
-          ) : sourceUrl ? (
-            <div className="drawing-preview"><img src={sourceUrl} alt="Загруженный чертёж" /></div>
-          ) : (
-            <div className="empty-canvas">
-              <div className="empty-grid-mark"><span /><span /><span /></div>
-              <strong>Здесь будет модель</strong>
-              <p>Загрузите чертёж слева — покажем его и итоговую 3D-геометрию.</p>
+            <div className="field-group">
+              <span>Материал</span>
+              <div className="material-row">
+                {materialOptions.map((option) => (
+                  <button
+                    className={material === option.value ? "active" : ""}
+                    type="button"
+                    key={option.value}
+                    onClick={() => setMaterial(option.value)}
+                    title={option.label}
+                    aria-label={option.label}
+                  >
+                    <i style={{ background: option.color }} />
+                    <span>{option.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
 
-          {!stl && <div className="canvas-hud"><span>XY</span><span>Z ↑</span></div>}
-        </div>
+            <div className="field-group">
+              <span>Точность построения</span>
+              <div className="segmented-control">
+                <button
+                  type="button"
+                  className={precision === "standard" ? "active" : ""}
+                  onClick={() => setPrecision("standard")}
+                >
+                  Стандартная
+                </button>
+                <button
+                  type="button"
+                  className={precision === "high" ? "active" : ""}
+                  onClick={() => setPrecision("high")}
+                >
+                  Высокая
+                </button>
+              </div>
+            </div>
 
-        {order?.waiting_reason && order.questions.length === 0 && (
-          <p className="waiting-reason">{order.waiting_reason}</p>
-        )}
-
-        {order?.questions.length ? (
-          <form className="clarification-card" onSubmit={submitAnswers}>
-            <div className="assistant-avatar">AI</div>
-            <div className="clarification-content">
-              <span className="section-label">Нужно уточнение</span>
-              <h2>Перед построением подтвердите размеры</h2>
-              <p>Ответы попадут в следующий typed CAD-IR; подтверждённые размеры не меняются автоматически.</p>
-              <div className="question-grid">
-                {order.questions.map((question) => (
-                  <label key={question.id} className="question-field">
-                    <span>{question.text}</span>
-                    <div><input
-                      type="number"
-                      min="0.001"
-                      step="any"
-                      value={answers[question.id] ?? ""}
-                      onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
-                      required
-                    /><b>мм</b></div>
+            <div className="field-group">
+              <span>Форматы результата</span>
+              <div className="format-grid">
+                {artifactOrder.slice(0, 3).map((type) => (
+                  <label className={outputs[type] ? "selected" : ""} key={type}>
+                    <input
+                      type="checkbox"
+                      checked={outputs[type]}
+                      onChange={(event) =>
+                        setOutputs((current) => ({ ...current, [type]: event.target.checked }))
+                      }
+                    />
+                    <span>{type}</span>
+                    <Icon name="check" />
                   </label>
                 ))}
               </div>
-              <button className="answer-button" disabled={busy}>Продолжить анализ <span>→</span></button>
             </div>
-          </form>
-        ) : null}
+          </section>
+
+          <section className="panel-section comment-section">
+            <div className="section-heading">
+              <div>
+                <span className="step-number">03</span>
+                <h2>Пожелания</h2>
+              </div>
+              <span className="counter">{comment.length}/1000</span>
+            </div>
+            <div className="textarea-wrap">
+              <textarea
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                placeholder="Укажите важные особенности детали: сквозные отверстия, фаски, симметрию…"
+                maxLength={1000}
+              />
+              <Icon name="sparkles" />
+            </div>
+          </section>
+
+          <div className="form-footer">
+            {error && <p className="error-message"><Icon name="info" />{error}</p>}
+            <button className="primary-action" type="submit" disabled={busy}>
+              <span>{busy ? "Обрабатываем…" : order ? "Построить заново" : "Создать 3D-модель"}</span>
+              <Icon name={busy ? "refresh" : "arrow"} />
+            </button>
+            <p><Icon name="check" /> Размеры будут подтверждены перед построением</p>
+          </div>
+        </form>
+      </aside>
+
+      <section className="workspace">
+        <header className="topbar">
+          <div className="project-title">
+            <span className="eyebrow">Новая модель</span>
+            <div>
+              <h1>{file ? cleanFileName(file.name) : "Деталь без названия"}</h1>
+              {file && <span className="saved-state"><i /> Изменения сохранены</span>}
+            </div>
+          </div>
+          <div className="topbar-actions">
+            {file && (
+              <button className="secondary-button" type="button" onClick={resetProject}>
+                <Icon name="plus" /> Новая деталь
+              </button>
+            )}
+            <span className={`status-pill status-${activeStatus.toLowerCase()}`}>
+              <i />
+              {statusCopy[activeStatus] ?? (file ? "Чертёж загружен" : "Готово к работе")}
+            </span>
+            <button className="avatar-button" type="button" aria-label="Профиль">К</button>
+          </div>
+        </header>
+
+        <div className="workspace-body">
+          <div className="viewer-card">
+            <div className="viewer-toolbar">
+              <div className="view-tabs">
+                <button
+                  className={viewMode === "model" ? "active" : ""}
+                  type="button"
+                  onClick={() => setViewMode("model")}
+                >
+                  <Icon name="cube" /> 3D-модель
+                </button>
+                <button
+                  className={viewMode === "drawing" ? "active" : ""}
+                  type="button"
+                  disabled={!sourceUrl}
+                  onClick={() => setViewMode("drawing")}
+                >
+                  <Icon name="image" /> Чертёж
+                </button>
+              </div>
+              <div className="viewer-meta">
+                <span>мм</span>
+                <span className="meta-divider" />
+                <span>{materialOptions.find((item) => item.value === material)?.label}</span>
+              </div>
+            </div>
+
+            <div className="viewer-stage">
+              {viewMode === "drawing" && sourceUrl ? (
+                <div className="drawing-preview">
+                  <img src={sourceUrl} alt="Загруженный технический чертёж" />
+                  <div className="drawing-shadow" />
+                </div>
+              ) : (
+                <StlPreview
+                  url={stl ? `${API_URL}${stl.download_url}` : undefined}
+                  token={token}
+                  local={!token || !stl}
+                  material={material}
+                  dimensions={dimensions}
+                  ready={order?.status === "READY"}
+                />
+              )}
+
+              {!file && (
+                <div className="viewer-welcome">
+                  <span><Icon name="sparkles" /></span>
+                  <h2>Превратите чертёж в точную 3D-модель</h2>
+                  <p>Загрузите изображение — мы распознаем геометрию и подготовим файлы.</p>
+                  <button type="button" onClick={() => fileInput.current?.click()}>
+                    Выбрать чертёж <Icon name="arrow" />
+                  </button>
+                </div>
+              )}
+
+              {file && viewMode === "model" && order?.status !== "READY" && (
+                <div className="model-state-card">
+                  <span className={busy || order?.status === "LEASED" ? "pulse" : ""}>
+                    <Icon name={order?.questions.length ? "settings" : "sparkles"} />
+                  </span>
+                  <div>
+                    <strong>
+                      {order?.questions.length
+                        ? "Почти готово"
+                        : order?.status === "LEASED"
+                          ? "Создаём геометрию"
+                          : "Чертёж готов к обработке"}
+                    </strong>
+                    <small>
+                      {order?.questions.length
+                        ? "Подтвердите размеры ниже"
+                        : order?.status === "LEASED"
+                          ? "Собираем объёмную модель"
+                          : "Запустите построение в левой панели"}
+                    </small>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {order?.questions.length ? (
+            <form className="clarification-card" onSubmit={submitAnswers}>
+              <div className="clarification-intro">
+                <span className="assistant-mark"><Icon name="sparkles" /></span>
+                <div>
+                  <span className="eyebrow">Уточнение размеров</span>
+                  <h2>Подтвердите основные габариты</h2>
+                  <p>Мы распознали значения на чертеже. Проверьте их перед построением.</p>
+                </div>
+              </div>
+              <div className="question-row">
+                {order.questions.map((question) => (
+                  <label className="dimension-field" key={question.id}>
+                    <span>{question.text}</span>
+                    <div>
+                      <input
+                        type="number"
+                        min="0.001"
+                        step="any"
+                        value={answers[question.id] ?? ""}
+                        onChange={(event) =>
+                          setAnswers((current) => ({ ...current, [question.id]: event.target.value }))
+                        }
+                        required
+                      />
+                      <b>мм</b>
+                    </div>
+                  </label>
+                ))}
+                <button className="confirm-button" disabled={busy}>
+                  <span>{busy ? "Создаём…" : "Подтвердить"}</span>
+                  <Icon name={busy ? "refresh" : "arrow"} />
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="model-summary">
+              <div className="summary-heading">
+                <span className="summary-icon"><Icon name="box" /></span>
+                <div>
+                  <span className="eyebrow">{order?.status === "READY" ? "Геометрия подтверждена" : "Параметры модели"}</span>
+                  <h2>{order?.status === "READY" ? "Деталь готова" : "Основные характеристики"}</h2>
+                </div>
+              </div>
+              <div className="summary-metrics">
+                <div><span>Габариты</span><b>{dimensions.length} × {dimensions.width} × {dimensions.height} мм</b></div>
+                <div><span>Единицы</span><b>Миллиметры</b></div>
+                <div><span>Качество</span><b>{precision === "high" ? "Высокое" : "Стандартное"}</b></div>
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       <aside className="result-rail">
-        <div className="result-heading">
-          <div><span className="section-label">Результат</span><h2>Выходные данные</h2></div>
-          <span className="result-count">{artifacts.length}/4</span>
-        </div>
+        <header className="result-header">
+          <div>
+            <span className="eyebrow">Результат</span>
+            <h2>Готовые файлы</h2>
+          </div>
+          {order?.status === "READY" && <span className="ready-badge"><Icon name="check" /> Готово</span>}
+        </header>
 
-        <div className="progress-card">
-          <div className="progress-ring"><span>{order?.status === "READY" ? "100" : order ? "…" : "0"}</span></div>
-          <div><b>{statusCopy[activeStatus] ?? "Новая задача"}</b><small>{order ? `Job ${order.job_id.slice(0, 8)}` : "Загрузите чертёж для начала"}</small></div>
-        </div>
-
-        <ol className="timeline">
-          <li className={order ? "done" : ""}><i />Чертёж загружен</li>
-          <li className={order?.status === "LEASED" || order?.status === "READY" ? "done" : ""}><i />Анализ и CAD-IR</li>
-          <li className={order?.status === "READY" ? "done" : ""}><i />Валидация геометрии</li>
-        </ol>
-
-        <section className="downloads">
-          <div className="section-heading"><span className="section-label">Артефакты</span><span>{artifacts.length ? "Готовы" : "Ожидаются"}</span></div>
-          {artifactOrder.map((type) => {
-            const artifact = artifacts.find((item) => item.type.toUpperCase() === type);
-            return artifact ? (
-              <button className="download-card" type="button" key={type} onClick={() => void download(artifact)}>
-                <span className="artifact-icon">{type === "VALIDATION_REPORT" ? "✓" : "↓"}</span>
-                <span><b>{artifactLabel(type)}</b><small>{formatBytes(artifact.size_bytes)} · SHA-256</small></span>
-                <span className="download-arrow">→</span>
-              </button>
-            ) : (
-              <div className="download-card disabled" key={type}>
-                <span className="artifact-icon">{type === "VALIDATION_REPORT" ? "✓" : "↓"}</span>
-                <span><b>{artifactLabel(type)}</b><small>Появится после построения</small></span>
-              </div>
-            );
-          })}
+        <section className="progress-panel">
+          <div className="progress-copy">
+            <div>
+              <strong>{statusCopy[activeStatus] ?? (file ? "Чертёж загружен" : "Новая модель")}</strong>
+              <span>{progress === 100 ? "Все этапы завершены" : "Подготовка результата"}</span>
+            </div>
+            <b>{progress}%</b>
+          </div>
+          <div className="progress-track"><i style={{ width: `${progress}%` }} /></div>
         </section>
 
-        <div className="security-note"><span>◇</span><p><b>{isDemo ? "Browser-only demo" : "Trusted local build"}</b>{isDemo ? "Тестовые файлы создаются прямо в браузере." : "Codex auth и лицензия КОМПАС не покидают ваш ПК."}</p></div>
+        <ol className="result-steps">
+          <ProgressStep label="Чертёж загружен" active={Boolean(file)} complete={progress > 25} index="1" />
+          <ProgressStep label="Геометрия распознана" active={progress >= 35} complete={progress > 55} index="2" />
+          <ProgressStep label="Модель построена" active={progress >= 65} complete={progress > 85} index="3" />
+          <ProgressStep label="Результат проверен" active={progress === 100} complete={progress === 100} index="4" last />
+        </ol>
+
+        <section className="files-panel">
+          <div className="files-title">
+            <h3>Файлы модели</h3>
+            <span>{artifacts.length ? `${artifacts.length} файла` : "Пока пусто"}</span>
+          </div>
+          <div className="file-list">
+            {artifactOrder.map((type) => {
+              const artifact = artifacts.find((item) => item.type.toUpperCase() === type);
+              const visible = outputs[type] ?? true;
+              if (!visible) return null;
+              return artifact ? (
+                <button className="result-file ready" type="button" key={type} onClick={() => void download(artifact)}>
+                  <span className={`result-file-icon file-${type.toLowerCase()}`}>
+                    {type === "VALIDATION_REPORT" ? <Icon name="check" /> : type.slice(0, 2)}
+                  </span>
+                  <span>
+                    <b>{artifactLabel(type)}</b>
+                    <small>{artifactDescription(type)} · {formatBytes(artifact.size_bytes)}</small>
+                  </span>
+                  <span className="file-download"><Icon name="download" /></span>
+                </button>
+              ) : (
+                <div className="result-file pending" key={type}>
+                  <span className={`result-file-icon file-${type.toLowerCase()}`}>
+                    {type === "VALIDATION_REPORT" ? <Icon name="check" /> : type.slice(0, 2)}
+                  </span>
+                  <span>
+                    <b>{artifactLabel(type)}</b>
+                    <small>{artifactDescription(type)}</small>
+                  </span>
+                  <span className="file-pending-dot" />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {artifacts.length > 0 && (
+          <button className="download-all" type="button" onClick={() => void downloadSelected()}>
+            <Icon name="download" />
+            <span>Скачать выбранные файлы</span>
+          </button>
+        )}
+
+        <section className="quality-card">
+          <span className="quality-icon"><Icon name="check" /></span>
+          <div>
+            <b>Геометрия под контролем</b>
+            <p>Размеры, замкнутость модели и целостность файлов проверяются перед выдачей.</p>
+          </div>
+        </section>
+
+        <footer className="result-footer">
+          <span><i /> Сервис готов</span>
+          <button type="button" aria-label="Настройки"><Icon name="settings" /></button>
+        </footer>
       </aside>
     </main>
   );
 }
 
-function artifactLabel(type: string) {
-  return type === "VALIDATION_REPORT" ? "Отчёт проверки" : type;
+function ProgressStep({
+  label,
+  active,
+  complete,
+  index,
+  last = false,
+}: {
+  label: string;
+  active: boolean;
+  complete: boolean;
+  index: string;
+  last?: boolean;
+}) {
+  return (
+    <li className={`${active ? "active" : ""} ${complete ? "complete" : ""}`}>
+      <span className="step-marker">{complete ? <Icon name="check" /> : index}</span>
+      <span>{label}</span>
+      {!last && <i className="step-line" />}
+    </li>
+  );
 }
 
-function demoArtifacts(): Artifact[] {
-  return ["M3D", "STEP", "STL", "VALIDATION_REPORT"].map((type) => ({
+function Logo() {
+  return (
+    <span className="logo-mark" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none">
+        <path d="M16 3.5 26.4 9.4v13.2L16 28.5 5.6 22.6V9.4L16 3.5Z" />
+        <path d="m5.9 9.7 10.1 6 10.1-6M16 15.7v12.2" />
+      </svg>
+    </span>
+  );
+}
+
+function Icon({ name }: { name: IconName }) {
+  const common = { viewBox: "0 0 24 24", fill: "none", "aria-hidden": true };
+  if (name === "check") return <svg {...common}><path d="m5 12.5 4.2 4.2L19 7" /></svg>;
+  if (name === "arrow") return <svg {...common}><path d="M5 12h14m-5-5 5 5-5 5" /></svg>;
+  if (name === "chevron") return <svg {...common}><path d="m9 6 6 6-6 6" /></svg>;
+  if (name === "upload") return <svg {...common}><path d="M12 16V4m-5 5 5-5 5 5M5 15v4h14v-4" /></svg>;
+  if (name === "download") return <svg {...common}><path d="M12 4v11m-4-4 4 4 4-4M5 19h14" /></svg>;
+  if (name === "cube") return <svg {...common}><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Zm-7.6 4.7L12 12l7.6-4.3M12 12v9" /></svg>;
+  if (name === "image") return <svg {...common}><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="m4.5 17 4.5-4 3.5 3 2.5-2 4.5 3.5" /></svg>;
+  if (name === "sparkles") return <svg {...common}><path d="M12 3c.7 4.2 2.8 6.3 7 7-4.2.7-6.3 2.8-7 7-.7-4.2-2.8-6.3-7-7 4.2-.7 6.3-2.8 7-7Z" /><path d="M19 15.5c.3 1.8 1.2 2.7 3 3-1.8.3-2.7 1.2-3 3-.3-1.8-1.2-2.7-3-3 1.8-.3 2.7-1.2 3-3Z" /></svg>;
+  if (name === "refresh") return <svg {...common} className="spin"><path d="M20 11a8 8 0 1 0-2.3 6M20 5v6h-6" /></svg>;
+  if (name === "settings") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></svg>;
+  if (name === "plus") return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+  if (name === "box") return <svg {...common}><path d="M4 8.5 12 4l8 4.5v8L12 21l-8-4.5v-8Z" /><path d="m4.5 8.7 7.5 4.2 7.5-4.2M12 13v8" /></svg>;
+  if (name === "info") return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></svg>;
+  if (name === "trash") return <svg {...common}><path d="M5 7h14M9 7V4h6v3m2 0-1 13H8L7 7m3 4v5m4-5v5" /></svg>;
+  if (name === "expand") return <svg {...common}><path d="M9 4H4v5m11-5h5v5M9 20H4v-5m11 5h5v-5" /></svg>;
+  if (name === "layers") return <svg {...common}><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></svg>;
+  return <svg {...common}><path d="M6 3h9l4 4v14H6V3Z" /><path d="M15 3v5h5" /></svg>;
+}
+
+function artifactLabel(type: string) {
+  return {
+    M3D: "Исходная модель",
+    STEP: "STEP-модель",
+    STL: "STL-модель",
+    VALIDATION_REPORT: "Паспорт модели",
+  }[type] ?? type;
+}
+
+function artifactDescription(type: string) {
+  return {
+    M3D: "Для КОМПАС-3D",
+    STEP: "Для CAD-систем",
+    STL: "Для производства",
+    VALIDATION_REPORT: "Результаты проверки",
+  }[type] ?? "Файл модели";
+}
+
+function localArtifacts(): Artifact[] {
+  return artifactOrder.map((type) => ({
     type,
-    size_bytes: new TextEncoder().encode(demoArtifactContents(type)).byteLength,
-    sha256: "DEMO-LOCAL-ARTIFACT",
-    download_url: `/demo/${type.toLowerCase()}`,
+    size_bytes: new TextEncoder().encode(localArtifactContents(type)).byteLength,
+    sha256: "LOCAL",
+    download_url: `/result/${type.toLowerCase()}`,
   }));
 }
 
-function demoArtifactContents(type: string) {
-  if (type === "STL") return DEMO_STL;
-  if (type === "STEP") return "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('CAD AI demo'),'2;1');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
-  if (type === "M3D") return "CAD AI Studio demo artifact — generated in browser only.\n";
-  return JSON.stringify({ status: "demo", valid: true, body_count: 1, bounding_box_mm: [40, 20, 10] }, null, 2);
+function localArtifactContents(type: string) {
+  if (type === "STL") return LOCAL_STL;
+  if (type === "STEP") return "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('KONTUR 3D MODEL'),'2;1');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
+  if (type === "M3D") return "KONTUR 3D MODEL\n";
+  return JSON.stringify({ valid: true, body_count: 1, units: "mm", dimensions: [80, 40, 12] }, null, 2);
 }
 
-function demoMediaType(type: string) {
+const LOCAL_STL = `solid kontur
+  facet normal 0 0 -1
+    outer loop
+      vertex -40 -20 0
+      vertex 40 -20 0
+      vertex 40 20 0
+    endloop
+  endfacet
+  facet normal 0 0 -1
+    outer loop
+      vertex -40 -20 0
+      vertex 40 20 0
+      vertex -40 20 0
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -40 -20 12
+      vertex 40 20 12
+      vertex 40 -20 12
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -40 -20 12
+      vertex -40 20 12
+      vertex 40 20 12
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -40 -20 0
+      vertex -40 20 0
+      vertex -40 20 12
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -40 -20 0
+      vertex -40 20 12
+      vertex -40 -20 12
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 40 -20 0
+      vertex 40 -20 12
+      vertex 40 20 12
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 40 -20 0
+      vertex 40 20 12
+      vertex 40 20 0
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -40 -20 0
+      vertex -40 -20 12
+      vertex 40 -20 12
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -40 -20 0
+      vertex 40 -20 12
+      vertex 40 -20 0
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -40 20 0
+      vertex 40 20 0
+      vertex 40 20 12
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -40 20 0
+      vertex 40 20 12
+      vertex -40 20 12
+    endloop
+  endfacet
+endsolid kontur`;
+
+function mediaTypeFor(type: string) {
   return type === "VALIDATION_REPORT" ? "application/json" : "application/octet-stream";
 }
 
 function triggerDownload(blob: Blob, filename: string) {
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
+  link.href = url;
   link.download = filename;
   link.click();
-  URL.revokeObjectURL(link.href);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-
-const DEMO_STL = `solid cad_demo
-  facet normal 0 0 -1
-    outer loop
-      vertex -20 -10 0
-      vertex 20 -10 0
-      vertex 20 10 0
-    endloop
-  endfacet
-  facet normal 0 0 -1
-    outer loop
-      vertex -20 -10 0
-      vertex 20 10 0
-      vertex -20 10 0
-    endloop
-  endfacet
-  facet normal 0 0 1
-    outer loop
-      vertex -20 -10 10
-      vertex 20 10 10
-      vertex 20 -10 10
-    endloop
-  endfacet
-  facet normal 0 0 1
-    outer loop
-      vertex -20 -10 10
-      vertex -20 10 10
-      vertex 20 10 10
-    endloop
-  endfacet
-  facet normal -1 0 0
-    outer loop
-      vertex -20 -10 0
-      vertex -20 10 0
-      vertex -20 10 10
-    endloop
-  endfacet
-  facet normal -1 0 0
-    outer loop
-      vertex -20 -10 0
-      vertex -20 10 10
-      vertex -20 -10 10
-    endloop
-  endfacet
-  facet normal 1 0 0
-    outer loop
-      vertex 20 -10 0
-      vertex 20 -10 10
-      vertex 20 10 10
-    endloop
-  endfacet
-  facet normal 1 0 0
-    outer loop
-      vertex 20 -10 0
-      vertex 20 10 10
-      vertex 20 10 0
-    endloop
-  endfacet
-  facet normal 0 -1 0
-    outer loop
-      vertex -20 -10 0
-      vertex -20 -10 10
-      vertex 20 -10 10
-    endloop
-  endfacet
-  facet normal 0 -1 0
-    outer loop
-      vertex -20 -10 0
-      vertex 20 -10 10
-      vertex 20 -10 0
-    endloop
-  endfacet
-  facet normal 0 1 0
-    outer loop
-      vertex -20 10 0
-      vertex 20 10 0
-      vertex 20 10 10
-    endloop
-  endfacet
-  facet normal 0 1 0
-    outer loop
-      vertex -20 10 0
-      vertex 20 10 10
-      vertex -20 10 10
-    endloop
-  endfacet
-endsolid cad_demo`;
 
 function extensionFor(type: string) {
   return ({ M3D: "m3d", STEP: "step", STL: "stl", VALIDATION_REPORT: "json" } as Record<string, string>)[type] ?? "bin";
+}
+
+function cleanFileName(value: string) {
+  return value.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+}
+
+function numberOr(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getProgress(status: string) {
+  return {
+    EMPTY: 0,
+    DRAFT: 18,
+    PENDING: 30,
+    LEASED: 68,
+    WAITING_FOR_USER_ANSWERS: 46,
+    READY: 100,
+    FAILED: 62,
+  }[status] ?? 0;
 }
 
 function formatBytes(value: number) {
@@ -534,14 +964,18 @@ function formatBytes(value: number) {
 }
 
 function message(reason: unknown) {
-  return reason instanceof Error ? reason.message : "Неизвестная ошибка.";
+  return reason instanceof Error ? reason.message : "Не удалось выполнить действие.";
 }
 
 async function safeError(response: Response) {
   try {
     const payload = (await response.json()) as { detail?: unknown };
-    return typeof payload.detail === "string" ? payload.detail : `Ошибка ${response.status}`;
+    return typeof payload.detail === "string" ? payload.detail : `Не удалось выполнить запрос (${response.status})`;
   } catch {
-    return `Ошибка ${response.status}`;
+    return `Не удалось выполнить запрос (${response.status})`;
   }
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }

@@ -31,7 +31,8 @@ public static class CadIrBuildPlanParser
 
     public static async Task<CadBuildPlan> ParseFileAsync(
         string path,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CapabilityGate? gate = null)
     {
         var info = new FileInfo(path);
         if (!info.Exists)
@@ -45,7 +46,7 @@ public static class CadIrBuildPlanParser
                 stream,
                 new JsonDocumentOptions { MaxDepth = 64, CommentHandling = JsonCommentHandling.Disallow },
                 cancellationToken);
-            return Parse(document.RootElement);
+            return Parse(document.RootElement, gate);
         }
         catch (JsonException error)
         {
@@ -53,8 +54,11 @@ public static class CadIrBuildPlanParser
         }
     }
 
-    public static CadBuildPlan Parse(JsonElement root)
+    public static CadBuildPlan Parse(JsonElement root, CapabilityGate? gate = null)
     {
+        // Defaulting to all-enabled keeps every test and every caller that does
+        // not care about flags reading exactly as it did.
+        gate ??= CapabilityGate.AllEnabled;
         RequireObject(root, "$");
         RequireSupportedVersion(root);
 
@@ -79,9 +83,11 @@ public static class CadIrBuildPlanParser
             var type = RequiredString(feature, "type", path);
             CadFeaturePlan plan = type switch
             {
-                "solid.extrude" => ParseExtrude(feature, path, parameters, planes, isCut: false),
-                "cut.extrude" => ParseExtrude(feature, path, parameters, planes, isCut: true),
-                "datum.plane.offset" => ParseDatumPlane(feature, path, parameters, planes),
+                "solid.extrude" => ParseExtrude(feature, path, parameters, planes, gate, isCut: false),
+                "cut.extrude" => ParseExtrude(feature, path, parameters, planes, gate, isCut: true),
+                "datum.plane.offset" => Gated(gate, CadCapabilities.SketchPlaneDatum,
+                    $"the auxiliary plane in {path}",
+                    () => ParseDatumPlane(feature, path, parameters, planes)),
                 _ => throw Invalid("UNSUPPORTED_FEATURE_TYPE", $"This adapter cannot build {type}.")
             };
             if (plan is DatumPlaneFeaturePlan datum) planes.Add(datum.ResultId);
@@ -155,11 +161,19 @@ public static class CadIrBuildPlanParser
         return number;
     }
 
+    /// <summary>Run a parse step only if its capability is enabled.</summary>
+    private static T Gated<T>(CapabilityGate gate, string capability, string what, Func<T> parse)
+    {
+        gate.Require(capability, what);
+        return parse();
+    }
+
     private static ExtrudeFeaturePlan ParseExtrude(
         JsonElement feature,
         string path,
         Parameters parameters,
         IReadOnlySet<string> planes,
+        CapabilityGate gate,
         bool isCut)
     {
         var id = RequiredString(feature, "id", path);
@@ -169,7 +183,10 @@ public static class CadIrBuildPlanParser
             throw Invalid("UNSUPPORTED_DIRECTION", "This adapter extrudes along +Z only.");
 
         var sketch = ParseSketch(Required(inputs, "sketch", $"{path}.inputs"), $"{path}.inputs.sketch",
-            parameters, planes);
+            parameters, planes, gate);
+        gate.Require(
+            isCut ? CadCapabilities.FeatureHoleSimpleThrough : CadCapabilities.SolidRectangularPrism,
+            $"the {(isCut ? "cut" : "solid extrusion")} {id}");
         // A cut states through_all or a distance; the depth of a through cut is
         // decided by the adapter from the body it passes through, so a
         // placeholder here would be a number nothing reads.
@@ -229,31 +246,41 @@ public static class CadIrBuildPlanParser
         JsonElement sketch,
         string path,
         Parameters parameters,
-        IReadOnlySet<string> planes)
+        IReadOnlySet<string> planes,
+        CapabilityGate gate)
     {
         RequireObject(sketch, path);
         var id = RequiredString(sketch, "id", path);
-        var plane = ParsePlane(Required(sketch, "plane", path), $"{path}.plane", planes);
-        var outer = ParseContour(Required(sketch, "outer", path), $"{path}.outer", parameters);
+        var plane = ParsePlane(Required(sketch, "plane", path), $"{path}.plane", planes, gate);
+        var outer = ParseContour(Required(sketch, "outer", path), $"{path}.outer", parameters, gate);
         var inner = ReadArray(sketch, "inner")
-            .Select((item, index) => ParseContour(item, $"{path}.inner[{index}]", parameters))
+            .Select((item, index) => ParseContour(item, $"{path}.inner[{index}]", parameters, gate))
             .ToArray();
+        if (inner.Length > 0) gate.Require(CadCapabilities.SketchIslands, $"the islands in {path}");
         var construction = ReadArray(sketch, "construction")
             .Select((item, index) => ParseConstruction(item, $"{path}.construction[{index}]", parameters))
             .ToArray();
+        if (construction.Length > 0)
+            gate.Require(CadCapabilities.SketchConstruction, $"the construction geometry in {path}");
         return new SketchPlan(id, plane, outer, inner, construction);
     }
 
-    private static SketchPlanePlan ParsePlane(JsonElement plane, string path, IReadOnlySet<string> planes)
+    private static SketchPlanePlan ParsePlane(
+        JsonElement plane,
+        string path,
+        IReadOnlySet<string> planes,
+        CapabilityGate gate)
     {
         RequireObject(plane, path);
         var on = RequiredString(plane, "on", path);
         switch (on)
         {
             case "base":
+                gate.Require(CadCapabilities.SketchPlaneBase, $"the sketch at {path}");
                 return new BasePlanePlan(RequireBasePlane(RequiredString(plane, "plane", path)));
             case "datum":
             {
+                gate.Require(CadCapabilities.SketchPlaneDatum, $"the sketch at {path}");
                 var result = RequiredString(Required(plane, "plane", path), "result", $"{path}.plane");
                 if (!planes.Contains(result))
                     throw Invalid("FEATURE_RESULT_UNAVAILABLE",
@@ -261,6 +288,7 @@ public static class CadIrBuildPlanParser
                 return new DatumPlanePlan(result);
             }
             case "face":
+                gate.Require(CadCapabilities.SketchPlaneFaceSelector, $"the sketch at {path}");
                 return new FacePlanePlan(
                     GeometrySelectorParser.Parse(Required(plane, "face", path), $"{path}.face"));
             default:
@@ -268,7 +296,11 @@ public static class CadIrBuildPlanParser
         }
     }
 
-    private static ContourPlan ParseContour(JsonElement contour, string path, Parameters parameters)
+    private static ContourPlan ParseContour(
+        JsonElement contour,
+        string path,
+        Parameters parameters,
+        CapabilityGate gate)
     {
         RequireObject(contour, path);
         var type = RequiredString(contour, "type", path);
@@ -285,12 +317,14 @@ public static class CadIrBuildPlanParser
                     Length(contour, "height", path, parameters),
                     Optional(contour, "rotation_deg", path, parameters));
             case "slot":
+                gate.Require(CadCapabilities.SketchSlot, $"the slot at {path}");
                 return SketchGeometry.Slot(
                     Point(Required(contour, "start", path), $"{path}.start", parameters),
                     Point(Required(contour, "end", path), $"{path}.end", parameters),
                     Length(contour, "radius", path, parameters));
             case "regular_polygon":
             {
+                gate.Require(CadCapabilities.SketchRegularPolygon, $"the polygon at {path}");
                 var sides = Required(contour, "sides", path);
                 if (sides.ValueKind != JsonValueKind.Number || !sides.TryGetInt32(out var count) ||
                     count is < 3 or > 64)
@@ -303,12 +337,13 @@ public static class CadIrBuildPlanParser
             }
             case "path":
             {
+                gate.Require(CadCapabilities.SolidContourProfile, $"the spelled-out contour at {path}");
                 var segments = Required(contour, "segments", path);
                 if (segments.ValueKind != JsonValueKind.Array || segments.GetArrayLength() < 2)
                     throw Invalid("CAD_IR_INVALID", $"{path}.segments needs at least two entries.");
                 return new PathContourPlan(segments.EnumerateArray()
                     .Select((segment, index) =>
-                        ParseSegment(segment, $"{path}.segments[{index}]", parameters))
+                        ParseSegment(segment, $"{path}.segments[{index}]", parameters, gate))
                     .ToArray());
             }
             default:
@@ -316,12 +351,18 @@ public static class CadIrBuildPlanParser
         }
     }
 
-    private static SketchSegment ParseSegment(JsonElement segment, string path, Parameters parameters)
+    private static SketchSegment ParseSegment(
+        JsonElement segment,
+        string path,
+        Parameters parameters,
+        CapabilityGate? gate = null)
     {
         RequireObject(segment, path);
         var type = RequiredString(segment, "type", path);
         var start = Point(Required(segment, "start", path), $"{path}.start", parameters);
         var end = Point(Required(segment, "end", path), $"{path}.end", parameters);
+        if (type == "arc")
+            (gate ?? CapabilityGate.AllEnabled).Require(CadCapabilities.SketchArc, $"the arc at {path}");
         return type switch
         {
             "line" => new LineSegmentPlan(start, end),

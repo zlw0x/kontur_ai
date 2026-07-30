@@ -34,9 +34,10 @@ VALIDATE_MANIFOLD = "validate.manifold"
 VALIDATE_BOUNDING_BOX = "validate.bounding_box"
 VALIDATE_HOLE_COUNT = "validate.hole_count"
 
-#: Everything the confirmed MVP pipeline exercises. A worker that cannot serve
-#: all of these cannot complete a BUILD_CAD or ANALYZE_DRAWING job at all.
-MVP_CAPABILITIES: tuple[str, ...] = (
+#: Everything every build needs, whatever the part is. A worker that cannot
+#: serve all of these cannot complete a BUILD_CAD or ANALYZE_DRAWING job at all,
+#: so these are demanded before a job is ever leased.
+BASELINE_CAPABILITIES: tuple[str, ...] = (
     SOLID_RECTANGULAR_PRISM,
     FEATURE_HOLE_SIMPLE_THROUGH,
     EXPORT_M3D,
@@ -47,12 +48,52 @@ MVP_CAPABILITIES: tuple[str, ...] = (
     VALIDATE_HOLE_COUNT,
 )
 
+#: Kept as the old name because a good deal of the codebase and its tests read
+#: it, and because "the MVP capabilities" is still what these are.
+MVP_CAPABILITIES = BASELINE_CAPABILITIES
+
+SKETCH_PLANE_BASE = "sketch.plane.base"
+SOLID_CONTOUR_PROFILE = "solid.contour_profile"
+SKETCH_ARC = "sketch.arc"
+SKETCH_SLOT = "sketch.slot"
+SKETCH_REGULAR_POLYGON = "sketch.regular_polygon"
+SKETCH_ISLANDS = "sketch.islands"
+SKETCH_CONSTRUCTION = "sketch.construction_geometry"
+SKETCH_PLANE_DATUM = "sketch.plane.datum_offset"
+SKETCH_PLANE_FACE_SELECTOR = "sketch.plane.face_selector"
+FEATURE_BOSS_ADDITIVE = "feature.boss.additive"
+
+#: Operations a *particular* document may need, which most documents do not.
+#:
+#: These are registered vocabulary so a worker can declare them and a flag can
+#: turn one off, but they are deliberately **not** demanded of every job. A part
+#: that is a plain rectangle needs no arcs, and requiring them would mean a
+#: worker with arcs turned off could build nothing at all.
+#:
+#: The consequence is that a document needing a turned-off operation fails at
+#: parse time on the worker with `CAPABILITY_DISABLED` rather than never being
+#: scheduled. For a rollback that is enough — it stops producing bad parts
+#: immediately — and deriving a job's requirements from its CAD-IR is the better
+#: answer, recorded as the follow-up it is.
+OPTIONAL_CAPABILITIES: tuple[str, ...] = (
+    SKETCH_PLANE_BASE,
+    SOLID_CONTOUR_PROFILE,
+    SKETCH_ARC,
+    SKETCH_SLOT,
+    SKETCH_REGULAR_POLYGON,
+    SKETCH_ISLANDS,
+    SKETCH_CONSTRUCTION,
+    SKETCH_PLANE_DATUM,
+    SKETCH_PLANE_FACE_SELECTOR,
+    FEATURE_BOSS_ADDITIVE,
+)
+
 #: What the API demands of each capability. Version and maturity requirements
 #: belong to the vocabulary rather than to an individual job: every job using
 #: an operation needs the same behaviour from it.
 CAPABILITY_REQUIREMENTS: dict[str, CapabilityRequirement] = {
     name: CapabilityRequirement(name=name, stability=CapabilityStatus.BETA, min_version="1.0")
-    for name in MVP_CAPABILITIES
+    for name in BASELINE_CAPABILITIES + OPTIONAL_CAPABILITIES
 }
 
 #: Oldest worker build the API will hand work to.

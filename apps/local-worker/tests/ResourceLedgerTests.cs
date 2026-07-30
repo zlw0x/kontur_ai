@@ -248,7 +248,7 @@ public sealed class ResourceLedgerTests
     }
 
     [Fact]
-    public void TheCapabilityManifestDeclaresOnlyTheConfirmedMvpVocabulary()
+    public void TheCapabilityManifestDeclaresOnlyWhatThisBuildConstructs()
     {
         var manifest = WorkerCapabilities.Manifest("22.0", "codex-cli 0.145.0");
 
@@ -257,11 +257,35 @@ public sealed class ResourceLedgerTests
         Assert.Equal("stable", manifest.Capabilities["solid.rectangular_prism"].Status);
         Assert.Equal("1.0", manifest.Capabilities["solid.rectangular_prism"].Version);
         Assert.Equal("stable", manifest.Capabilities["feature.hole.simple_through"].Status);
-        // Nothing beyond the confirmed MVP may be advertised: a key here tells
-        // the API to start scheduling that operation on this machine.
+        // Nothing this build cannot construct may be advertised: a key here
+        // tells the API to start scheduling that operation on this machine.
         Assert.DoesNotContain("solid.revolve", manifest.Capabilities.Keys);
         Assert.DoesNotContain("feature.shell", manifest.Capabilities.Keys);
-        Assert.Equal(8, manifest.Capabilities.Count);
+        Assert.DoesNotContain("sketch.spline", manifest.Capabilities.Keys);
+        // The declared set is exactly the set the parser can refuse on, so an
+        // operation cannot be turned off without the API hearing about it.
+        Assert.Equal(CadCapabilities.All.Order(), manifest.Capabilities.Keys.Order());
+    }
+
+    /// <summary>
+    /// Everything POSTMVP-006 added is beta, not stable. One real acceptance
+    /// part is not the ten positive and ten negative fixtures the roadmap asks
+    /// for before an operation is called stable.
+    /// </summary>
+    [Fact]
+    public void TheOperationsAddedWithContoursAreDeclaredBeta()
+    {
+        var manifest = WorkerCapabilities.Manifest();
+
+        foreach (var key in new[]
+                 {
+                     CadCapabilities.SolidContourProfile, CadCapabilities.SketchArc,
+                     CadCapabilities.SketchSlot, CadCapabilities.SketchRegularPolygon,
+                     CadCapabilities.SketchIslands, CadCapabilities.SketchConstruction,
+                     CadCapabilities.SketchPlaneDatum, CadCapabilities.SketchPlaneFaceSelector,
+                     CadCapabilities.FeatureBossAdditive
+                 })
+            Assert.Equal("beta", manifest.Capabilities[key].Status);
     }
 
     private static string ReadyAnalysis() =>

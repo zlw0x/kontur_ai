@@ -18,8 +18,20 @@ public sealed class DrawingPipeline(
     CodexBudgetState? budget = null,
     CodexBudgetPolicy? policy = null,
     ResourceLedger? ledger = null,
-    bool injectFirstCadIrFault = false)
+    bool injectFirstCadIrFault = false,
+    CapabilityGate? capabilities = null)
 {
+    /// <summary>
+    /// The same gate the build will apply, checked here so the repair loop can
+    /// react to it.
+    /// </summary>
+    /// <remarks>
+    /// If generation used a wider gate than the build, the AI would be told its
+    /// document was fine and the build would then refuse it — a repair loop
+    /// caused by two halves of this worker disagreeing, which is the same
+    /// failure the schema pair was designed to avoid.
+    /// </remarks>
+    private readonly CapabilityGate capabilityGate = capabilities ?? CapabilityGate.AllEnabled;
     /// <summary>
     /// Identifies the prompt text a run used. Token counts are only comparable
     /// between jobs that were asked the same question, so the version travels
@@ -192,7 +204,8 @@ public sealed class DrawingPipeline(
                 {
                     try
                     {
-                        await CadIrBuildPlanParser.ParseFileAsync(candidatePath, cancellationToken);
+                        await CadIrBuildPlanParser.ParseFileAsync(
+                            candidatePath, cancellationToken, capabilityGate);
                         gate?.Succeeded();
                     }
                     catch (CadAdapterException gateError)
@@ -403,8 +416,12 @@ public static class DrawingJobHandler
             : [];
         var answers = Path.Combine(workspace, "context", "user-answers.json");
         var ledger = new ResourceLedger(Path.GetFileName(workspace));
+        var flags = FeatureFlags.Load(WorkerPaths.CreateDefault());
         var result = await new DrawingPipeline(
-                new LocalCodexRunner(), ledger: ledger, injectFirstCadIrFault: injectFirstCadIrFault)
+                new LocalCodexRunner(),
+                ledger: ledger,
+                injectFirstCadIrFault: injectFirstCadIrFault,
+                capabilities: flags.Gate())
             .RunAsync(workspace, images, File.Exists(answers) ? answers : null, cancellationToken);
 
         // The local command has no API to ship to, so the measurements are

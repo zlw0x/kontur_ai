@@ -21,7 +21,17 @@ Commands:
 - `run-job PATH [--fake-cad]`
 - `probe-kompas`
 - `resolve-selectors [DIR]`
+- `flags [--disable KEY] [--enable KEY]`
 - `logout`
+
+`flags` prints every operation with its built-in and effective status, and turns
+one off or back on. A disabled operation is published to the API as `disabled`,
+so it stops being scheduled, *and* refused by the parser before any COM object
+exists, so anything already queued fails with `CAPABILITY_DISABLED` rather than
+building geometry that was meant to stop. See `docs/adr/ADR-021-*`.
+
+A missing flag file means everything is on. A malformed one is a hard failure
+rather than "no flags": an operator who wrote a file believes it is in force.
 
 `resolve-selectors` is the selector stability acceptance: it builds a plate,
 resolves the acceptance selector set, widens and rebuilds it, reopens the saved

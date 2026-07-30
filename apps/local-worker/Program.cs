@@ -34,6 +34,8 @@ try
                 args.Contains("--inject-cad-ir-fault", StringComparer.OrdinalIgnoreCase));
         case "probe-kompas":
             return await KompasProbe.RunAsync();
+        case "flags":
+            return await FlagsCommand.RunAsync(args.Skip(1).ToArray(), paths);
         case "resolve-selectors":
             return await SelectorDiagnostic.RunAsync(args.Skip(1).ToArray(), paths);
         case "probe-codex":
@@ -43,7 +45,7 @@ try
             Console.WriteLine(JsonSerializer.Serialize(new { status = "LOGGED_OUT" }));
             return 0;
         default:
-            Console.Error.WriteLine("Usage: cad-worker doctor | enroll --server URL --token TOKEN | run [--once] | run-job PATH [--fake-cad] | analyze-drawing PATH [--inject-cad-ir-fault] | probe-kompas | probe-codex | resolve-selectors [DIR] | logout");
+            Console.Error.WriteLine("Usage: cad-worker doctor | enroll --server URL --token TOKEN | run [--once] | run-job PATH [--fake-cad] | analyze-drawing PATH [--inject-cad-ir-fault] | probe-kompas | probe-codex | resolve-selectors [DIR] | flags [--disable KEY] [--enable KEY] | logout");
             return 2;
     }
 }

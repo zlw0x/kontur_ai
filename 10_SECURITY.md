@@ -57,15 +57,24 @@ Worker игнорирует неизвестный job type.
 
 ## 5. File safety
 
-- magic bytes validation;
-- allowlist PNG/JPEG/PDF;
+- утверждённый allowlist: PNG/JPEG/WEBP/PDF;
+- magic bytes — только предварительный фильтр, не доказательство безопасности;
+- quarantine до создания job;
+- полное декодирование и повторное кодирование PNG/JPEG/WEBP в чистый PNG;
+- отдельная изолированная растеризация PDF в канонические PNG-страницы;
+- только sanitized PNG получает browser preview, Codex и local worker;
 - SVG в MVP запрещён;
 - архивы запрещены;
-- DXF/DWG добавить позже отдельным parser sandbox;
-- лимит pages, pixels и decompressed size;
-- PDF rasterization в контейнере/ограниченном процессе на VPS;
-- strip metadata по настройке;
+- DXF/DWG/TIFF и остальные форматы не входят в утверждённый scope;
+- лимит bytes, pages, frames, pixels, dimensions и decoded/encoded size;
+- metadata удаляется всегда, EXIF orientation применяется до удаления;
+- alpha сводится на белый фон;
+- immutable manifest фиксирует raw и sanitized SHA-256, file version и policy version;
+- worker повторно проверяет manifest, размеры и SHA-256 до вызова Codex;
 - filename не используется в filesystem path.
+
+Полная политика, resource limits и acceptance:
+[docs/SECURE-INPUT-ADDENDUM.md](docs/SECURE-INPUT-ADDENDUM.md).
 
 ## 6. Worker transport
 
@@ -102,7 +111,8 @@ Diagnostics zip проходит secret scanner перед созданием.
 
 - успешные локальные workspace: 12 часов;
 - failed workspace: 7 дней для диагностики;
-- исходные файлы на VPS: 30 дней после завершения;
+- raw quarantine objects: удалить после sanitization/rejection, максимум через 1 час;
+- sanitized входные страницы на VPS: 30 дней после завершения;
 - результаты: 30–90 дней в зависимости от тарифа;
 - audit log: 1 год;
 - пользователь может запросить удаление.
@@ -136,6 +146,9 @@ Diagnostics zip проходит secret scanner перед созданием.
 ## 13. Security acceptance criteria
 
 - Prompt injection fixture не приводит к выполнению shell-команды.
+- Raw upload никогда не выдаётся preview, Codex или local worker.
+- Повреждённый или oversized PNG/JPEG/WEBP/PDF отклоняется до создания job.
+- PDF rasterizer не имеет сети, secrets и доступа к соседним объектам.
 - Пользователь не может получить artifact другого пользователя.
 - Подмена sha256 обнаруживается.
 - Просроченный worker token отклоняется.

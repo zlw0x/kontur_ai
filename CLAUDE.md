@@ -38,8 +38,18 @@ Geometric checks on a sketch live in the adapter, in front of COM — the AI pat
 never passes through the API's Python validator.
 
 The drawing agent still extracts only a rectangle and round holes: widening what
-is read off a scan is a vision problem, not a geometry one. Next in the plan is
-POSTMVP-007, sketch constraints.
+is read off a scan is a vision problem, not a geometry one.
+
+Every CAD operation is behind a per-operation feature flag on the worker
+(`cad-worker flags`, `docs/adr/ADR-021-*`). A new operation gets a key in
+`CadCapabilities`, a declared status in `WorkerCapabilities`, and a
+`gate.Require` in the parser — otherwise it cannot be rolled back without a
+release.
+
+POSTMVP-007 (sketch constraints) is part-done: all twelve KOMPAS constraint
+constants are identified by measurement, and how a *driving dimension* drives is
+still unknown. See `docs/TASK-POSTMVP-007-sketch-constraints.md` for what is
+established and what four hypotheses have been ruled out.
 
 ## Commands
 

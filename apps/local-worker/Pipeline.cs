@@ -60,7 +60,12 @@ public static class LocalCadJobHandler
             JsonSerializer.Serialize(new { status = "BUILDING", started_at = DateTimeOffset.UtcNow }));
         try
         {
-            var plan = await CadIrBuildPlanParser.ParseFileAsync(cadIrPath, cancellationToken);
+            // The gate is checked on the document, before any COM object
+            // exists: a disabled operation must cost a typed error rather
+            // than a half-built model.
+            var flags = FeatureFlags.Load(paths);
+            var plan = await CadIrBuildPlanParser.ParseFileAsync(
+                cadIrPath, cancellationToken, flags.Gate());
             ICadAdapter adapter = fakeCad ? new FakeCadAdapter() : new KompasApi7Adapter();
             CadBuildResult result;
             using (var session = ledger?.Begin(
@@ -251,7 +256,7 @@ public static class ClaimLoop
                     available_slots = 1,
                     // Declaring what this build can construct is what makes the
                     // API willing to schedule those operations here.
-                    capability_manifest = WorkerCapabilities.Manifest()
+                    capability_manifest = WorkerCapabilities.Manifest(flags: FeatureFlags.Load(paths))
                 }, cancellation);
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                     throw new WorkerException("AUTH_REQUIRED", "Worker credential was rejected.", 3);

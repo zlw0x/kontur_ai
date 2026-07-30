@@ -452,11 +452,15 @@ VPS не выдаёт worker задание, если manifest не покрыв
 
 ## Форматы
 
-- multi-page PDF;
-- TIFF;
-- DXF/DWG path;
+- PNG/JPEG/WEBP через isolated image sanitizer;
+- multi-page PDF через отдельный isolated rasterizer;
+- канонические PNG pages, overview и tiles для крупных листов;
 - scans;
 - perspective-corrected photos.
+
+Утверждённая политика входа, лимиты и security acceptance описаны в
+[SECURE-INPUT-ADDENDUM.md](SECURE-INPUT-ADDENDUM.md). DXF, DWG, TIFF и прочие
+форматы не входят в текущий утверждённый scope.
 
 ## Обозначения
 
