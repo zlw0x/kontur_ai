@@ -186,18 +186,59 @@ public static class ConstraintValidator
     {
         var what = $"Dimension {dimension.Id}";
         var subject = Resolve(dimension.Of, byId, what);
+
+        // An angle is the one kind that measures a relation between two entities.
+        // Naming a second entity on any other kind, or leaving it off an angle,
+        // is a document that does not know what it is dimensioning.
+        if (dimension.Kind == DimensionKind.Angle && dimension.To is null)
+            throw Invalid("UNSUPPORTED_DIMENSION",
+                $"{what} is an angle and names one entity; an angle is between two.");
+        if (dimension.Kind != DimensionKind.Angle && dimension.To is not null)
+            throw Invalid("UNSUPPORTED_DIMENSION",
+                $"{what} is a {dimension.Kind} of one entity and names a second, {dimension.To}.");
+
         var measured = dimension.Kind switch
         {
             DimensionKind.Length => subject.Length,
             DimensionKind.Radius => RequireRadius(subject, what),
             DimensionKind.Diameter => RequireRadius(subject, what) * 2,
+            DimensionKind.Angle => AngleBetween(
+                RequireCurve(subject, what),
+                RequireCurve(Resolve(dimension.To!, byId, what), what)),
             _ => throw Invalid("UNSUPPORTED_DIMENSION", $"{what} is of a kind this build cannot measure.")
         };
-        if (Math.Abs(measured - dimension.Value) > Tolerance)
+        // Degrees are compared a little more loosely than millimetres: the value
+        // comes off a drawing in whole or half degrees and the geometry it is
+        // checked against was written to a few decimal places, so an exact match
+        // would fail on rounding that means nothing.
+        var tolerance = dimension.Kind == DimensionKind.Angle ? 1e-6 : Tolerance;
+        if (Math.Abs(measured - dimension.Value) > tolerance)
             throw Invalid("DIMENSION_DISAGREES_WITH_GEOMETRY",
-                $"{what} says {Number(dimension.Value)} mm and the geometry measures " +
-                $"{Number(measured)} mm. A dimension that disagrees with what it dimensions is a " +
-                "document contradicting itself.");
+                $"{what} says {Number(dimension.Value)}{UnitLabel(dimension.Kind)} and the geometry " +
+                $"measures {Number(measured)}{UnitLabel(dimension.Kind)}. A dimension that disagrees with what it " +
+                "dimensions is a document contradicting itself.");
+    }
+
+    private static string UnitLabel(DimensionKind kind) =>
+        kind == DimensionKind.Angle ? " degrees" : " mm";
+
+    /// <summary>
+    /// The angle between two curves, in degrees, in [0, 180).
+    /// </summary>
+    /// <remarks>
+    /// Taken between the *directions* the entities were written in, which is what
+    /// KOMPAS's own angle dimension measures. A segment written end-to-start
+    /// rather than start-to-end therefore reads as its supplement — that is not a
+    /// quirk to paper over, it is the same fact a draughtsman sees when an arrow
+    /// points the other way, and the check exists to catch a document that
+    /// disagrees with itself about it.
+    /// </remarks>
+    private static double AngleBetween(ConstrainedEntity left, ConstrainedEntity right)
+    {
+        var (ax, ay) = Unit(left.Direction);
+        var (bx, by) = Unit(right.Direction);
+        var cosine = Math.Clamp(ax * bx + ay * by, -1.0, 1.0);
+        return Math.Atan2(Math.Abs(ax * by - ay * bx), cosine) * 180.0 / Math.PI;
     }
 
     // --- predicates --------------------------------------------------------

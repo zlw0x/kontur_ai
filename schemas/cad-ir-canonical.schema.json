@@ -715,11 +715,12 @@
       "type": "object"
     },
     "DimensionKind": {
-      "description": "The dimension kinds KOMPAS was measured to bind to a named variable.\n\nAngular is absent deliberately: `IAngleDimensions.Add` answers with nothing\nfor every type tried, so an angular dimension cannot yet be created at all.\nRecorded in docs/TASK-POSTMVP-007-sketch-constraints.md rather than guessed\nat here.",
+      "description": "The dimension kinds KOMPAS was measured to bind to a named variable.\n\nAngular joined the list once `IAngleDimensions.Add` was swept properly. An\nearlier probe tried types 0 to 4, found nothing, and recorded that angular\ndimensions do not exist; sweeping -2 to 64 found that only 10 and 39 create,\nand that 10 measures the angle between the two arms. That was a statement\nabout the range swept, not about KOMPAS — see\ndocs/TASK-POSTMVP-007-sketch-constraints.md.",
       "enum": [
         "length",
         "radius",
-        "diameter"
+        "diameter",
+        "angle"
       ],
       "title": "DimensionKind",
       "type": "string"
@@ -814,7 +815,7 @@
     },
     "DrivingDimension": {
       "additionalProperties": false,
-      "description": "A named measurement of the sketch, stated and then verified.\n\nThe `id` is the stable name the roadmap asks for — `base_width`,\n`hole_pitch_x`, `wall_thickness` — and it becomes the variable's name in the\nKOMPAS model, so the same word appears in the document, in the delivered\nfile and in any later diff.\n\n`value` is what the document says the measurement is. The adapter reads what\nKOMPAS measured and refuses the difference: a dimension that disagrees with\nthe geometry it dimensions is a document contradicting itself.",
+      "description": "A named measurement of the sketch, stated and then verified.\n\nThe `id` is the stable name the roadmap asks for — `base_width`,\n`hole_pitch_x`, `wall_thickness` — and it becomes the variable's name in the\nKOMPAS model, so the same word appears in the document, in the delivered\nfile and in any later diff.\n\n`value` is what the document says the measurement is. The adapter reads what\nKOMPAS measured and refuses the difference: a dimension that disagrees with\nthe geometry it dimensions is a document contradicting itself.\n\nThese now genuinely drive. A dimension carries two KOMPAS constraints: one\nthat names its variable and one that fixes it. With only the first the number\nis an annotation — setting it changes nothing and a rebuild puts the\nmeasurement back — which is what 1.3 shipped before the second was found.\n\n`to` is named by an angle and by nothing else. An angle measures a relation\nbetween two entities; every other kind measures a property of one.",
       "properties": {
         "id": {
           "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
@@ -839,6 +840,19 @@
             }
           ],
           "title": "Value"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To"
         }
       },
       "required": [

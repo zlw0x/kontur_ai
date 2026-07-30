@@ -101,21 +101,29 @@ The buildable geometry is unchanged. What changed is that a document can now
 contradict itself in a way the service notices, and that the file a customer
 receives can be edited.
 
-Two limits are real and stated rather than hidden.
+Two limits were recorded here when this decision was written, and both have since
+been measured away. They are kept in the record because the reason each was a
+limit is the reason the measurement was worth taking.
 
-**Point constraints are verified but not applied.** `Index` and `PartnerIndex`
-select which endpoint, and which values mean what is unmeasured. Applying one
-with the defaults would put a constraint in the delivered file that the document
-did not state, which is worse than leaving it out. Six kinds are affected;
-all six are still checked.
+**Point constraints were verified but not applied**, because `Index` and
+`PartnerIndex` select which endpoint and nothing on this machine said what their
+values meant. They now do: on a segment 0/1/2 are start, end and midpoint; on an
+arc 0/1/2 are **centre**, start and end; a circle has only its centre at 0. The
+arc's disagreement with the segment is exactly the trap that made guessing
+unacceptable — one table for both would have applied every `concentric` between
+arcs to their start points instead of their centres, producing a delivered file
+carrying a constraint the document never stated, with correct-looking geometry.
+All six kinds are now applied.
 
-**No driving dimension drives programmatically.** The variable reports the
-measurement, and setting it does not move the geometry. The confirmatory design
-does not need it to — the document carries the coordinates — and a customer
-editing the file in the KOMPAS UI can drive it there. Four ways of trying are
-recorded, which narrows what a later attempt should try next.
+**No driving dimension drove programmatically**, because a dimension carries two
+KOMPAS constraints and only one had been found. Type 13 names a variable that
+reports the measurement; type **14** on the same dimension is what makes it
+impose one. With both, a 16 mm segment whose variable is set to 50 comes back
+50 mm. This changes what the service delivers rather than what it checks: the
+document still carries the coordinates and the assertion rule below is untouched,
+but the model a customer opens is now genuinely parametric.
 
-A third limit is by choice: a document whose coordinates the AI could not compute
+A limit that remains, by choice: a document whose coordinates the AI could not compute
 — a tangent arc between two lines, where the tangent point needs trigonometry —
 is still not expressible, because the coordinates have to be there to be compared
 against. Making the solver authoritative is a later decision and needs a way to

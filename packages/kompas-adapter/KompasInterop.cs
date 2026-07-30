@@ -93,6 +93,7 @@ internal interface IView
     [DispId(10001)] object LineDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     [DispId(10002)] object RadialDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     [DispId(10003)] object DiametralDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+    [DispId(10004)] object AngleDimensions { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
     /// <summary>
     /// The variable a driving dimension's constraint created, looked up by name.
     /// </summary>
@@ -378,6 +379,37 @@ internal interface IRadialDimension
 internal interface IDiametralDimensions
 {
     [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
+}
+
+/// <summary>
+/// Angular dimensions. `Add` takes a type, unlike every other dimension
+/// collection here, and answers nothing for almost every value.
+/// </summary>
+/// <remarks>
+/// Swept from -2 to 64 by `scripts/probe_kompas_driving.py`: only 10 and 39
+/// create anything. An earlier probe tried 0 to 4, found nothing, and recorded
+/// that angular dimensions do not exist — which was a statement about the range
+/// swept, not about KOMPAS.
+/// </remarks>
+[ComImport, Guid("DF9ABB77-BBB6-4B29-A0E0-81DCFD525C2E"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IAngleDimensions
+{
+    [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object? Add(int dimensionType);
+}
+
+[ComImport, Guid("0F2CE9EC-5D2A-4B21-B96A-46201C120ED1"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+internal interface IAngleDimension
+{
+    [DispId(1)] double Xc { set; }
+    [DispId(2)] double Yc { set; }
+    [DispId(3)] double Radius { set; }
+    /// <summary>The two objects the angle is between, named outright.</summary>
+    /// <remarks>
+    /// This is why an angle needs no `Associate()`: it says what it measures
+    /// instead of being bound to whatever its points happen to land on.
+    /// </remarks>
+    [DispId(10)] object BaseObject1 { [param: MarshalAs(UnmanagedType.IDispatch)] set; }
+    [DispId(11)] object BaseObject2 { [param: MarshalAs(UnmanagedType.IDispatch)] set; }
 }
 
 [ComImport, Guid("2B4CE92F-438D-4D3E-8F8D-4D14E5D0E214"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]

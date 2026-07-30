@@ -284,6 +284,60 @@ public sealed class ConstraintValidatorTests
         Assert.Contains("20.0000", error.SafeMessage);
     }
 
+    // --- angular dimensions -------------------------------------------------
+
+    /// <summary>
+    /// An angle is the one dimension that measures a relation rather than a
+    /// property, and the only one that names two entities.
+    /// </summary>
+    [Fact]
+    public void AnAngleThatMatchesTheTwoEntitiesIsAccepted()
+    {
+        ConstraintValidator.Validate(
+            [Line("base", 0, 0, 40, 0), Line("arm", 0, 0, 20, 20)],
+            [],
+            [new DrivingDimensionPlan("corner", DimensionKind.Angle, "base", 45, "arm")]);
+    }
+
+    [Fact]
+    public void AnAngleThatDisagreesWithTheTwoEntitiesIsRefused()
+    {
+        var error = Assert.Throws<CadAdapterException>(() => ConstraintValidator.Validate(
+            [Line("base", 0, 0, 40, 0), Line("arm", 0, 0, 20, 20)],
+            [],
+            [new DrivingDimensionPlan("corner", DimensionKind.Angle, "base", 60, "arm")]));
+
+        Assert.Equal("DIMENSION_DISAGREES_WITH_GEOMETRY", error.Code);
+        Assert.Contains("degrees", error.SafeMessage);
+    }
+
+    [Fact]
+    public void AnAngleNamingOnlyOneEntityIsRefused()
+    {
+        var error = Assert.Throws<CadAdapterException>(() => ConstraintValidator.Validate(
+            [Line("base", 0, 0, 40, 0)],
+            [],
+            [new DrivingDimensionPlan("corner", DimensionKind.Angle, "base", 45)]));
+
+        Assert.Equal("UNSUPPORTED_DIMENSION", error.Code);
+        Assert.Contains("between two", error.SafeMessage);
+    }
+
+    /// <remarks>
+    /// A length that names a second entity has not been half-written; it has been
+    /// written by something that thought it was an angle. Ignoring the extra name
+    /// would dimension the wrong thing quietly.
+    /// </remarks>
+    [Fact]
+    public void ALengthThatNamesASecondEntityIsRefused()
+    {
+        Assert.Equal("UNSUPPORTED_DIMENSION",
+            CodeOf(() => ConstraintValidator.Validate(
+                [Line("a", 0, 0, 20, 0), Line("b", 0, 5, 20, 5)],
+                [],
+                [new DrivingDimensionPlan("w", DimensionKind.Length, "a", 20, "b")])));
+    }
+
     [Fact]
     public void ARadiusDimensionOnAStraightSegmentIsRefused()
     {
@@ -378,6 +432,20 @@ public sealed class ConstraintValidatorTests
         Assert.Equal(17, KompasConstraintTypes.Of(ConstraintKind.Collinear));
         Assert.Equal(20, KompasConstraintTypes.Of(ConstraintKind.Midpoint));
         Assert.Equal(13, KompasConstraintTypes.DrivingDimension);
+        Assert.Equal(14, KompasConstraintTypes.FixedDimension);
+    }
+
+    /// <summary>
+    /// A dimension carries both, and only both make it drive. With 13 alone the
+    /// variable reports what KOMPAS measured: setting it changes nothing and a
+    /// rebuild puts the old number back. Measured on a 16 mm segment driven to
+    /// 50 mm.
+    /// </summary>
+    [Fact]
+    public void ADrivingDimensionNeedsTheNamingTypeAndTheFixingTypeBoth()
+    {
+        Assert.NotEqual(KompasConstraintTypes.DrivingDimension,
+            KompasConstraintTypes.FixedDimension);
     }
 
     [Fact]
@@ -385,5 +453,85 @@ public sealed class ConstraintValidatorTests
     {
         foreach (var kind in Enum.GetValues<ConstraintKind>())
             Assert.True(KompasConstraintTypes.Of(kind) > 0, $"{kind} has no KOMPAS type");
+    }
+
+    // --- which point an index selects ---------------------------------------
+
+    /// <summary>
+    /// Measured the same way, and pinned here for the same reason. These numbers
+    /// decide *which point* a constraint is about, so a wrong one produces a model
+    /// that builds, exports and measures correctly while carrying a constraint the
+    /// document never stated.
+    /// </summary>
+    [Fact]
+    public void ASegmentNumbersItsPointsStartEndMidpoint()
+    {
+        Assert.Equal(0, KompasPointIndex.Of("line", SketchPoint.Start));
+        Assert.Equal(1, KompasPointIndex.Of("line", SketchPoint.End));
+    }
+
+    /// <summary>
+    /// The trap this milestone was held up by. An arc's numbering is not a
+    /// segment's: 0 is its centre, and the ends come after. One table for both
+    /// would have turned every `concentric` between arcs into a coincidence of
+    /// their start points.
+    /// </summary>
+    [Fact]
+    public void AnArcNumbersItsCentreFirstAndItsEndsAfter()
+    {
+        Assert.Equal(0, KompasPointIndex.Of("arc", SketchPoint.Center));
+        Assert.Equal(1, KompasPointIndex.Of("arc", SketchPoint.Start));
+        Assert.Equal(2, KompasPointIndex.Of("arc", SketchPoint.End));
+    }
+
+    [Fact]
+    public void ACircleHasOnlyItsCentreWhicheverPointIsNamed()
+    {
+        Assert.Equal(0, KompasPointIndex.Of("circle", SketchPoint.Center));
+        Assert.Equal(0, KompasPointIndex.Of("circle", SketchPoint.Start));
+        Assert.Equal(0, KompasPointIndex.Of("circle", SketchPoint.End));
+    }
+
+    [Fact]
+    public void AskingASegmentForACentreIsRefusedRatherThanDefaulted()
+    {
+        var error = Assert.Throws<CadAdapterException>(
+            () => KompasPointIndex.Of("line", SketchPoint.Center));
+
+        Assert.Equal("CONSTRAINT_OPERAND_INVALID", error.Code);
+        Assert.Contains("no centre", error.SafeMessage);
+    }
+
+    /// <summary>
+    /// Which types read which index, measured by sweeping both and watching what
+    /// changed the answer. Setting one a type ignores is harmless; recording which
+    /// are real is what stops a later reader inventing a meaning for a number that
+    /// has none.
+    /// </summary>
+    [Fact]
+    public void OnlyTheTypesThatWereMeasuredToReadAnIndexAreGivenOne()
+    {
+        foreach (var kind in new[]
+                 {
+                     ConstraintKind.Coincident, ConstraintKind.AlignedHorizontally,
+                     ConstraintKind.AlignedVertically
+                 })
+        {
+            Assert.True(KompasConstraintOperands.UsesSubjectPoint(kind));
+            Assert.True(KompasConstraintOperands.UsesPartnerPoint(kind));
+        }
+
+        // The partner contributes a whole entity by definition: its midpoint in
+        // one case, its curve in the other.
+        foreach (var kind in new[] { ConstraintKind.Midpoint, ConstraintKind.PointOnCurve })
+        {
+            Assert.True(KompasConstraintOperands.UsesSubjectPoint(kind));
+            Assert.False(KompasConstraintOperands.UsesPartnerPoint(kind));
+        }
+
+        // Collinear is a relation between two entities. Every index pair produced
+        // the identical result, including -1.
+        Assert.False(KompasConstraintOperands.UsesSubjectPoint(ConstraintKind.Collinear));
+        Assert.False(KompasConstraintOperands.UsesPartnerPoint(ConstraintKind.Collinear));
     }
 }

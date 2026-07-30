@@ -51,12 +51,12 @@ release.
 A constraint is an **assertion about the coordinates the document states**, never
 an instruction that produces them (ADR-022). The gate checks it holds, the
 adapter applies it, and the geometry is re-read to confirm the solver moved
-nothing. Two ends stay open and are named in
-`docs/TASK-POSTMVP-007-sketch-constraints.md`: point constraints are verified but
-not applied, because the endpoint-index semantics are unmeasured, and no driving
-dimension drives programmatically.
-
-Next in the plan is POSTMVP-008, revolve.
+nothing. All six point constraints are applied, with the endpoint indices
+measured per entity kind — an arc numbers its centre first and a segment does
+not, which is why guessing was never acceptable. Driving dimensions genuinely
+drive: a dimension carries constraint 13 to name its variable and 14 to make that
+variable impose rather than report. Angular dimensions exist and drive too. What
+is left open is named in `docs/TASK-POSTMVP-007-sketch-constraints.md`.
 
 ## Commands
 

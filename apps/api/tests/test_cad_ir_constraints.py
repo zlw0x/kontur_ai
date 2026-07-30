@@ -224,11 +224,48 @@ def test_a_dimension_of_zero_or_less_is_never_a_measurement(value):
         DrivingDimension(id="base_width", kind="length", of="seg.top", value=value)
 
 
-def test_angular_dimensions_are_absent_because_kompas_would_not_create_one():
-    """`IAngleDimensions.Add` answers with nothing for every type tried, so an
-    angular dimension cannot be created at all. Recorded rather than guessed at;
-    see docs/TASK-POSTMVP-007-sketch-constraints.md."""
-    assert {kind.value for kind in DimensionKind} == {"length", "radius", "diameter"}
+def test_the_four_dimension_kinds_are_the_ones_kompas_was_measured_to_create():
+    """Angular was absent from 1.3 because `IAngleDimensions.Add` answered with
+    nothing for types 0 to 4. Sweeping -2 to 64 found 10 and 39; 10 measures the
+    angle between the two arms and drives it. That earlier absence was a
+    statement about the range swept, not about KOMPAS — see
+    docs/TASK-POSTMVP-007-sketch-constraints.md."""
+    assert {kind.value for kind in DimensionKind} == {
+        "length", "radius", "diameter", "angle"
+    }
+
+
+def test_an_angle_names_the_two_entities_it_is_between():
+    angle = DrivingDimension(
+        id="corner", kind="angle", of="seg.top", to="seg.left", value=45.0
+    )
+
+    assert angle.to == "seg.left"
+
+
+def test_an_angle_that_names_only_one_entity_is_refused():
+    """Every other kind measures a property of one entity; an angle measures a
+    relation, and one operand does not describe a relation."""
+    with pytest.raises(ValidationError, match="between two entities"):
+        DrivingDimension(id="corner", kind="angle", of="seg.top", value=45.0)
+
+
+def test_a_length_that_names_a_second_entity_is_refused():
+    with pytest.raises(ValidationError, match="takes no second"):
+        DrivingDimension(
+            id="base_width", kind="length", of="seg.top", to="seg.bottom", value=20.0
+        )
+
+
+@pytest.mark.parametrize("value", [180.0, 270.0])
+def test_an_angle_of_180_degrees_or_more_is_the_other_angle(value):
+    """Two straight entities are under 180 degrees apart by construction. A
+    document asking for more has measured the reflex side, which is a different
+    angle from the one it names."""
+    with pytest.raises(ValidationError, match="under 180 degrees"):
+        DrivingDimension(
+            id="corner", kind="angle", of="seg.base", to="seg.arm", value=value
+        )
 
 
 # --- what the contract deliberately leaves to the adapter -----------------

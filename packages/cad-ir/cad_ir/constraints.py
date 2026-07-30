@@ -146,15 +146,18 @@ class SketchConstraint(StrictModel):
 class DimensionKind(StrEnum):
     """The dimension kinds KOMPAS was measured to bind to a named variable.
 
-    Angular is absent deliberately: `IAngleDimensions.Add` answers with nothing
-    for every type tried, so an angular dimension cannot yet be created at all.
-    Recorded in docs/TASK-POSTMVP-007-sketch-constraints.md rather than guessed
-    at here.
+    Angular joined the list once `IAngleDimensions.Add` was swept properly. An
+    earlier probe tried types 0 to 4, found nothing, and recorded that angular
+    dimensions do not exist; sweeping -2 to 64 found that only 10 and 39 create,
+    and that 10 measures the angle between the two arms. That was a statement
+    about the range swept, not about KOMPAS — see
+    docs/TASK-POSTMVP-007-sketch-constraints.md.
     """
 
     LENGTH = "length"
     RADIUS = "radius"
     DIAMETER = "diameter"
+    ANGLE = "angle"
 
 
 class DrivingDimension(StrictModel):
@@ -168,12 +171,21 @@ class DrivingDimension(StrictModel):
     `value` is what the document says the measurement is. The adapter reads what
     KOMPAS measured and refuses the difference: a dimension that disagrees with
     the geometry it dimensions is a document contradicting itself.
+
+    These now genuinely drive. A dimension carries two KOMPAS constraints: one
+    that names its variable and one that fixes it. With only the first the number
+    is an annotation — setting it changes nothing and a rebuild puts the
+    measurement back — which is what 1.3 shipped before the second was found.
+
+    `to` is named by an angle and by nothing else. An angle measures a relation
+    between two entities; every other kind measures a property of one.
     """
 
     id: Id
     kind: DimensionKind
     of: Id
     value: Scalar
+    to: Id | None = None
 
     @model_validator(mode="after")
     def validate_positive_literal(self) -> "DrivingDimension":
@@ -181,6 +193,18 @@ class DrivingDimension(StrictModel):
         # be checked here, and a length of zero is never a measurement.
         if isinstance(self.value, (int, float)) and not self.value > 0:
             raise ValueError(f"a {self.kind} dimension must be positive")
+        if isinstance(self.value, (int, float)) and self.kind is DimensionKind.ANGLE:
+            # An angle between two straight entities is under 180 degrees by
+            # construction. A document asking for more has measured the reflex
+            # side, which is a different angle from the one it names.
+            if not self.value < 180:
+                raise ValueError("an angle dimension must be under 180 degrees")
+        if self.kind is DimensionKind.ANGLE and self.to is None:
+            raise ValueError("an angle dimension is between two entities and needs both")
+        if self.kind is not DimensionKind.ANGLE and self.to is not None:
+            raise ValueError(f"a {self.kind} dimension is of one entity, so it takes no second")
+        if self.to is not None and self.to == self.of:
+            raise ValueError("an angle cannot be measured between an entity and itself")
         return self
 
 

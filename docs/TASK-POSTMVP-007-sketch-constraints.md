@@ -195,22 +195,107 @@ document: a construction line invisible to constraints, a dimension that must be
 updated before it can be associated, and `IView.Variables` working for exactly
 one dimension and then throwing.
 
-## Not done
+## Closed afterwards
 
-- **Point constraints are verified but not applied.** `Index` and `PartnerIndex`
-  select which endpoint and their values are unmeasured; applying one with the
-  defaults would put a constraint in the delivered file that the document did not
-  state. Six kinds affected, all six still checked. This is the one remaining
-  probe.
-- **No driving dimension drives programmatically.** The variable reports what
-  KOMPAS measured, which is what the confirmatory design needs. Four ways of
-  supplying a value have been ruled out; what is left is `IVariableTable`'s
-  spreadsheet API and a sketch parametric mode.
-- **Angular dimensions do not exist.** `IAngleDimensions.Add` answers with nothing
-  for every type tried.
+Three of the four open ends were closed by two more probes,
+`scripts/probe_kompas_points.py` and `scripts/probe_kompas_driving.py`.
+
+### Point constraints are applied
+
+`Index` and `PartnerIndex` were measured by putting a coincidence between two
+entities whose every named point is far from every other, and reading which pair
+met:
+
+| entity  | 0      | 1     | 2        |
+|---------|--------|-------|----------|
+| segment | start  | end   | midpoint |
+| arc     | centre | start | end      |
+| circle  | centre | —     | —        |
+
+Values 3, 4 and -1 create nothing at all.
+
+**The arc is the trap, and it is why the guess was never worth taking.** Its
+numbering is not the segment's — index 0 is the centre. One table for both would
+have turned every `concentric` between two arcs into a coincidence of their
+*start points*: a constraint the document never stated, in a file a customer
+opens, with the geometry still measuring correctly because the solver had nothing
+to correct.
+
+Which types read which index was measured the same way, by sweeping both and
+watching what changed the answer:
+
+- **11 coincident, 9 aligned horizontally, 10 aligned vertically** — both indices.
+  9 and 10 equate one coordinate of the two named points rather than the points.
+- **20 midpoint, 2 point on curve** — only the subject's. The partner contributes
+  a whole entity by definition: its midpoint in one case, its curve in the other.
+- **17 collinear** — neither. Every index pair gave the identical result,
+  including -1, so it is a relation between two entities and nothing else.
+
+All six kinds are now applied. Nothing is verified-but-skipped.
+
+### A driving dimension needs two constraints, not one
+
+Type 13 alone names a variable that *reports*: setting it changes nothing, and a
+rebuild puts the measurement back, because the model computes it from the
+geometry. Adding **type 14** on the same associated dimension turns it round.
+
+Measured on a 16 mm segment, one document per attempt so that a sequence could
+not be mistaken for a switch:
+
+```text
+fixed  external  setter      variable  segment   verdict
+False  None      Value       16.000    16.0000   unchanged
+False  True      Expression  16.000    16.0000   unchanged
+True   None      Value       50.000    50.0000   DRIVEN
+True   True      Expression  50.000    50.0000   DRIVEN
+```
+
+`External` makes no difference; both `Value` and `Expression` work. The four
+readings ruled out earlier were all correct — they were just all missing the
+second constraint.
+
+Two dead ends worth keeping:
+
+- `IParametriticConstraint.Reference` is not a "reference dimension" flag. It is
+  the generic COM handle every KOMPAS interface carries, and it is read-only.
+- The part's variable table is a *property*, `IPart7.VariableTable`, not an
+  interface the part casts to. Every `QueryInterface` at it answers `COMError`,
+  which reads as "this build has no variable table" and is what sent the previous
+  probe looking for a spreadsheet it could never have reached. It turned out not
+  to be needed.
+
+### Angular dimensions exist
+
+`IAngleDimensions.Add` takes a type. The previous probe tried 0 to 4, found
+nothing, and recorded that angular dimensions do not exist — a statement about
+the range swept, not about KOMPAS. Sweeping -2 to 64: **only 10 and 39 create.**
+
+Type 10 is the one. Driven to 55 degrees it leaves the two arms 55 degrees apart.
+
+**Type 39 measures something else.** Driven to 55 it leaves them 27.5 degrees
+apart — exactly half — so it is taken against a bisector rather than between the
+arms, and using it would put a number in the delivered file that is twice what
+the drawing said.
+
+An angle names the two objects it measures through `BaseObject1` and
+`BaseObject2`, so unlike every other dimension it needs no `Associate()` and
+answers false to it without being any less bound.
+
+### One probe mistake, recorded because it nearly became a finding
+
+An earlier run of the driving probe concluded that the dimension's variable does
+not exist until the sketch is closed, and that the adapter's read-back was
+therefore a silent no-op. That was wrong: the probe had already called `EndEdit`,
+and a view proxy from a closed edit answers nothing at all — indistinguishable
+from a variable that was never created. The variable is readable inside the edit
+that made it, and the check the adapter performs does run.
+
+## Still not done
+
 - **Constraints are not offered to Codex.** The structured-output dialect has no
-  optional properties, so `to` and `axis` would be forced onto every constraint.
-  They reach the adapter through the manual API, the same as selectors.
+  optional properties, so `to`, `axis` and now `to` on a dimension would be
+  forced onto every one. They reach the adapter through the manual API, the same
+  as selectors.
 
 ## Constraint carried forward
 

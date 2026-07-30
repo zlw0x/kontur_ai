@@ -336,14 +336,22 @@ public static class CadIrBuildPlanParser
             "length" => DimensionKind.Length,
             "radius" => DimensionKind.Radius,
             "diameter" => DimensionKind.Diameter,
+            "angle" => DimensionKind.Angle,
             var other => throw Invalid("UNSUPPORTED_DIMENSION",
                 $"{path} is a {other} dimension, which this adapter cannot apply.")
         };
+        // An angle's value is in degrees, so it is not passed through the length
+        // reader: that one would be free to treat it as a millimetre measurement
+        // and no later check would notice the unit was never considered.
+        var value = kind == DimensionKind.Angle
+            ? Degrees(dimension, "value", path, parameters)
+            : Length(dimension, "value", path, parameters);
         return new DrivingDimensionPlan(
             RequiredString(dimension, "id", path),
             kind,
             RequiredString(dimension, "of", path),
-            Length(dimension, "value", path, parameters));
+            value,
+            OptionalString(dimension, "to"));
     }
 
     private static string? OptionalString(JsonElement owner, string property) =>
@@ -524,6 +532,23 @@ public static class CadIrBuildPlanParser
         RequireInRange(value, $"{path}.{property}");
         if (!(value > 0))
             throw Invalid("DIMENSION_OUT_OF_RANGE", $"{path}.{property} must be positive.");
+        return value;
+    }
+
+    /// <summary>An angle in degrees, which is bounded by geometry rather than by
+    /// the coordinate limit a length is checked against.</summary>
+    /// <remarks>
+    /// Strictly between 0 and 180. Zero is two entities in the same direction,
+    /// which is parallelism and has its own constraint; 180 is the same fact with
+    /// one of them written backwards. Anything outside is the reflex angle, which
+    /// is a different angle from the one the document names.
+    /// </remarks>
+    private static double Degrees(JsonElement owner, string property, string path, Parameters parameters)
+    {
+        var value = ResolveScalar(Required(owner, property, path), parameters);
+        if (!double.IsFinite(value) || !(value > 0) || !(value < 180))
+            throw Invalid("DIMENSION_OUT_OF_RANGE",
+                $"{path}.{property} must be an angle above 0 and below 180 degrees.");
         return value;
     }
 
