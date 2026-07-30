@@ -1,8 +1,131 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.1",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.2",
   "title": "CadIrDocument",
   "$defs": {
+    "AdjacencyPredicate": {
+      "additionalProperties": false,
+      "description": "What the geometry touches.\n\nAn edge between a flat face and a cylinder is the rim of a hole, and says\nso without knowing where the hole is.",
+      "properties": {
+        "contains_surface_types": {
+          "items": {
+            "$ref": "#/$defs/SurfaceType"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "title": "Contains Surface Types",
+          "type": "array"
+        },
+        "face_count": {
+          "anyOf": [
+            {
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Face Count"
+        }
+      },
+      "required": [
+        "contains_surface_types"
+      ],
+      "title": "AdjacencyPredicate",
+      "type": "object"
+    },
+    "ArcSegment": {
+      "additionalProperties": false,
+      "description": "An arc given by its two endpoints, its centre and a direction.\n\nEndpoints and centre over centre-radius-angles because it is the form that\nmakes a contour verifiable: the previous segment's end has to equal this\nsegment's start, and with angles that is an inference rather than a\ncomparison. The adapter converts to what KOMPAS wants.\n\n`sweep` is not redundant with the endpoints: two arcs share every endpoint\nand centre and differ only in which way round they go.",
+      "properties": {
+        "type": {
+          "const": "arc",
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "End",
+          "type": "array"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center",
+          "type": "array"
+        },
+        "sweep": {
+          "$ref": "#/$defs/Sweep"
+        }
+      },
+      "required": [
+        "type",
+        "start",
+        "end",
+        "center",
+        "sweep"
+      ],
+      "title": "ArcSegment",
+      "type": "object"
+    },
+    "Axis": {
+      "enum": [
+        "axis.x",
+        "axis.y",
+        "axis.z"
+      ],
+      "title": "Axis",
+      "type": "string"
+    },
+    "BasePlaneName": {
+      "enum": [
+        "XY",
+        "XZ",
+        "YZ"
+      ],
+      "title": "BasePlaneName",
+      "type": "string"
+    },
     "BodyCountExpectation": {
       "additionalProperties": false,
       "properties": {
@@ -63,76 +186,19 @@
       "title": "BoundingBoxExpectation",
       "type": "object"
     },
-    "CenterRectangle": {
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
-          "title": "Id",
-          "type": "string"
-        },
-        "type": {
-          "const": "center_rectangle",
-          "title": "Type",
-          "type": "string"
-        },
-        "center": {
-          "items": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "$ref": "#/$defs/ParameterRef"
-              }
-            ]
-          },
-          "maxItems": 2,
-          "minItems": 2,
-          "title": "Center",
-          "type": "array"
-        },
-        "width": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "$ref": "#/$defs/ParameterRef"
-            }
-          ],
-          "title": "Width"
-        },
-        "height": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "$ref": "#/$defs/ParameterRef"
-            }
-          ],
-          "title": "Height"
-        }
-      },
-      "required": [
-        "id",
-        "type",
-        "center",
-        "width",
-        "height"
+    "Cardinality": {
+      "enum": [
+        "exactly_one",
+        "zero_or_one",
+        "one_or_more",
+        "all"
       ],
-      "title": "CenterRectangle",
-      "type": "object"
+      "title": "Cardinality",
+      "type": "string"
     },
-    "Circle": {
+    "CircleContour": {
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
-          "title": "Id",
-          "type": "string"
-        },
         "type": {
           "const": "circle",
           "title": "Type",
@@ -167,12 +233,230 @@
         }
       },
       "required": [
-        "id",
         "type",
         "center",
         "radius"
       ],
-      "title": "Circle",
+      "title": "CircleContour",
+      "type": "object"
+    },
+    "ConstructionArc": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "arc",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "End",
+          "type": "array"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center",
+          "type": "array"
+        },
+        "sweep": {
+          "$ref": "#/$defs/Sweep"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "start",
+        "end",
+        "center",
+        "sweep"
+      ],
+      "title": "ConstructionArc",
+      "type": "object"
+    },
+    "ConstructionCircle": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "circle",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center",
+          "type": "array"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Radius"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "center",
+        "radius"
+      ],
+      "title": "ConstructionCircle",
+      "type": "object"
+    },
+    "ConstructionLine": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "line",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "End",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "start",
+        "end"
+      ],
+      "title": "ConstructionLine",
+      "type": "object"
+    },
+    "ConstructionPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "point",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "at": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "At",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "at"
+      ],
+      "title": "ConstructionPoint",
       "type": "object"
     },
     "CutExtrudeFeature": {
@@ -240,7 +524,7 @@
           "$ref": "#/$defs/Sketch"
         },
         "direction": {
-          "$ref": "#/$defs/Direction"
+          "$ref": "#/$defs/cad_ir__canonical__Direction"
         },
         "through_all": {
           "default": false,
@@ -281,17 +565,105 @@
       "title": "CutExtrudeInputs",
       "type": "object"
     },
-    "Direction": {
-      "enum": [
-        "+X",
-        "-X",
-        "+Y",
-        "-Y",
-        "+Z",
-        "-Z"
+    "DatumPlaneOffsetFeature": {
+      "additionalProperties": false,
+      "description": "An auxiliary plane, so a later sketch has somewhere to sit.\n\nA feature rather than a `reference_geometry` entry because it depends on\nother features and other features depend on it, and the dependency graph is\nthe one place that is already stated and checked.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "datum.plane.offset",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/DatumPlaneOffsetInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "produces",
+        "inputs"
       ],
-      "title": "Direction",
-      "type": "string"
+      "title": "DatumPlaneOffsetFeature",
+      "type": "object"
+    },
+    "DatumPlaneOffsetInputs": {
+      "additionalProperties": false,
+      "description": "An auxiliary plane parallel to another, a stated distance away.\n\nOffset only. A plane at an angle or through three points is expressible in\nKOMPAS and will be added when something needs one; adding it now would mean\nthree build paths with one test each.",
+      "properties": {
+        "base": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BasePlaneName"
+            },
+            {
+              "$ref": "#/$defs/ResultRef"
+            }
+          ],
+          "title": "Base"
+        },
+        "offset_mm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Offset Mm"
+        },
+        "flip": {
+          "default": false,
+          "title": "Flip",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "base",
+        "offset_mm"
+      ],
+      "title": "DatumPlaneOffsetInputs",
+      "type": "object"
     },
     "DocumentHeader": {
       "additionalProperties": false,
@@ -381,6 +753,166 @@
       "title": "DocumentMetadata",
       "type": "object"
     },
+    "ExactlyN": {
+      "additionalProperties": false,
+      "description": "A count the document states rather than discovers.\n\n`exactly_n` is how a pattern says \"these four mounting holes\". If the model\ngrows a fifth, the mismatch is the point: the document no longer describes\nthe part.",
+      "properties": {
+        "type": {
+          "const": "exactly_n",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "value"
+      ],
+      "title": "ExactlyN",
+      "type": "object"
+    },
+    "Extreme": {
+      "enum": [
+        "minimum",
+        "maximum"
+      ],
+      "title": "Extreme",
+      "type": "string"
+    },
+    "FacePredicates": {
+      "additionalProperties": false,
+      "properties": {
+        "surface_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SurfaceType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "normal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormalPredicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PositionPredicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "area_mm2": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Measurement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "radius_mm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Measurement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "adjacent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdjacencyPredicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "produced_by": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Produced By"
+        }
+      },
+      "title": "FacePredicates",
+      "type": "object"
+    },
+    "FaceSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "face",
+          "title": "Kind",
+          "type": "string"
+        },
+        "from_result": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "From Result",
+          "type": "string"
+        },
+        "where": {
+          "$ref": "#/$defs/FacePredicates"
+        },
+        "cardinality": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cardinality"
+            },
+            {
+              "$ref": "#/$defs/ExactlyN"
+            }
+          ],
+          "title": "Cardinality"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "from_result",
+        "where",
+        "cardinality"
+      ],
+      "title": "FaceSelector",
+      "type": "object"
+    },
     "FeatureResult": {
       "additionalProperties": false,
       "description": "Something a feature creates that a later feature may refer to.\n\nNaming results explicitly is what lets a later operation say \"the body the\nbase extrusion made\" instead of \"whatever the previous feature left\nbehind\", which stops meaning the same thing as soon as features are\nreordered.",
@@ -399,6 +931,117 @@
         "kind"
       ],
       "title": "FeatureResult",
+      "type": "object"
+    },
+    "LineSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "line",
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "End",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "start",
+        "end"
+      ],
+      "title": "LineSegment",
+      "type": "object"
+    },
+    "Measurement": {
+      "additionalProperties": false,
+      "description": "A measured quantity with the tolerance it must be matched within.\n\nThe tolerance is required. Comparing floating-point geometry for equality\nis a bug waiting for a rebuild, and letting it default hides the choice\nfrom whoever later wonders why a face stopped matching.",
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "tolerance": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Tolerance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "tolerance"
+      ],
+      "title": "Measurement",
+      "type": "object"
+    },
+    "NormalPredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "parallel_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "perpendicular_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/cad_ir__selectors__Direction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "NormalPredicate",
       "type": "object"
     },
     "Parameter": {
@@ -468,7 +1111,7 @@
     },
     "ParameterRef": {
       "additionalProperties": false,
-      "description": "A reference to a named parameter, the only indirection 1.1 allows.",
+      "description": "A reference to a named parameter, the only indirection CAD-IR allows.",
       "properties": {
         "parameter": {
           "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
@@ -510,6 +1153,97 @@
       ],
       "title": "PartType",
       "type": "string"
+    },
+    "PathContour": {
+      "additionalProperties": false,
+      "description": "A closed boundary spelled out segment by segment.\n\nThe general form. Everything else in this module is a shape that expands\ninto one of these deterministically.",
+      "properties": {
+        "type": {
+          "const": "path",
+          "title": "Type",
+          "type": "string"
+        },
+        "segments": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "arc": "#/$defs/ArcSegment",
+                "line": "#/$defs/LineSegment"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/LineSegment"
+              },
+              {
+                "$ref": "#/$defs/ArcSegment"
+              }
+            ]
+          },
+          "maxItems": 400,
+          "minItems": 2,
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "segments"
+      ],
+      "title": "PathContour",
+      "type": "object"
+    },
+    "PositionPredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "extreme_along": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "extreme": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Extreme"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "center_along": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "center_value_mm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Measurement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "PositionPredicate",
+      "type": "object"
     },
     "Provenance": {
       "additionalProperties": false,
@@ -556,12 +1290,144 @@
       "title": "Provenance",
       "type": "object"
     },
+    "RectangleContour": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "rectangle",
+          "title": "Type",
+          "type": "string"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center",
+          "type": "array"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Height"
+        },
+        "rotation_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "default": 0.0,
+          "title": "Rotation Deg"
+        }
+      },
+      "required": [
+        "type",
+        "center",
+        "width",
+        "height"
+      ],
+      "title": "RectangleContour",
+      "type": "object"
+    },
+    "RegularPolygonContour": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "regular_polygon",
+          "title": "Type",
+          "type": "string"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Center",
+          "type": "array"
+        },
+        "sides": {
+          "maximum": 64,
+          "minimum": 3,
+          "title": "Sides",
+          "type": "integer"
+        },
+        "circumradius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Circumradius"
+        },
+        "rotation_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "default": 0.0,
+          "title": "Rotation Deg"
+        }
+      },
+      "required": [
+        "type",
+        "center",
+        "sides",
+        "circumradius"
+      ],
+      "title": "RegularPolygonContour",
+      "type": "object"
+    },
     "ResultKind": {
       "enum": [
         "solid_body",
         "face",
         "edge",
-        "sketch"
+        "sketch",
+        "plane"
       ],
       "title": "ResultKind",
       "type": "string"
@@ -617,55 +1483,250 @@
           "type": "string"
         },
         "plane": {
-          "$ref": "#/$defs/SketchPlane"
+          "discriminator": {
+            "mapping": {
+              "base": "#/$defs/SketchOnBasePlane",
+              "datum": "#/$defs/SketchOnDatumPlane",
+              "face": "#/$defs/SketchOnFace"
+            },
+            "propertyName": "on"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SketchOnBasePlane"
+            },
+            {
+              "$ref": "#/$defs/SketchOnDatumPlane"
+            },
+            {
+              "$ref": "#/$defs/SketchOnFace"
+            }
+          ],
+          "title": "Plane"
         },
-        "entities": {
+        "outer": {
+          "discriminator": {
+            "mapping": {
+              "circle": "#/$defs/CircleContour",
+              "path": "#/$defs/PathContour",
+              "rectangle": "#/$defs/RectangleContour",
+              "regular_polygon": "#/$defs/RegularPolygonContour",
+              "slot": "#/$defs/SlotContour"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PathContour"
+            },
+            {
+              "$ref": "#/$defs/CircleContour"
+            },
+            {
+              "$ref": "#/$defs/RectangleContour"
+            },
+            {
+              "$ref": "#/$defs/SlotContour"
+            },
+            {
+              "$ref": "#/$defs/RegularPolygonContour"
+            }
+          ],
+          "title": "Outer"
+        },
+        "inner": {
           "items": {
             "discriminator": {
               "mapping": {
-                "center_rectangle": "#/$defs/CenterRectangle",
-                "circle": "#/$defs/Circle"
+                "circle": "#/$defs/CircleContour",
+                "path": "#/$defs/PathContour",
+                "rectangle": "#/$defs/RectangleContour",
+                "regular_polygon": "#/$defs/RegularPolygonContour",
+                "slot": "#/$defs/SlotContour"
               },
               "propertyName": "type"
             },
             "oneOf": [
               {
-                "$ref": "#/$defs/CenterRectangle"
+                "$ref": "#/$defs/PathContour"
               },
               {
-                "$ref": "#/$defs/Circle"
+                "$ref": "#/$defs/CircleContour"
+              },
+              {
+                "$ref": "#/$defs/RectangleContour"
+              },
+              {
+                "$ref": "#/$defs/SlotContour"
+              },
+              {
+                "$ref": "#/$defs/RegularPolygonContour"
               }
             ]
           },
           "maxItems": 64,
-          "minItems": 1,
-          "title": "Entities",
+          "title": "Inner",
           "type": "array"
         },
-        "expected_closed_contours": {
-          "default": 1,
-          "maximum": 64,
-          "minimum": 0,
-          "title": "Expected Closed Contours",
-          "type": "integer"
+        "construction": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "arc": "#/$defs/ConstructionArc",
+                "circle": "#/$defs/ConstructionCircle",
+                "line": "#/$defs/ConstructionLine",
+                "point": "#/$defs/ConstructionPoint"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ConstructionPoint"
+              },
+              {
+                "$ref": "#/$defs/ConstructionLine"
+              },
+              {
+                "$ref": "#/$defs/ConstructionCircle"
+              },
+              {
+                "$ref": "#/$defs/ConstructionArc"
+              }
+            ]
+          },
+          "maxItems": 64,
+          "title": "Construction",
+          "type": "array"
         }
       },
       "required": [
         "id",
         "plane",
-        "entities"
+        "outer"
       ],
       "title": "Sketch",
       "type": "object"
     },
-    "SketchPlane": {
-      "enum": [
-        "XY",
-        "XZ",
-        "YZ"
+    "SketchOnBasePlane": {
+      "additionalProperties": false,
+      "properties": {
+        "on": {
+          "const": "base",
+          "title": "On",
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/BasePlaneName"
+        }
+      },
+      "required": [
+        "on",
+        "plane"
       ],
-      "title": "SketchPlane",
-      "type": "string"
+      "title": "SketchOnBasePlane",
+      "type": "object"
+    },
+    "SketchOnDatumPlane": {
+      "additionalProperties": false,
+      "description": "A sketch on an auxiliary plane some earlier feature produced.",
+      "properties": {
+        "on": {
+          "const": "datum",
+          "title": "On",
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/ResultRef"
+        }
+      },
+      "required": [
+        "on",
+        "plane"
+      ],
+      "title": "SketchOnDatumPlane",
+      "type": "object"
+    },
+    "SketchOnFace": {
+      "additionalProperties": false,
+      "description": "A sketch on a face of the model, named by what the face means.\n\nThe selector is resolved at build time against the model as it then is. The\ndocument never records which face was chosen, because a face index stops\nmeaning the same thing after the next rebuild — the whole argument of\nADR-019.",
+      "properties": {
+        "on": {
+          "const": "face",
+          "title": "On",
+          "type": "string"
+        },
+        "face": {
+          "$ref": "#/$defs/FaceSelector"
+        }
+      },
+      "required": [
+        "on",
+        "face"
+      ],
+      "title": "SketchOnFace",
+      "type": "object"
+    },
+    "SlotContour": {
+      "additionalProperties": false,
+      "description": "A straight slot: two end-cap centres and the radius that rounds them.",
+      "properties": {
+        "type": {
+          "const": "slot",
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "End",
+          "type": "array"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Radius"
+        }
+      },
+      "required": [
+        "type",
+        "start",
+        "end",
+        "radius"
+      ],
+      "title": "SlotContour",
+      "type": "object"
     },
     "SolidExtrudeFeature": {
       "additionalProperties": false,
@@ -732,7 +1793,7 @@
           "$ref": "#/$defs/Sketch"
         },
         "direction": {
-          "$ref": "#/$defs/Direction"
+          "$ref": "#/$defs/cad_ir__canonical__Direction"
         },
         "distance": {
           "anyOf": [
@@ -806,6 +1867,26 @@
       "title": "SourceRegion",
       "type": "object"
     },
+    "SurfaceType": {
+      "enum": [
+        "planar",
+        "cylindrical",
+        "conical",
+        "spherical",
+        "toroidal"
+      ],
+      "title": "SurfaceType",
+      "type": "string"
+    },
+    "Sweep": {
+      "description": "Which way round an arc goes from its start point to its end point.",
+      "enum": [
+        "ccw",
+        "cw"
+      ],
+      "title": "Sweep",
+      "type": "string"
+    },
     "ThroughHoleCountExpectation": {
       "additionalProperties": false,
       "properties": {
@@ -833,6 +1914,26 @@
       ],
       "title": "ThroughHoleCountExpectation",
       "type": "object"
+    },
+    "cad_ir__canonical__Direction": {
+      "enum": [
+        "+X",
+        "-X",
+        "+Y",
+        "-Y",
+        "+Z",
+        "-Z"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "cad_ir__selectors__Direction": {
+      "enum": [
+        "positive",
+        "negative"
+      ],
+      "title": "Direction",
+      "type": "string"
     }
   },
   "additionalProperties": false,
@@ -844,8 +1945,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.1",
-      "default": "1.1",
+      "const": "1.2",
+      "default": "1.2",
       "title": "Schema Version",
       "type": "string"
     },
@@ -874,6 +1975,7 @@
         "discriminator": {
           "mapping": {
             "cut.extrude": "#/$defs/CutExtrudeFeature",
+            "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
             "solid.extrude": "#/$defs/SolidExtrudeFeature"
           },
           "propertyName": "type"
@@ -884,6 +1986,9 @@
           },
           {
             "$ref": "#/$defs/CutExtrudeFeature"
+          },
+          {
+            "$ref": "#/$defs/DatumPlaneOffsetFeature"
           }
         ]
       },

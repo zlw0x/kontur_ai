@@ -11,6 +11,7 @@ from app.ledger.service import ResourceLedgerService
 from app.workers.artifact_store import LocalArtifactStore
 from app.workers.capabilities import MVP_CAPABILITIES, SOLID_RECTANGULAR_PRISM
 from app.workers.protocol import InMemoryWorkerRepository, WorkerProtocolService
+from cad_ir.canonical import CAD_IR_VERSION
 
 def disposable_ledger() -> ResourceLedgerService:
     engine, sessions = create_session_factory("sqlite://")
@@ -27,7 +28,7 @@ def manifest(**overrides) -> dict:
         "schema_version": "1.0",
         "worker_version": "0.4.0",
         "kompas_version": "22.0",
-        "cad_ir_versions": ["1.1"],
+        "cad_ir_versions": [CAD_IR_VERSION],
         "capabilities": {
             key: {"status": CapabilityStatus.STABLE.value, "version": "1.0"}
             for key in MVP_CAPABILITIES
@@ -57,7 +58,7 @@ def heartbeat(client, headers, worker_id, capability_manifest=None, slots=1):
     body = {
         "worker_id": worker_id,
         "capabilities": ["AI_DRAWING", "KOMPAS_BUILD"],
-        "supported_cad_ir": ["1.1"],
+        "supported_cad_ir": [CAD_IR_VERSION],
         "available_slots": slots,
     }
     if capability_manifest is not None:
@@ -151,7 +152,7 @@ def test_diagnosis_does_not_consume_the_job(monkeypatch, tmp_path):
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
             "capabilities": ["KOMPAS_BUILD"],
-            "supported_cad_ir": ["1.1"],
+            "supported_cad_ir": [CAD_IR_VERSION],
             "available_slots": 1,
             "capability_manifest": manifest(),
         },

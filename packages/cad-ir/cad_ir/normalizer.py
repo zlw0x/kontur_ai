@@ -1,13 +1,18 @@
-"""Lift a 0.1.0 document into the canonical 1.1 form.
+"""Lift an older document into the canonical form.
 
 Normalisation is a translation, not a repair. It renames and restructures what
-0.1.0 already said; it never fills in a value, relaxes a constraint or guesses
-at intent. Anything 1.1 cannot express is a typed `CAD_IR_MIGRATION_FAILED`
-rather than a silent approximation — a migration that quietly drops a recorded
-assumption is worse than one that refuses.
+the older version already said; it never fills in a value, relaxes a constraint
+or guesses at intent. Anything the canonical version cannot express is a typed
+`CAD_IR_MIGRATION_FAILED` rather than a silent approximation — a migration that
+quietly drops a recorded assumption is worse than one that refuses.
+
+Two paths: 0.1.0 and 1.1, both arriving at 1.2. They share the sketch
+translation, because both express exactly the same two shapes — a centred
+rectangle and a circle — and 1.2 turns each of those into a contour.
 
 The original document is kept as an artifact and its hash is recorded in the
-lineage, so nothing 0.1.0 carried is lost even where 1.1 has no slot for it.
+lineage, so nothing an older version carried is lost even where the canonical
+form has no slot for it.
 """
 
 from __future__ import annotations
@@ -31,9 +36,10 @@ from .errors import CadIrValidationError, ValidationIssue
 #: Bumped whenever this translation changes. Two documents normalised by
 #: different versions may differ, and the lineage has to say which produced
 #: the canonical form on file.
-NORMALIZER_VERSION = "1.0"
+NORMALIZER_VERSION = "1.1"
 
 LEGACY_VERSION = "0.1.0"
+PREVIOUS_VERSION = "1.1"
 
 _FEATURE_TYPES = {"extrude_add": "solid.extrude", "extrude_cut": "cut.extrude"}
 
@@ -92,6 +98,8 @@ def normalize(value: dict[str, Any], metadata: DocumentMetadata | None = None) -
         document = validate_canonical(value)
     elif version == LEGACY_VERSION:
         document = validate_canonical(_translate(value, metadata))
+    elif version == PREVIOUS_VERSION:
+        document = validate_canonical(_lift_sketches(value))
     elif version is None:
         raise CadIrValidationError(
             [ValidationIssue("CAD_IR_VERSION_MISSING", "$.schema_version", "the document declares no version")]
@@ -248,18 +256,8 @@ def _result(name: Any, path: str) -> dict[str, str]:
 
 
 def _inputs(legacy_type: str, inputs: dict[str, Any], path: str) -> dict[str, Any]:
-    sketch = _require(inputs, "sketch", path)
-    entities = _require(sketch, "entities", f"{path}.sketch")
     translated: dict[str, Any] = {
-        "sketch": {
-            "id": _require(sketch, "id", f"{path}.sketch"),
-            "plane": _require(sketch, "plane", f"{path}.sketch"),
-            "entities": [
-                _entity(entity, f"{path}.sketch.entities[{index}]")
-                for index, entity in enumerate(entities)
-            ],
-            "expected_closed_contours": int(sketch.get("expected_closed_contours", 1)),
-        },
+        "sketch": _sketch(_require(inputs, "sketch", path), f"{path}.sketch"),
         "direction": _require(inputs, "direction", path),
     }
     if legacy_type == "extrude_add":
@@ -273,24 +271,90 @@ def _inputs(legacy_type: str, inputs: dict[str, Any], path: str) -> dict[str, An
     return translated
 
 
-def _entity(entity: dict[str, Any], path: str) -> dict[str, Any]:
-    entity_type = _require(entity, "type", path)
-    common = {
-        "id": _require(entity, "id", path),
-        "type": entity_type,
-        "center": [
-            _scalar(value, f"{path}.center[{index}]")
-            for index, value in enumerate(_require(entity, "center", path))
-        ],
+def _lift_sketches(value: dict[str, Any]) -> dict[str, Any]:
+    """Restate a 1.1 document's sketches in the 1.2 form.
+
+    Everything else about 1.1 is already canonical, so this rewrites only the
+    sketch: a plane name becomes a plane specification, and the entity list
+    becomes an outer contour.
+    """
+    lifted = dict(value)
+    lifted["schema_version"] = CAD_IR_VERSION
+    features = _require(value, "features", "$")
+    lifted["features"] = [
+        _lift_feature_sketch(feature, index) for index, feature in enumerate(features)
+    ]
+    return lifted
+
+
+def _lift_feature_sketch(feature: Any, index: int) -> dict[str, Any]:
+    path = f"$.features[{index}]"
+    if not isinstance(feature, dict):
+        raise _failed(path, "a feature must be an object")
+    inputs = feature.get("inputs")
+    if not isinstance(inputs, dict) or "sketch" not in inputs:
+        return feature
+    return {
+        **feature,
+        "inputs": {**inputs, "sketch": _sketch(inputs["sketch"], f"{path}.inputs.sketch")},
     }
+
+
+def _sketch(sketch: Any, path: str) -> dict[str, Any]:
+    """Turn a 1.1 or 0.1.0 sketch into a 1.2 one.
+
+    Both older versions express exactly one shape per sketch, so the single
+    entity becomes the outer contour. A sketch carrying several would need this
+    to decide which one is the profile and which are islands, and inferring
+    that from nothing but a list order is precisely the guess normalisation
+    does not make.
+    """
+    entities = _require(sketch, "entities", path)
+    if not isinstance(entities, list) or len(entities) != 1:
+        raise _failed(
+            f"{path}.entities",
+            f"CAD-IR {CAD_IR_VERSION} sketches state one outer contour and its islands; a sketch "
+            f"of {len(entities) if isinstance(entities, list) else '?'} entities does not say which "
+            "is which",
+        )
+    declared_contours = int(sketch.get("expected_closed_contours", 1))
+    if declared_contours != 1:
+        raise _failed(
+            f"{path}.expected_closed_contours",
+            f"the sketch declares {declared_contours} closed contours but carries one entity",
+        )
+    return {
+        "id": _require(sketch, "id", path),
+        "plane": {"on": "base", "plane": _require(sketch, "plane", path)},
+        "outer": _contour(entities[0], f"{path}.entities[0]"),
+    }
+
+
+def _contour(entity: dict[str, Any], path: str) -> dict[str, Any]:
+    """One older sketch entity as a 1.2 contour.
+
+    The entity's `id` has no slot in 1.2 and is dropped. A contour is not
+    referenced by anything — 1.2 has no constraints — so the id was a label
+    rather than a statement about the part.
+    """
+    entity_type = _require(entity, "type", path)
+    center = [
+        _scalar(value, f"{path}.center[{index}]")
+        for index, value in enumerate(_require(entity, "center", path))
+    ]
     if entity_type == "center_rectangle":
         return {
-            **common,
+            "type": "rectangle",
+            "center": center,
             "width": _scalar(_require(entity, "width", path), f"{path}.width"),
             "height": _scalar(_require(entity, "height", path), f"{path}.height"),
         }
     if entity_type == "circle":
-        return {**common, "radius": _scalar(_require(entity, "radius", path), f"{path}.radius")}
+        return {
+            "type": "circle",
+            "center": center,
+            "radius": _scalar(_require(entity, "radius", path), f"{path}.radius"),
+        }
     raise _failed(path, f"CAD-IR {CAD_IR_VERSION} cannot express sketch entity {entity_type!r}")
 
 

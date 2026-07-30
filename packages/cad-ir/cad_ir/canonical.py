@@ -30,28 +30,36 @@ import json
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from .base import (  # re-exported: this is still the one place to read the document from
+    ID_PATTERN,
+    FeatureResult,
+    Id,
+    ParameterRef,
+    Provenance,
+    ResultKind,
+    ResultRef,
+    Scalar,
+    SourceRegion,
+    StrictModel,
+)
+from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.1"
+CAD_IR_VERSION = "1.2"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.1",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.2",)
 
 #: Versions the normalizer can lift into the canonical form.
-MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0",)
-
-#: Readable, stable, lower-case. Random GUIDs would make a repair prompt, a
-#: log line and a diff between two versions of the same part unreadable.
-ID_PATTERN = r"^[a-z][a-z0-9_.-]{1,63}$"
-
-Id = Annotated[str, Field(pattern=ID_PATTERN)]
-
-
-class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
+#:
+#: 1.1 is migratable rather than supported even though 1.2 only adds to it.
+#: One shape reaches the adapter, and a 1.1 document that used a 1.2 sketch
+#: entity would otherwise be accepted — a document lying about its version is
+#: the start of a compatibility problem, not the end of one.
+MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1")
 
 class ParameterType(StrEnum):
     LENGTH = "length"
@@ -81,30 +89,16 @@ class ParameterStatus(StrEnum):
     UNRESOLVED = "unresolved"
 
 
-class ResultKind(StrEnum):
-    SOLID_BODY = "solid_body"
-    FACE = "face"
-    EDGE = "edge"
-    SKETCH = "sketch"
-
-
 class FeatureType(StrEnum):
-    """What version 1.1 can express.
+    """What version 1.2 can express.
 
-    Two entries, because the confirmed geometry is one extrusion and any
-    number of cuts. Adding an operation here is an additive version change
-    that comes with an adapter, a verifier and fixtures — not a widening of
-    this enum on its own.
+    Adding an operation here is an additive version change that comes with an
+    adapter, a verifier and fixtures — not a widening of this enum on its own.
     """
 
     SOLID_EXTRUDE = "solid.extrude"
     CUT_EXTRUDE = "cut.extrude"
-
-
-class SketchPlane(StrEnum):
-    XY = "XY"
-    XZ = "XZ"
-    YZ = "YZ"
+    DATUM_PLANE_OFFSET = "datum.plane.offset"
 
 
 class Direction(StrEnum):
@@ -118,33 +112,6 @@ class Direction(StrEnum):
 
 class PartType(StrEnum):
     SINGLE_PART = "single_part"
-
-
-class SourceRegion(StrictModel):
-    """Where on the drawing a value came from, in normalised page coordinates.
-
-    Optional, and kept out of the geometry: it exists so a wrong dimension can
-    be traced back to the mark that produced it.
-    """
-
-    page: Annotated[int, Field(ge=1)]
-    region: Annotated[list[Annotated[float, Field(ge=0, le=1)]], Field(min_length=4, max_length=4)]
-    label: Annotated[str | None, Field(max_length=200)] = None
-
-
-class Provenance(StrictModel):
-    confidence: Annotated[float, Field(ge=0, le=1)] | None = None
-    source: SourceRegion | None = None
-    note: Annotated[str | None, Field(max_length=300)] = None
-
-
-class ParameterRef(StrictModel):
-    """A reference to a named parameter, the only indirection 1.1 allows."""
-
-    parameter: Id
-
-
-Scalar = Union[float, ParameterRef]
 
 
 class Parameter(StrictModel):
@@ -168,48 +135,6 @@ class Parameter(StrictModel):
         if self.type is ParameterType.BOOLEAN and self.value not in (0, 1):
             raise ValueError("a boolean parameter must be 0 or 1")
         return self
-
-
-class FeatureResult(StrictModel):
-    """Something a feature creates that a later feature may refer to.
-
-    Naming results explicitly is what lets a later operation say "the body the
-    base extrusion made" instead of "whatever the previous feature left
-    behind", which stops meaning the same thing as soon as features are
-    reordered.
-    """
-
-    id: Id
-    kind: ResultKind
-
-
-class ResultRef(StrictModel):
-    result: Id
-
-
-class CenterRectangle(StrictModel):
-    id: Id
-    type: Literal["center_rectangle"]
-    center: Annotated[list[Scalar], Field(min_length=2, max_length=2)]
-    width: Scalar
-    height: Scalar
-
-
-class Circle(StrictModel):
-    id: Id
-    type: Literal["circle"]
-    center: Annotated[list[Scalar], Field(min_length=2, max_length=2)]
-    radius: Scalar
-
-
-SketchEntity = Annotated[Union[CenterRectangle, Circle], Field(discriminator="type")]
-
-
-class Sketch(StrictModel):
-    id: Id
-    plane: SketchPlane
-    entities: Annotated[list[SketchEntity], Field(min_length=1, max_length=64)]
-    expected_closed_contours: Annotated[int, Field(ge=0, le=64)] = 1
 
 
 class SolidExtrudeInputs(StrictModel):
@@ -255,7 +180,33 @@ class CutExtrudeFeature(StrictModel):
     provenance: Provenance | None = None
 
 
-Feature = Annotated[Union[SolidExtrudeFeature, CutExtrudeFeature], Field(discriminator="type")]
+class DatumPlaneOffsetFeature(StrictModel):
+    """An auxiliary plane, so a later sketch has somewhere to sit.
+
+    A feature rather than a `reference_geometry` entry because it depends on
+    other features and other features depend on it, and the dependency graph is
+    the one place that is already stated and checked.
+    """
+
+    id: Id
+    type: Literal[FeatureType.DATUM_PLANE_OFFSET]
+    enabled: bool = True
+    depends_on: Annotated[list[Id], Field(max_length=64)] = Field(default_factory=list)
+    produces: Annotated[list[FeatureResult], Field(min_length=1, max_length=1)]
+    inputs: DatumPlaneOffsetInputs
+    provenance: Provenance | None = None
+
+    @model_validator(mode="after")
+    def validate_result_kind(self) -> "DatumPlaneOffsetFeature":
+        if self.produces[0].kind is not ResultKind.PLANE:
+            raise ValueError("a datum plane feature produces a plane")
+        return self
+
+
+Feature = Annotated[
+    Union[SolidExtrudeFeature, CutExtrudeFeature, DatumPlaneOffsetFeature],
+    Field(discriminator="type"),
+]
 
 
 class Size3(StrictModel):

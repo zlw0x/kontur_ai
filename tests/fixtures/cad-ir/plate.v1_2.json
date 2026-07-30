@@ -33,25 +33,27 @@
           "parameter": "p_depth"
         },
         "sketch": {
-          "entities": [
-            {
-              "center": [
-                0.0,
-                0.0
-              ],
-              "height": {
-                "parameter": "p_height"
-              },
-              "id": "rect_base",
-              "type": "center_rectangle",
-              "width": {
-                "parameter": "p_width"
-              }
-            }
-          ],
-          "expected_closed_contours": 1,
+          "construction": [],
           "id": "sk_base",
-          "plane": "XY"
+          "inner": [],
+          "outer": {
+            "center": [
+              0.0,
+              0.0
+            ],
+            "height": {
+              "parameter": "p_height"
+            },
+            "rotation_deg": 0.0,
+            "type": "rectangle",
+            "width": {
+              "parameter": "p_width"
+            }
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
         }
       },
       "produces": [
@@ -69,7 +71,7 @@
   ],
   "metadata": {
     "generator": "cad-ir-normalizer",
-    "generator_version": "1.0"
+    "generator_version": "1.1"
   },
   "parameters": [
     {
@@ -111,5 +113,5 @@
   ],
   "reference_geometry": [],
   "schema": "cad-ai/cad-ir",
-  "schema_version": "1.1"
+  "schema_version": "1.2"
 }

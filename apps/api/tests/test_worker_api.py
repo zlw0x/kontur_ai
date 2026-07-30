@@ -11,6 +11,7 @@ from app.ledger.service import ResourceLedgerService
 from app.workers.artifact_store import LocalArtifactStore
 from app.workers.capabilities import MVP_CAPABILITIES
 from app.workers.protocol import InMemoryWorkerRepository, Job, WorkerProtocolService
+from cad_ir.canonical import CAD_IR_VERSION
 
 
 app.dependency_overrides = {}
@@ -35,7 +36,7 @@ def mvp_manifest(**overrides) -> dict:
         "schema_version": "1.0",
         "worker_version": "0.4.0",
         "kompas_version": "22.0",
-        "cad_ir_versions": ["1.1"],
+        "cad_ir_versions": [CAD_IR_VERSION],
         "capabilities": {key: CapabilityStatus.STABLE.value for key in MVP_CAPABILITIES},
         **overrides,
     }
@@ -51,11 +52,11 @@ def test_worker_register_heartbeat_and_empty_claim(monkeypatch):
     body = registered.json()
     headers = {"Authorization": f"Bearer {body['credential']}"}
     heartbeat = client.post("/api/v1/workers/heartbeat", headers=headers, json={
-        "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["1.1"], "available_slots": 1
+        "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1
     })
     assert heartbeat.status_code == 204
     claim = client.post("/api/v1/workers/claim", headers=headers, json={
-        "protocol_version": "1.0", "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["1.1"], "available_slots": 1
+        "protocol_version": "1.0", "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1
     })
     assert claim.status_code == 200 and claim.json() == {"protocol_version": "1.0", "job": None, "retry_after_seconds": 5}
 
@@ -64,7 +65,7 @@ def test_worker_api_rejects_bad_enrollment_and_missing_credential(monkeypatch):
     memory_protocol(monkeypatch)
     client = TestClient(app)
     assert client.post("/api/v1/workers/register", json={"enrollment_token": "x" * 32, "worker_name": "bad", "app_version": "0.1"}).status_code == 401
-    assert client.post("/api/v1/workers/claim", json={"protocol_version": "1.0", "worker_id": "123e4567-e89b-12d3-a456-426614174000", "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": ["1.1"], "available_slots": 1}).status_code == 401
+    assert client.post("/api/v1/workers/claim", json={"protocol_version": "1.0", "worker_id": "123e4567-e89b-12d3-a456-426614174000", "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1}).status_code == 401
 
 
 def test_job_heartbeat_and_completion_are_authenticated_and_idempotent(monkeypatch, tmp_path):
@@ -76,8 +77,8 @@ def test_job_heartbeat_and_completion_are_authenticated_and_idempotent(monkeypat
     }).json()
     worker_id, job_id = UUID(registered["worker_id"]), uuid4()
     worker = protocol.repo.workers[worker_id]
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1)
-    protocol.repo.jobs[job_id] = Job(job_id, uuid4(), JobType.BUILD_CAD, "sha256:complete", {WorkerCapability.KOMPAS_BUILD}, "1.1")
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
+    protocol.repo.jobs[job_id] = Job(job_id, uuid4(), JobType.BUILD_CAD, "sha256:complete", {WorkerCapability.KOMPAS_BUILD}, CAD_IR_VERSION)
     assert protocol.claim(worker) is not None
     headers = {"Authorization": f"Bearer {registered['credential']}"}
     heartbeat = client.post(f"/api/v1/workers/jobs/{job_id}/heartbeat", headers=headers, json={
@@ -139,7 +140,7 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
             "capabilities": ["KOMPAS_BUILD"],
-            "supported_cad_ir": ["1.1"],
+            "supported_cad_ir": [CAD_IR_VERSION],
             "available_slots": 1,
             "capability_manifest": mvp_manifest(),
         },
@@ -220,7 +221,7 @@ def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
             "capabilities": ["AI_DRAWING", "KOMPAS_BUILD"],
-            "supported_cad_ir": ["1.1"],
+            "supported_cad_ir": [CAD_IR_VERSION],
             "available_slots": 1,
             "capability_manifest": mvp_manifest(),
         },
@@ -303,14 +304,14 @@ def test_a_manual_submission_is_normalised_and_its_lineage_returned(monkeypatch,
     assert created.status_code == 201
     lineage = created.json()["lineage"]
     assert lineage["original_schema_version"] == "0.1.0"
-    assert lineage["canonical_schema_version"] == "1.1"
+    assert lineage["canonical_schema_version"] == CAD_IR_VERSION
     assert lineage["original_sha256"] != lineage["canonical_sha256"]
     assert lineage["normalizer_version"]
 
     stored = json.loads(
         store.cad_ir(UUID(created.json()["job_id"])).path.read_text(encoding="utf-8")
     )
-    assert stored["schema_version"] == "1.1"
+    assert stored["schema_version"] == CAD_IR_VERSION
     assert stored["features"][0]["type"] == "solid.extrude"
 
 

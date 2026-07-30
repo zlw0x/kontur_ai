@@ -32,7 +32,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import Field, model_validator
 
-from .canonical import Id, StrictModel
+from .base import Id, StrictModel
 
 
 class SelectorKind(StrEnum):

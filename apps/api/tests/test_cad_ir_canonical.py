@@ -36,16 +36,13 @@ def document(**overrides) -> dict:
                 "inputs": {
                     "sketch": {
                         "id": "sketch.base",
-                        "plane": "XY",
-                        "entities": [
-                            {
-                                "id": "rect.base",
-                                "type": "center_rectangle",
-                                "center": [0.0, 0.0],
-                                "width": {"parameter": "param.width"},
-                                "height": 30.0,
-                            }
-                        ],
+                        "plane": {"on": "base", "plane": "XY"},
+                        "outer": {
+                            "type": "rectangle",
+                            "center": [0.0, 0.0],
+                            "width": {"parameter": "param.width"},
+                            "height": 30.0,
+                        },
                     },
                     "direction": "+Z",
                     "distance": {"parameter": "param.depth"},
@@ -68,7 +65,7 @@ def test_a_document_declares_its_own_schema_and_version():
 
 def test_a_future_version_is_refused_rather_than_read_optimistically():
     with pytest.raises(ValidationError):
-        CadIrDocument(**document(schema_version="1.2"))
+        CadIrDocument(**document(schema_version="1.3"))
     with pytest.raises(ValidationError):
         CadIrDocument(**document(schema_version="0.1.0"))
     with pytest.raises(ValidationError):
@@ -147,7 +144,7 @@ def test_a_parameter_must_carry_the_canonical_unit_for_its_type():
 
     fine = document()
     fine["parameters"][0] = {"id": "param.angle", "type": "angle", "value": 45.0, "unit": "deg"}
-    fine["features"][0]["inputs"]["sketch"]["entities"][0]["width"] = 60.0
+    fine["features"][0]["inputs"]["sketch"]["outer"]["width"] = 60.0
     assert CadIrDocument(**fine).parameters[0].unit == "deg"
 
 
@@ -191,10 +188,8 @@ def test_a_cut_must_say_how_deep_it_goes_exactly_once():
                 "inputs": {
                     "sketch": {
                         "id": "sketch.hole",
-                        "plane": "XY",
-                        "entities": [
-                            {"id": "circle.hole", "type": "circle", "center": [0.0, 0.0], "radius": 2.5}
-                        ],
+                        "plane": {"on": "base", "plane": "XY"},
+                        "outer": {"type": "circle", "center": [0.0, 0.0], "radius": 2.5},
                     },
                     "direction": "+Z",
                     **inputs,

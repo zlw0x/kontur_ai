@@ -42,9 +42,9 @@ def test_the_existing_fixtures_migrate_without_changing_the_part():
     assert document.features[1].depends_on == ["f_base"]
     assert document.features[1].inputs.through_all is True
 
-    rectangle = document.features[0].inputs.sketch.entities[0]
+    rectangle = document.features[0].inputs.sketch.outer
     assert rectangle.width.parameter == "p_width"
-    circle = document.features[1].inputs.sketch.entities[0]
+    circle = document.features[1].inputs.sketch.outer
     assert circle.radius.parameter == "p_hole_radius"
 
     expectations = {item.type: item for item in document.expectations}

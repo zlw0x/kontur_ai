@@ -20,16 +20,13 @@ def base_feature(**overrides) -> dict:
         "inputs": {
             "sketch": {
                 "id": "sketch.base",
-                "plane": "XY",
-                "entities": [
-                    {
-                        "id": "rect.base",
-                        "type": "center_rectangle",
-                        "center": [0.0, 0.0],
-                        "width": {"parameter": "param.width"},
-                        "height": 30.0,
-                    }
-                ],
+                "plane": {"on": "base", "plane": "XY"},
+                "outer": {
+                    "type": "rectangle",
+                    "center": [0.0, 0.0],
+                    "width": {"parameter": "param.width"},
+                    "height": 30.0,
+                },
             },
             "direction": "+Z",
             "distance": 8.0,
@@ -47,10 +44,8 @@ def cut_feature(**overrides) -> dict:
         "inputs": {
             "sketch": {
                 "id": "sketch.hole",
-                "plane": "XY",
-                "entities": [
-                    {"id": "circle.hole", "type": "circle", "center": [0.0, 0.0], "radius": 2.5}
-                ],
+                "plane": {"on": "base", "plane": "XY"},
+                "outer": {"type": "circle", "center": [0.0, 0.0], "radius": 2.5},
             },
             "direction": "+Z",
             "through_all": True,
@@ -107,7 +102,7 @@ def test_a_document_with_no_version_is_rejected_before_anything_is_read():
 def test_a_newer_version_is_named_as_such_rather_than_called_invalid():
     """A build from the future may use a field this one would silently ignore.
     "Too new" tells an operator to upgrade; "invalid" sends them hunting."""
-    assert codes(lambda: validate_canonical(document(schema_version="1.2"))) == {
+    assert codes(lambda: validate_canonical(document(schema_version="1.3"))) == {
         "CAD_IR_VERSION_TOO_NEW"
     }
     assert codes(lambda: validate_canonical(document(schema_version="2.0"))) == {

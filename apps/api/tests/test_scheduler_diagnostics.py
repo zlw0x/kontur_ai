@@ -29,6 +29,7 @@ from app.workers.capabilities import (
 )
 from app.workers.diagnostics import SchedulerDiagnostics
 from app.workers.protocol import InMemoryWorkerRepository, Job, WorkerProtocolService
+from cad_ir.canonical import CAD_IR_VERSION
 
 ENROLLMENT = "local-development-enrollment-token-change-me"
 NOW = datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc)
@@ -46,7 +47,7 @@ def manifest(statuses=None, versions=None) -> WorkerCapabilityManifest:
     versions = versions or {}
     return WorkerCapabilityManifest(
         worker_version="0.4.0",
-        cad_ir_versions=["1.1"],
+        cad_ir_versions=[CAD_IR_VERSION],
         capabilities={
             key: {
                 "status": (statuses or {}).get(key, CapabilityStatus.STABLE),
@@ -64,7 +65,7 @@ def build_job() -> Job:
         JobType.BUILD_CAD,
         f"sha256:{uuid4()}",
         {WorkerCapability.KOMPAS_BUILD},
-        "1.1",
+        CAD_IR_VERSION,
         required_capability_keys(JobType.BUILD_CAD),
     )
 
@@ -146,7 +147,7 @@ def test_a_worker_that_never_heartbeats_is_not_counted_as_online():
 
 def test_a_worker_that_stopped_heartbeating_goes_stale():
     protocol, worker, diagnostics, clock = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
     job = build_job()
     protocol.enqueue(job)
     assert diagnostics.report(job).claimability is ClaimabilityStatus.CLAIMABLE
@@ -162,7 +163,7 @@ def test_a_worker_that_stopped_heartbeating_goes_stale():
 def test_an_old_worker_without_a_manifest_is_named_precisely():
     """The exact case the capability gate created and left invisible."""
     protocol, worker, diagnostics, _ = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1)
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
     job = build_job()
     protocol.enqueue(job)
 
@@ -181,7 +182,7 @@ def test_an_unsupported_capability_names_the_capability():
     protocol, worker, diagnostics, _ = fixture()
     incomplete = manifest()
     incomplete.capabilities.pop(SOLID_RECTANGULAR_PRISM)
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, incomplete)
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, incomplete)
     job = build_job()
     protocol.enqueue(job)
 
@@ -196,7 +197,7 @@ def test_experimental_only_is_distinguished_from_unsupported():
     protocol.heartbeat(
         worker,
         [WorkerCapability.KOMPAS_BUILD],
-        ["1.1"],
+        [CAD_IR_VERSION],
         1,
         manifest(statuses={SOLID_RECTANGULAR_PRISM: CapabilityStatus.EXPERIMENTAL}),
     )
@@ -218,7 +219,7 @@ def test_an_outdated_capability_version_is_its_own_reason():
     protocol.heartbeat(
         worker,
         [WorkerCapability.KOMPAS_BUILD],
-        ["1.1"],
+        [CAD_IR_VERSION],
         1,
         manifest(versions={SOLID_RECTANGULAR_PRISM: "1.0"}),
     )
@@ -241,7 +242,7 @@ def test_an_outdated_capability_version_is_its_own_reason():
 
 def test_an_old_worker_build_is_rejected_before_its_capabilities_are_read():
     protocol, worker, diagnostics, _ = fixture(app_version="0.2.0")
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
     job = build_job()
     protocol.enqueue(job)
 
@@ -252,7 +253,7 @@ def test_an_old_worker_build_is_rejected_before_its_capabilities_are_read():
 
 def test_a_busy_but_capable_worker_reports_capacity_not_incapability():
     protocol, worker, diagnostics, _ = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 0, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 0, manifest())
     job = build_job()
     protocol.enqueue(job)
 
@@ -264,7 +265,7 @@ def test_a_busy_but_capable_worker_reports_capacity_not_incapability():
 
 def test_a_job_requiring_unknown_vocabulary_blames_the_job_not_the_fleet():
     protocol, worker, diagnostics, _ = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
     job = build_job()
     job.required_capability_keys = ["surface.loft"]
     protocol.enqueue(job)
@@ -278,13 +279,13 @@ def test_a_job_requiring_unknown_vocabulary_blames_the_job_not_the_fleet():
 
 def test_publishing_a_compatible_manifest_unblocks_without_touching_the_job():
     protocol, worker, diagnostics, _ = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1)
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
     job = build_job()
     protocol.enqueue(job)
     before = diagnostics.report(job)
     assert before.claimability is ClaimabilityStatus.BLOCKED
 
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
 
     after = diagnostics.report(job)
     assert after.claimability is ClaimabilityStatus.CLAIMABLE
@@ -300,8 +301,8 @@ def test_one_capable_worker_makes_the_job_claimable_despite_an_incapable_peer():
     incapable, _ = protocol.register(
         enrollment_token=ENROLLMENT, worker_name="old-pc", app_version="0.4.0"
     )
-    protocol.heartbeat(capable, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
-    protocol.heartbeat(incapable, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1)
+    protocol.heartbeat(capable, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
+    protocol.heartbeat(incapable, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
     job = build_job()
     protocol.enqueue(job)
 
@@ -315,7 +316,7 @@ def test_one_capable_worker_makes_the_job_claimable_despite_an_incapable_peer():
 
 def test_a_leased_job_is_in_progress_rather_than_blocked():
     protocol, worker, diagnostics, _ = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
     job = build_job()
     protocol.enqueue(job)
     protocol.claim(worker)
@@ -329,7 +330,7 @@ def test_a_leased_job_is_in_progress_rather_than_blocked():
 
 def test_a_completed_job_is_settled():
     protocol, worker, diagnostics, _ = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
     job = build_job()
     protocol.enqueue(job)
     protocol.claim(worker)
@@ -340,7 +341,7 @@ def test_a_completed_job_is_settled():
 
 def test_diagnosing_a_job_never_leases_or_mutates_it():
     protocol, worker, diagnostics, _ = fixture()
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1, manifest())
+    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
     job = build_job()
     protocol.enqueue(job)
 

@@ -1,80 +1,57 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/1.1",
-  "title": "CAD-IR 1.1, narrowed to the geometry this build can construct",
-  "description": "A subset of the canonical CAD-IR schema, expressed in the dialect the Codex structured-output API accepts: anyOf rather than oneOf, and no contains family. The canonical schema says what version 1.1 can express; this says what the KOMPAS adapter can actually build, so the model is constrained at generation time instead of being corrected by a repair loop. Semantics the dialect cannot state — exactly one solid body, for instance — are enforced by the trusted validator.",
+  "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/1.2",
+  "title": "CAD-IR 1.2, narrowed to the geometry this build can construct",
+  "description": "A subset of the canonical CAD-IR schema, expressed in the dialect the Codex structured-output API accepts: anyOf rather than oneOf, every node typed, every array with items, and every object listing all of its properties as required. The canonical schema says what version 1.2 can express; this says what may be generated, so the model is constrained at generation time instead of being corrected by a repair loop. Auxiliary planes and face selectors are part of 1.2 but not offered here: a selector's predicates are individually optional, and a dialect without optional properties would force the model to emit predicates the trusted validator rejects. Semantics the dialect cannot state — that a contour closes, for instance — are enforced by the adapter before anything reaches KOMPAS.",
   "type": "object",
-  "required": [
-    "document",
-    "expectations",
-    "features",
-    "metadata",
-    "parameters",
-    "reference_geometry",
-    "schema",
-    "schema_version"
-  ],
-  "additionalProperties": false,
   "properties": {
     "schema": {
-      "const": "cad-ai/cad-ir",
-      "type": "string"
+      "type": "string",
+      "const": "cad-ai/cad-ir"
     },
     "schema_version": {
-      "const": "1.1",
-      "type": "string"
+      "type": "string",
+      "const": "1.2"
     },
     "document": {
       "type": "object",
+      "properties": {
+        "units": {
+          "type": "string",
+          "const": "mm"
+        },
+        "part_type": {
+          "type": "string",
+          "const": "single_part"
+        },
+        "coordinate_system": {
+          "type": "string",
+          "const": "right_handed"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        }
+      },
       "required": [
         "coordinate_system",
         "name",
         "part_type",
         "units"
       ],
-      "additionalProperties": false,
-      "properties": {
-        "units": {
-          "const": "mm",
-          "type": "string"
-        },
-        "part_type": {
-          "const": "single_part",
-          "type": "string"
-        },
-        "coordinate_system": {
-          "const": "right_handed",
-          "type": "string"
-        },
-        "name": {
-          "type": "string",
-          "maxLength": 100
-        }
-      }
+      "additionalProperties": false
     },
     "parameters": {
       "type": "array",
-      "minItems": 1,
-      "maxItems": 64,
       "items": {
         "type": "object",
-        "required": [
-          "id",
-          "name",
-          "provenance",
-          "status",
-          "type",
-          "unit",
-          "value"
-        ],
-        "additionalProperties": false,
         "properties": {
           "id": {
             "$ref": "#/$defs/identifier"
           },
           "type": {
-            "const": "length",
-            "type": "string"
+            "type": "string",
+            "const": "length"
           },
           "value": {
             "type": "number",
@@ -82,21 +59,21 @@
             "maximum": 1000000
           },
           "unit": {
-            "const": "mm",
-            "type": "string"
+            "type": "string",
+            "const": "mm"
           },
           "name": {
             "type": "string",
             "maxLength": 100
           },
           "status": {
+            "type": "string",
             "enum": [
               "confirmed",
               "user_confirmed",
               "inferred",
               "assumed"
-            ],
-            "type": "string"
+            ]
           },
           "provenance": {
             "type": "object",
@@ -112,114 +89,64 @@
             ],
             "additionalProperties": false
           }
-        }
-      }
+        },
+        "required": [
+          "id",
+          "name",
+          "provenance",
+          "status",
+          "type",
+          "unit",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "maxItems": 64
     },
     "features": {
       "type": "array",
-      "minItems": 1,
-      "maxItems": 20,
       "items": {
         "anyOf": [
           {
             "$ref": "#/$defs/base_extrusion"
           },
           {
-            "$ref": "#/$defs/circular_cut"
+            "$ref": "#/$defs/cut_extrusion"
           }
         ]
-      }
+      },
+      "minItems": 1,
+      "maxItems": 20
     },
     "expectations": {
       "type": "array",
-      "minItems": 2,
-      "maxItems": 8,
       "items": {
         "anyOf": [
           {
-            "type": "object",
-            "required": [
-              "id",
-              "size_mm",
-              "tolerance_mm",
-              "type"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/identifier"
-              },
-              "type": {
-                "const": "bounding_box",
-                "type": "string"
-              },
-              "size_mm": {
-                "type": "object",
-                "required": [
-                  "x",
-                  "y",
-                  "z"
-                ],
-                "additionalProperties": false,
-                "properties": {
-                  "x": {
-                    "type": "number",
-                    "exclusiveMinimum": 0
-                  },
-                  "y": {
-                    "type": "number",
-                    "exclusiveMinimum": 0
-                  },
-                  "z": {
-                    "type": "number",
-                    "exclusiveMinimum": 0
-                  }
-                }
-              },
-              "tolerance_mm": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
-              }
-            }
+            "$ref": "#/$defs/bounding_box_expectation"
           },
           {
-            "type": "object",
-            "required": [
-              "id",
-              "type",
-              "value"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/identifier"
-              },
-              "type": {
-                "enum": [
-                  "body_count",
-                  "through_hole_count"
-                ],
-                "type": "string"
-              },
-              "value": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 1000
-              }
-            }
+            "$ref": "#/$defs/count_expectation"
           }
         ]
-      }
+      },
+      "minItems": 2,
+      "maxItems": 8
+    },
+    "reference_geometry": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "minItems": 0,
+      "maxItems": 0
     },
     "metadata": {
       "type": "object",
-      "required": [
-        "generator",
-        "generator_version",
-        "prompt_version"
-      ],
-      "additionalProperties": false,
       "properties": {
         "generator": {
           "type": "string",
@@ -233,19 +160,26 @@
           "type": "string",
           "maxLength": 50
         }
-      }
-    },
-    "reference_geometry": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-        "additionalProperties": false
       },
-      "maxItems": 0
+      "required": [
+        "generator",
+        "generator_version",
+        "prompt_version"
+      ],
+      "additionalProperties": false
     }
   },
+  "required": [
+    "document",
+    "expectations",
+    "features",
+    "metadata",
+    "parameters",
+    "reference_geometry",
+    "schema",
+    "schema_version"
+  ],
+  "additionalProperties": false,
   "$defs": {
     "identifier": {
       "type": "string",
@@ -260,39 +194,385 @@
         },
         {
           "type": "object",
-          "required": [
-            "parameter"
-          ],
-          "additionalProperties": false,
           "properties": {
             "parameter": {
               "$ref": "#/$defs/identifier"
             }
-          }
+          },
+          "required": [
+            "parameter"
+          ],
+          "additionalProperties": false
         }
       ]
     },
-    "base_extrusion": {
+    "point": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scalar"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "line_segment": {
       "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "line"
+        },
+        "start": {
+          "$ref": "#/$defs/point"
+        },
+        "end": {
+          "$ref": "#/$defs/point"
+        }
+      },
       "required": [
-        "depends_on",
-        "enabled",
-        "id",
-        "inputs",
-        "produces",
+        "end",
+        "start",
         "type"
       ],
-      "additionalProperties": false,
+      "additionalProperties": false
+    },
+    "arc_segment": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "arc"
+        },
+        "start": {
+          "$ref": "#/$defs/point"
+        },
+        "end": {
+          "$ref": "#/$defs/point"
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "sweep": {
+          "type": "string",
+          "enum": [
+            "ccw",
+            "cw"
+          ]
+        }
+      },
+      "required": [
+        "center",
+        "end",
+        "start",
+        "sweep",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "path_segment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/line_segment"
+        },
+        {
+          "$ref": "#/$defs/arc_segment"
+        }
+      ]
+    },
+    "path_contour": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "path"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path_segment"
+          },
+          "minItems": 2,
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "segments",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "circle_contour": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "circle"
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "radius": {
+          "$ref": "#/$defs/scalar"
+        }
+      },
+      "required": [
+        "center",
+        "radius",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "rectangle_contour": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "rectangle"
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "width": {
+          "$ref": "#/$defs/scalar"
+        },
+        "height": {
+          "$ref": "#/$defs/scalar"
+        },
+        "rotation_deg": {
+          "$ref": "#/$defs/scalar"
+        }
+      },
+      "required": [
+        "center",
+        "height",
+        "rotation_deg",
+        "type",
+        "width"
+      ],
+      "additionalProperties": false
+    },
+    "slot_contour": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "slot"
+        },
+        "start": {
+          "$ref": "#/$defs/point"
+        },
+        "end": {
+          "$ref": "#/$defs/point"
+        },
+        "radius": {
+          "$ref": "#/$defs/scalar"
+        }
+      },
+      "required": [
+        "end",
+        "radius",
+        "start",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "regular_polygon_contour": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "regular_polygon"
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "sides": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 64
+        },
+        "circumradius": {
+          "$ref": "#/$defs/scalar"
+        },
+        "rotation_deg": {
+          "$ref": "#/$defs/scalar"
+        }
+      },
+      "required": [
+        "center",
+        "circumradius",
+        "rotation_deg",
+        "sides",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "contour": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/path_contour"
+        },
+        {
+          "$ref": "#/$defs/circle_contour"
+        },
+        {
+          "$ref": "#/$defs/rectangle_contour"
+        },
+        {
+          "$ref": "#/$defs/slot_contour"
+        },
+        {
+          "$ref": "#/$defs/regular_polygon_contour"
+        }
+      ]
+    },
+    "construction_point": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "point"
+        },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "at": {
+          "$ref": "#/$defs/point"
+        }
+      },
+      "required": [
+        "at",
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "construction_line": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "line"
+        },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "start": {
+          "$ref": "#/$defs/point"
+        },
+        "end": {
+          "$ref": "#/$defs/point"
+        }
+      },
+      "required": [
+        "end",
+        "id",
+        "start",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "construction_circle": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "circle"
+        },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "center": {
+          "$ref": "#/$defs/point"
+        },
+        "radius": {
+          "$ref": "#/$defs/scalar"
+        }
+      },
+      "required": [
+        "center",
+        "id",
+        "radius",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "construction_entity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/construction_point"
+        },
+        {
+          "$ref": "#/$defs/construction_line"
+        },
+        {
+          "$ref": "#/$defs/construction_circle"
+        }
+      ]
+    },
+    "sketch": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "plane": {
+          "type": "object",
+          "properties": {
+            "on": {
+              "type": "string",
+              "const": "base"
+            },
+            "plane": {
+              "type": "string",
+              "const": "XY"
+            }
+          },
+          "required": [
+            "on",
+            "plane"
+          ],
+          "additionalProperties": false
+        },
+        "outer": {
+          "$ref": "#/$defs/contour"
+        },
+        "inner": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contour"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "construction": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/construction_entity"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "construction",
+        "id",
+        "inner",
+        "outer",
+        "plane"
+      ],
+      "additionalProperties": false
+    },
+    "base_extrusion": {
+      "type": "object",
       "properties": {
         "id": {
           "$ref": "#/$defs/identifier"
         },
         "type": {
-          "const": "solid.extrude",
-          "type": "string"
+          "type": "string",
+          "const": "solid.extrude"
         },
         "enabled": {
-          "const": true,
           "type": "boolean"
         },
         "depends_on": {
@@ -300,117 +580,53 @@
           "items": {
             "$ref": "#/$defs/identifier"
           },
+          "minItems": 0,
           "maxItems": 0
         },
         "produces": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 4,
           "items": {
             "type": "object",
-            "required": [
-              "id",
-              "kind"
-            ],
-            "additionalProperties": false,
             "properties": {
               "id": {
                 "$ref": "#/$defs/identifier"
               },
               "kind": {
-                "enum": [
-                  "solid_body",
-                  "face"
-                ],
-                "type": "string"
+                "type": "string",
+                "const": "solid_body"
               }
-            }
-          }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 1
         },
         "inputs": {
           "type": "object",
+          "properties": {
+            "sketch": {
+              "$ref": "#/$defs/sketch"
+            },
+            "direction": {
+              "type": "string",
+              "const": "+Z"
+            },
+            "distance": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
           "required": [
             "direction",
             "distance",
             "sketch"
           ],
-          "additionalProperties": false,
-          "properties": {
-            "direction": {
-              "const": "+Z",
-              "type": "string"
-            },
-            "distance": {
-              "$ref": "#/$defs/scalar"
-            },
-            "sketch": {
-              "type": "object",
-              "required": [
-                "entities",
-                "expected_closed_contours",
-                "id",
-                "plane"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "id": {
-                  "$ref": "#/$defs/identifier"
-                },
-                "plane": {
-                  "const": "XY",
-                  "type": "string"
-                },
-                "expected_closed_contours": {
-                  "const": 1,
-                  "type": "integer"
-                },
-                "entities": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 1,
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "center",
-                      "height",
-                      "id",
-                      "type",
-                      "width"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "id": {
-                        "$ref": "#/$defs/identifier"
-                      },
-                      "type": {
-                        "const": "center_rectangle",
-                        "type": "string"
-                      },
-                      "center": {
-                        "type": "array",
-                        "minItems": 2,
-                        "maxItems": 2,
-                        "items": {
-                          "$ref": "#/$defs/scalar"
-                        }
-                      },
-                      "width": {
-                        "$ref": "#/$defs/scalar"
-                      },
-                      "height": {
-                        "$ref": "#/$defs/scalar"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
+          "additionalProperties": false
         }
-      }
-    },
-    "circular_cut": {
-      "type": "object",
+      },
       "required": [
         "depends_on",
         "enabled",
@@ -419,26 +635,28 @@
         "produces",
         "type"
       ],
-      "additionalProperties": false,
+      "additionalProperties": false
+    },
+    "cut_extrusion": {
+      "type": "object",
       "properties": {
         "id": {
           "$ref": "#/$defs/identifier"
         },
         "type": {
-          "const": "cut.extrude",
-          "type": "string"
+          "type": "string",
+          "const": "cut.extrude"
         },
         "enabled": {
-          "const": true,
           "type": "boolean"
         },
         "depends_on": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 1,
           "items": {
             "$ref": "#/$defs/identifier"
-          }
+          },
+          "minItems": 1,
+          "maxItems": 8
         },
         "produces": {
           "type": "array",
@@ -459,99 +677,127 @@
             ],
             "additionalProperties": false
           },
-          "maxItems": 4
+          "minItems": 0,
+          "maxItems": 0
         },
         "inputs": {
           "type": "object",
+          "properties": {
+            "sketch": {
+              "$ref": "#/$defs/sketch"
+            },
+            "direction": {
+              "type": "string",
+              "const": "+Z"
+            },
+            "through_all": {
+              "type": "boolean",
+              "const": true
+            },
+            "source_body": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/$defs/identifier"
+                }
+              },
+              "required": [
+                "result"
+              ],
+              "additionalProperties": false
+            }
+          },
           "required": [
             "direction",
             "sketch",
             "source_body",
             "through_all"
           ],
-          "additionalProperties": false,
-          "properties": {
-            "direction": {
-              "const": "+Z",
-              "type": "string"
-            },
-            "through_all": {
-              "const": true,
-              "type": "boolean"
-            },
-            "source_body": {
-              "type": "object",
-              "required": [
-                "result"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "result": {
-                  "$ref": "#/$defs/identifier"
-                }
-              }
-            },
-            "sketch": {
-              "type": "object",
-              "required": [
-                "entities",
-                "expected_closed_contours",
-                "id",
-                "plane"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "id": {
-                  "$ref": "#/$defs/identifier"
-                },
-                "plane": {
-                  "const": "XY",
-                  "type": "string"
-                },
-                "expected_closed_contours": {
-                  "const": 1,
-                  "type": "integer"
-                },
-                "entities": {
-                  "type": "array",
-                  "minItems": 1,
-                  "maxItems": 1,
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "center",
-                      "id",
-                      "radius",
-                      "type"
-                    ],
-                    "additionalProperties": false,
-                    "properties": {
-                      "id": {
-                        "$ref": "#/$defs/identifier"
-                      },
-                      "type": {
-                        "const": "circle",
-                        "type": "string"
-                      },
-                      "center": {
-                        "type": "array",
-                        "minItems": 2,
-                        "maxItems": 2,
-                        "items": {
-                          "$ref": "#/$defs/scalar"
-                        }
-                      },
-                      "radius": {
-                        "$ref": "#/$defs/scalar"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
+          "additionalProperties": false
         }
-      }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "bounding_box_expectation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "bounding_box"
+        },
+        "size_mm": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "y": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "z": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "z"
+          ],
+          "additionalProperties": false
+        },
+        "tolerance_mm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "id",
+        "size_mm",
+        "tolerance_mm",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "count_expectation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "body_count",
+            "through_hole_count"
+          ]
+        },
+        "value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "value"
+      ],
+      "additionalProperties": false
     }
   }
 }
