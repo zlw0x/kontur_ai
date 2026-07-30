@@ -179,5 +179,8 @@ what was measured.
 - Auxiliary planes and face selectors are not offered to Codex, for the dialect
   reason above. Both reach the adapter through the manual API.
 - Only the offset auxiliary plane is built. `Planes3D.Add(15)` and `Add(16)` are
-  confirmed present and unused.
+  confirmed present and unused. **Superseded by ADR-023**: these are COM
+  constants that mean nothing to another kernel, and the engine is moving to
+  build123d. Angled planes and planes through three points are re-scoped against
+  the new engine rather than identified against this one.
 - Constraints, dimensions and auto-parameterisation are POSTMVP-007, as planned.

@@ -637,19 +637,50 @@ Calibrated pricing, payments, quotas, support workflow, manual review, monitorin
 
 ## 8. Первые задачи
 
-1. POSTMVP-001 Resource Ledger
-2. POSTMVP-002 Cost Engine
-3. POSTMVP-003 Capability Registry
-4. POSTMVP-004 CAD-IR v1.1
-5. POSTMVP-005 Semantic Selectors
-6. POSTMVP-006 Sketch Primitives
-7. POSTMVP-007 Sketch Constraints
-8. POSTMVP-008 Revolve
-9. POSTMVP-009 Fillet/Chamfer
-10. POSTMVP-010 Patterns/Mirror
-11. POSTMVP-011 Hole Families
-12. POSTMVP-012 Boolean/Multi-body
-13. POSTMVP-013 P2 Golden Corpus
-14. POSTMVP-014 P2 Reliability Gate
+1. POSTMVP-001 Resource Ledger — сделано
+2. POSTMVP-002 Cost Engine — сделано
+3. POSTMVP-003 Capability Registry — сделано
+4. POSTMVP-004 CAD-IR v1.1 — сделано
+5. POSTMVP-005 Semantic Selectors — сделано
+6. POSTMVP-006 Sketch Primitives — сделано
+7. POSTMVP-007 Sketch Constraints — сделано
+8. POSTMVP-008 Revolve — **не начат на КОМПАС, перенесён на build123d** (ENGINE-MIG-006)
+9. POSTMVP-009 Fillet/Chamfer — superseded, делается после миграции
+10. POSTMVP-010 Patterns/Mirror — superseded, делается после миграции
+11. POSTMVP-011 Hole Families — superseded, делается после миграции
+12. POSTMVP-012 Boolean/Multi-body — superseded, делается после миграции
+13. POSTMVP-013 P2 Golden Corpus — после миграции
+14. POSTMVP-014 P2 Reliability Gate — после миграции
 
 Не объединять весь список в один Codex run.
+
+## 9. Смена движка
+
+Пункты 9–14 выше **отменены в том виде, в каком они написаны**: они
+предполагают КОМПАС. Движок переходит на build123d/OpenCascade —
+`docs/adr/ADR-023-build123d-replaces-kompas.md`.
+
+Причина не в адаптере, который работает, а в том, чего он требует: Windows,
+лицензия на каждую машину, GUI-приложение, которым управляют из программы, и
+константы, которые можно узнать только измерением, потому что библиотеки типов
+не экспортируют ни одного перечисления.
+
+Порядок работ — ENGINE-MIG-001 … 008:
+
+1. **ENGINE-MIG-001** — ADR, отказ от КОМПАС и M3D, обновление документов.
+2. **ENGINE-MIG-002** — нейтральные контракты движка, `packages/cad-engine-contracts`.
+3. **ENGINE-MIG-003** — доверенный build123d worker на Linux, в контейнере.
+4. **ENGINE-MIG-004** — ограничения и селекторы на новой модели топологии.
+5. **ENGINE-MIG-005** — независимая проверка STEP и STL после экспорта.
+6. **ENGINE-MIG-006** — паритет на существующих фикстурах, плюс revolve.
+7. **ENGINE-MIG-007** — интеграция сервиса с новым worker.
+8. **ENGINE-MIG-008** — переключение и удаление КОМПАС.
+
+Реализация КОМПАС удаляется только на последнем шаге и только после приёмки
+предыдущих: удалять единственный работающий движок до того, как замена
+доказана, — это способ превратить миграцию в простой.
+
+После миграции операции возобновляются уже на build123d, в прежнем порядке:
+fillet/chamfer, patterns/mirror, hole families, boolean/multi-body, golden
+corpus, reliability gate; sweep/loft/shell — отдельными задачами после
+стабилизации базовых операций.
