@@ -1,4 +1,4 @@
-﻿"""Build a CAD-IR document with build123d, and export STEP and STL.
+"""Build a CAD-IR document with build123d, and export STEP and STL.
 
 The trust boundary is unchanged from the KOMPAS era and is the whole reason the
 engine could be replaced at all: the AI writes a document, a versioned schema and
@@ -30,6 +30,8 @@ from .constraints import DegreesOfFreedom, validate
 from .entities import named_entities
 from .errors import CadEngineError, unsupported
 from .parameters import Parameters
+from .selectors import require_one, resolve_faces
+from .topology import read_faces
 from .identity import ARTIFACTS, EngineDescription, describe
 from .sketches import sketch_face
 
@@ -112,7 +114,7 @@ def _extrude_feature(feature, part, planes: dict[str, Plane], params):
     sketch = feature.inputs.sketch
     _check_assertions(sketch, params)
 
-    plane = _sketch_plane(sketch.plane, planes)
+    plane = _sketch_plane(sketch.plane, planes, part)
     face = sketch_face(sketch.outer, list(sketch.inner), params)
 
     is_cut = isinstance(feature, CutExtrudeFeature)
@@ -133,7 +135,7 @@ def _extrude_feature(feature, part, planes: dict[str, Plane], params):
         # body rather than given a large constant. A constant would be wrong in
         # both directions at once: too small for a big part, and for a small one
         # a tool reaching far past it that a later operation could still meet.
-        solid = _through_all_tool(placed, part)
+        solid = _through_all_tool(placed, part, plane)
     else:
         distance = params.resolve(feature.inputs.distance, f"{feature.id} distance")
         if distance <= 0:
@@ -142,11 +144,28 @@ def _extrude_feature(feature, part, planes: dict[str, Plane], params):
                 "feature",
                 "An extrusion distance must be positive.",
             )
-        solid = extrude(placed, amount=distance * _sense(feature, plane))
+        # Along the *plane's* normal, stated outright. Left to itself `extrude`
+        # travels along the face's own normal, and which way that points depends
+        # on how the contour happened to be wound — so the same document built a
+        # stadium plate downwards and a hexagon hub upwards, leaving two solids
+        # 8 mm apart that should have been one. The document says which way; the
+        # winding of a wire is not the document.
+        solid = extrude(
+            placed, amount=distance * _sense(feature, plane), dir=plane.z_dir
+        )
 
     if part is None:
         return solid
-    return part - solid if is_cut else part + solid
+    combined = part - solid if is_cut else part + solid
+    # `clean()` removes the faces a boolean leaves behind where two solids met.
+    #
+    # Without it a hub sitting exactly on a plate stays two solids with an
+    # internal face between them: the shape is right, the body count is not, and
+    # the document's `body_count` expectation would fail for a reason that has
+    # nothing to do with what the drawing said. Found by comparing this fixture
+    # with the KOMPAS run of the same document, which reported one body of
+    # seventeen faces where this engine first reported two of eighteen.
+    return combined.clean()
 
 
 #: The world axis each `direction` names, as a unit vector.
@@ -188,7 +207,7 @@ def _sense(feature, plane: Plane) -> float:
     return 1.0 if along > 0 else -1.0
 
 
-def _through_all_tool(placed_face, part):
+def _through_all_tool(placed_face, part, plane: Plane):
     """A cutting tool long enough to leave the body on both sides.
 
     Cut in both directions rather than one: a sketch on the base plane of a part
@@ -197,7 +216,7 @@ def _through_all_tool(placed_face, part):
     """
     box = part.bounding_box()
     reach = max(box.size.X, box.size.Y, box.size.Z) + 1.0
-    return extrude(placed_face, amount=reach, both=True)
+    return extrude(placed_face, amount=reach, dir=plane.z_dir, both=True)
 
 
 def _check_assertions(sketch, params) -> DegreesOfFreedom | None:
@@ -216,7 +235,7 @@ def _check_assertions(sketch, params) -> DegreesOfFreedom | None:
     return validate(entities, list(sketch.constraints), list(sketch.dimensions), params)
 
 
-def _sketch_plane(spec, planes: dict[str, Plane]) -> Plane:
+def _sketch_plane(spec, planes: dict[str, Plane], part) -> Plane:
     if isinstance(spec, SketchOnBasePlane):
         plane = BASE_PLANES.get(str(spec.plane))
         if plane is None:
@@ -235,11 +254,17 @@ def _sketch_plane(spec, planes: dict[str, Plane]) -> Plane:
             )
         return plane
     if isinstance(spec, SketchOnFace):
-        raise unsupported(
-            "Sketching on a face named by a selector needs the selector resolver, "
-            "which is ported in ENGINE-MIG-004.",
-            "sketch",
-        )
+        if part is None:
+            raise CadEngineError(
+                "FEATURE_RESULT_UNAVAILABLE",
+                "selector",
+                f"Selector {spec.face.id} names a face of a body nothing has built yet.",
+            )
+        # Resolved against the model as it is *now*, not once at the start. Every
+        # operation that changes the topology changes what a selector means, and
+        # a resolution cached across one would be an index by another name.
+        face = require_one(resolve_faces(spec.face, read_faces(part)), spec.face)
+        return Plane(face.handle)
     raise unsupported(f"Unknown sketch plane {type(spec).__name__}.", "sketch")
 
 
