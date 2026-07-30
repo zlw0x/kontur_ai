@@ -29,11 +29,17 @@ end-to-end acceptance run recorded under `docs/acceptance/`:
 - POSTMVP-003A/003B/003C — scheduler diagnostics, real telemetry, model provenance
 - POSTMVP-004 — CAD-IR 1.1 canonical form (`docs/adr/ADR-018-*`)
 - POSTMVP-005 — semantic selectors (`docs/adr/ADR-019-*`)
+- POSTMVP-006 — CAD-IR 1.2 sketch primitives (`docs/adr/ADR-020-*`)
 
-The buildable geometry is still the MVP's: a rectangular plate with circular
-through holes. A new operation may now be added, and **must name its faces and
-edges with a selector, never an index** — that constraint is what POSTMVP-005
-bought. Next in the plan is POSTMVP-006, sketch primitives.
+The adapter now builds a profile of any closed contour of lines and arcs, with
+islands, on a base plane, an auxiliary plane, or a face named by a selector. A
+new operation **must name its faces and edges with a selector, never an index**.
+Geometric checks on a sketch live in the adapter, in front of COM — the AI path
+never passes through the API's Python validator.
+
+The drawing agent still extracts only a rectangle and round holes: widening what
+is read off a scan is a vision problem, not a geometry one. Next in the plan is
+POSTMVP-007, sketch constraints.
 
 ## Commands
 
