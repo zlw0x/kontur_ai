@@ -49,7 +49,9 @@ docs
 tests/fixtures
 ```
 
-`apps/cad-worker`, `packages/cad-engine-contracts` and `packages/build123d-adapter` are the migration target (ADR-023). `packages/kompas-adapter` is removed at the end of it, not before.
+`apps/cad-worker` and `packages/build123d-adapter` are the migration target (ADR-023). `packages/kompas-adapter` is removed at the end of it, not before.
+
+`packages/cad-engine-contracts` already exists and holds the engine-neutral half: the build plan, the sketch vocabulary, the CAD-IR parser, the selectors, the validators, `ICadAdapter`, the typed errors and the fake adapter. It targets plain `net8.0` and its tests do too — that is the check that keeps it neutral, because the day something there needs COM it stops compiling instead of quietly making CI need Windows again. An engine declares what it is and what it produces through `CadEngineDescription`; nothing else may assume a format.
 
 ## Technology defaults
 

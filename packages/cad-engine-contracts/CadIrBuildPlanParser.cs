@@ -3,7 +3,7 @@ using System.Text.Json;
 // A resolved parameter table: a value and whether it may be used at all.
 using Parameters = System.Collections.Generic.IReadOnlyDictionary<string, (double Value, string Status)>;
 
-namespace CadAi.KompasAdapter;
+namespace CadAi.CadEngine;
 
 /// <summary>
 /// The last gate before COM: canonical CAD-IR in, a build plan out.
@@ -26,7 +26,15 @@ public static class CadIrBuildPlanParser
 {
     private const int MaxCadIrBytes = 1_048_576;
     private const string CadIrSchema = "cad-ai/cad-ir";
-    private const string CadIrVersion = "1.3";
+    /// <summary>
+    /// The one CAD-IR version this build accepts.
+    /// </summary>
+    /// <remarks>
+    /// Public because an engine has to declare which contract it consumes: a STEP
+    /// file is traceable to the document that produced it only if the version of
+    /// that document travels with the result.
+    /// </remarks>
+    public const string CadIrVersion = "1.3";
     private const double MaxCoordinateMm = 1_000_000;
 
     public static async Task<CadBuildPlan> ParseFileAsync(

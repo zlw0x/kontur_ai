@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace CadAi.KompasAdapter;
+namespace CadAi.CadEngine;
 
 /// <summary>
 /// Checks that every constraint a sketch declares is already true of it.

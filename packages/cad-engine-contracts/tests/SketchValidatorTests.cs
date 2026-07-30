@@ -1,7 +1,7 @@
-using CadAi.KompasAdapter;
+using CadAi.CadEngine;
 using Xunit;
 
-namespace CadAi.KompasAdapter.Tests;
+namespace CadAi.CadEngine.Tests;
 
 /// <summary>
 /// The tests that matter here are the refusals. A sketch that builds into the

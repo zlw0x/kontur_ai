@@ -1,3 +1,4 @@
+using CadAi.CadEngine;
 using System.Runtime.InteropServices;
 
 namespace CadAi.KompasAdapter;

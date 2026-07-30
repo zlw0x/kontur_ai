@@ -1,9 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- Windows, because what it tests is Windows: the integers this adapter
-         sends over COM. The engine-neutral tests moved to
-         packages/cad-engine-contracts/tests, which targets plain net8.0. -->
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- The point of this project. The engine-neutral half is the half that has
+         to be testable anywhere, and a test project targeting plain net8.0 is the
+         check that keeps it that way: the day something here needs COM, it stops
+         compiling rather than quietly making CI need Windows again. -->
+    <TargetFramework>net8.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -15,6 +16,6 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <ProjectReference Include="..\CadAi.KompasAdapter.csproj" />
+    <ProjectReference Include="..\CadAi.CadEngine.csproj" />
   </ItemGroup>
 </Project>

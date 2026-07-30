@@ -1,3 +1,4 @@
+using CadAi.CadEngine;
 using System.Security.Cryptography;
 using CadAi.CodexRunner;
 using CadAi.LocalWorker;

@@ -1,4 +1,4 @@
-namespace CadAi.KompasAdapter;
+namespace CadAi.CadEngine;
 
 /// <summary>
 /// The gate a sketch passes before any COM object exists.

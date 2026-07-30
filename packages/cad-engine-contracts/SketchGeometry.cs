@@ -1,4 +1,4 @@
-namespace CadAi.KompasAdapter;
+namespace CadAi.CadEngine;
 
 /// <summary>
 /// A sketch with every parameter already resolved to a number.

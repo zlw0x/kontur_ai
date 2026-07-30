@@ -1,7 +1,7 @@
-using CadAi.KompasAdapter;
+using CadAi.CadEngine;
 using Xunit;
 
-namespace CadAi.KompasAdapter.Tests;
+namespace CadAi.CadEngine.Tests;
 
 /// <summary>
 /// The verdict on a stability run is graded here rather than inside the run,

@@ -1,4 +1,4 @@
-namespace CadAi.KompasAdapter;
+namespace CadAi.CadEngine;
 
 /// <summary>
 /// The operations this adapter can build, named one key at a time.

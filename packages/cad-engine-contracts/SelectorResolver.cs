@@ -1,4 +1,4 @@
-namespace CadAi.KompasAdapter;
+namespace CadAi.CadEngine;
 
 /// <summary>
 /// Turns a selector into the faces or edges it names.

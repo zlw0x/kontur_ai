@@ -1,3 +1,5 @@
+using CadAi.CadEngine;
+
 namespace CadAi.KompasAdapter;
 
 /// <summary>

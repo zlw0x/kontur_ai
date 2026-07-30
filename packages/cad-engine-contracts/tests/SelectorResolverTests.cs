@@ -1,7 +1,7 @@
-using CadAi.KompasAdapter;
+using CadAi.CadEngine;
 using Xunit;
 
-namespace CadAi.KompasAdapter.Tests;
+namespace CadAi.CadEngine.Tests;
 
 /// <summary>
 /// The resolver is exercised against a measured plate rather than a live

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Deliberately not net8.0-windows. Nothing here touches COM, and the
+         framework is the check that keeps it that way: a stray interop type
+         would stop compiling rather than quietly re-tie the pipeline to
+         Windows. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The engine-neutral half is worth testing directly, and the tests that
+         do it must not need a CAD installation. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>CadAi.CadEngine.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

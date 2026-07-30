@@ -1,8 +1,8 @@
+using CadAi.CadEngine;
 using System.Text.Json;
-using CadAi.KompasAdapter;
 using Xunit;
 
-namespace CadAi.KompasAdapter.Tests;
+namespace CadAi.CadEngine.Tests;
 
 /// <summary>
 /// The parser is the last gate before COM, so what it refuses matters more than

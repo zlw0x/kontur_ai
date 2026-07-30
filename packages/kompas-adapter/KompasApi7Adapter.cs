@@ -1,3 +1,4 @@
+﻿using CadAi.CadEngine;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -6,6 +7,31 @@ namespace CadAi.KompasAdapter;
 public sealed class KompasApi7Adapter : ICadAdapter
 {
     private const string ProgId = "KOMPAS.Application.7";
+
+    /// <remarks>
+    /// The kernel version is deliberately absent. KOMPAS is reached through a
+    /// ProgId that names the API generation, not the product build, and no member
+    /// of the interfaces this adapter declares reports one — so the alternative to
+    /// null is a constant somebody typed, which would read as measured and be
+    /// wrong on the first machine with a different install. `AGENTS.md` rule 9
+    /// applies to versions as much as to methods.
+    ///
+    /// The artifacts are what this engine produces today, `model.m3d` included.
+    /// ADR-023 removes M3D from the product with the engine; declaring it here is
+    /// what lets the pipeline stop naming it in the meantime.
+    /// </remarks>
+    public CadEngineDescription Describe() => new(
+        EngineId: "kompas-api7",
+        EngineVersion: typeof(KompasApi7Adapter).Assembly.GetName().Version?.ToString() ?? "0",
+        KernelId: "kompas-3d",
+        KernelVersion: null,
+        CadIrVersion: CadIrBuildPlanParser.CadIrVersion,
+        Artifacts:
+        [
+            new CadArtifactKind("M3D", "model.m3d"),
+            new CadArtifactKind("STEP", "model.step"),
+            new CadArtifactKind("STL", "model.stl")
+        ]);
 
     public Task<CadBuildResult> BuildAsync(CadBuildRequest request, CancellationToken cancellationToken)
     {
@@ -34,7 +60,7 @@ public sealed class KompasApi7Adapter : ICadAdapter
 
     private static CadBuildResult BuildOnSta(CadBuildRequest request, CancellationToken cancellationToken)
     {
-        var output = FakeCadAdapter.SafeOutputDirectory(request.OutputDirectory);
+        var output = CadOutputDirectory.Safe(request.OutputDirectory);
         Directory.CreateDirectory(output);
         var m3dPath = Path.Combine(output, "model.m3d");
         var stepPath = Path.Combine(output, "model.step");
@@ -98,10 +124,10 @@ public sealed class KompasApi7Adapter : ICadAdapter
             operations.Add(new CadOperationRecord("export_step_stl", stage, StepMs(), Success: true));
 
             return new CadBuildResult([
-                FakeCadAdapter.CreateArtifact("M3D", m3dPath),
-                FakeCadAdapter.CreateArtifact("STEP", stepPath),
-                FakeCadAdapter.CreateArtifact("STL", stlPath)
-            ], operations);
+                CadArtifact.Read("M3D", m3dPath),
+                CadArtifact.Read("STEP", stepPath),
+                CadArtifact.Read("STL", stlPath)
+            ], operations, new KompasApi7Adapter().Describe());
         }
         catch (CadAdapterException error)
         {

@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace CadAi.KompasAdapter;
+namespace CadAi.CadEngine;
 
 /// <summary>
 /// Reads a CAD-IR selector into the resolver's model.

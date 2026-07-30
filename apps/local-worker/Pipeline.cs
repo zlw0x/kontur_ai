@@ -1,3 +1,4 @@
+using CadAi.CadEngine;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
@@ -66,7 +67,7 @@ public static class LocalCadJobHandler
             var flags = FeatureFlags.Load(paths);
             var plan = await CadIrBuildPlanParser.ParseFileAsync(
                 cadIrPath, cancellationToken, flags.Gate());
-            ICadAdapter adapter = fakeCad ? new FakeCadAdapter() : new KompasApi7Adapter();
+            var adapter = WorkerEngine.Select(fakeCad);
             CadBuildResult result;
             using (var session = ledger?.Begin(
                 ledger.Key("cad", "session", "1"),
@@ -125,7 +126,24 @@ public static class LocalCadJobHandler
                 JsonSerializer.Serialize(new
                 {
                     valid = validation?.Valid ?? true,
-                    adapter = fakeCad ? "fake" : "kompas-api7",
+                    // Kept under its old name so nothing downstream has to change
+                    // at once, and now taken from the engine rather than from a
+                    // ternary that knew the two engines by name.
+                    adapter = result.Engine?.EngineId ?? adapter.Describe().EngineId,
+                    // What built this, on what, against which contract. During a
+                    // migration two engines produce a STEP from the same document,
+                    // and when they disagree the first question is which one wrote
+                    // the file in front of you.
+                    engine = result.Engine is { } identity
+                        ? new
+                        {
+                            engine_id = identity.EngineId,
+                            engine_version = identity.EngineVersion,
+                            kernel_id = identity.KernelId,
+                            kernel_version = identity.KernelVersion,
+                            cad_ir_version = identity.CadIrVersion
+                        }
+                        : null,
                     geometry = validation,
                     artifacts = result.Artifacts.Select(artifact => new
                     {
@@ -361,17 +379,15 @@ public static class ClaimLoop
                 await LocalCadJobHandler.RunAsync(
                     jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger);
             }
+            // What the engine says it produces, plus what the pipeline itself
+            // writes. The engine half used to be a literal `M3D, STEP, STL` here,
+            // which put a KOMPAS-native format into the definition of a finished
+            // job and left no way to express an engine that does not make one.
+            var engine = WorkerEngine.Adapter.Describe();
             var uploaded = new List<UploadedArtifact>();
-            foreach (var (type, fileName) in new[]
-            {
-                ("M3D", "model.m3d"),
-                ("STEP", "model.step"),
-                ("STL", "model.stl"),
-                ("VALIDATION_REPORT", "validation-report.json"),
-                ("DRAWING_ANALYSIS", "drawing-analysis.json"),
-                ("CLARIFICATION_QUESTIONS", "clarification-questions.json"),
-                ("CAD_IR", "cad-ir.json")
-            })
+            foreach (var (type, fileName) in engine.Artifacts
+                         .Select(artifact => (artifact.Kind, artifact.FileName))
+                         .Concat(WorkerEngine.PipelineArtifacts))
             {
                 var artifactPath = Path.Combine(jobPath, "output", fileName);
                 if (!File.Exists(artifactPath)) continue;
@@ -398,8 +414,15 @@ public static class ClaimLoop
                 upload.Succeeded();
                 uploaded.Add(item);
             }
-            if (!waitingForAnswers && uploaded.All(artifact => artifact.type != "M3D"))
-                throw new WorkerException("ARTIFACT_UPLOAD_FAILED", "M3D artifact was not uploaded.");
+            // Every kind the engine promised, rather than one format named here.
+            // A build that did not produce something its own engine declared is a
+            // failed build whatever the engine is.
+            if (!waitingForAnswers)
+                foreach (var required in engine.RequiredArtifacts)
+                    if (uploaded.All(artifact => artifact.type != required.Kind))
+                        throw new WorkerException(
+                            "ARTIFACT_UPLOAD_FAILED",
+                            $"{required.Kind} was not uploaded, and {engine.EngineId} declares it.");
             if (waitingForAnswers && uploaded.All(artifact => artifact.type != "CLARIFICATION_QUESTIONS"))
                 throw new WorkerException("ARTIFACT_UPLOAD_FAILED", "Clarification questions were not uploaded.");
             // Shipped while the lease is still held, and deliberately before
