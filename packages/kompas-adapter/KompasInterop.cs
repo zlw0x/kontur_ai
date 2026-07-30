@@ -2,6 +2,21 @@ using System.Runtime.InteropServices;
 
 namespace CadAi.KompasAdapter;
 
+internal static class KompasApi5Constants
+{
+    /// <summary>
+    /// `pTop_Part`, the argument that makes `ksDocument3D.GetPart` answer with
+    /// the top part.
+    /// </summary>
+    /// <remarks>
+    /// The type library exports no named constant for it. Probed live on
+    /// KOMPAS v22 against a plate this service had just built: -1 returned a
+    /// part whose main body had six planar faces, while 0, 1 and 2 all
+    /// returned nothing.
+    /// </remarks>
+    public const int TopPart = -1;
+}
+
 [ComImport, Guid("7B60E769-06C3-4FDC-9677-7B5EF5180308"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
 internal interface IKompasDocument3D
 {
@@ -59,16 +74,19 @@ internal interface IView
 [ComImport, Guid("B211C782-A830-468E-9F4F-C499A77078D8"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
 internal interface ILineSegments
 {
+    // The collection publishes an indexer and no count; walking it means
+    // asking for indexes until one comes back empty.
+    [DispId(1)] [return: MarshalAs(UnmanagedType.IDispatch)] object? LineSegment(int index);
     [DispId(2)] [return: MarshalAs(UnmanagedType.IDispatch)] object Add();
 }
 
 [ComImport, Guid("64ACC86F-4B10-4897-8552-BC0A556D228B"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
 internal interface ILineSegment
 {
-    [DispId(1)] double X1 { set; }
-    [DispId(2)] double Y1 { set; }
-    [DispId(3)] double X2 { set; }
-    [DispId(4)] double Y2 { set; }
+    [DispId(1)] double X1 { get; set; }
+    [DispId(2)] double Y1 { get; set; }
+    [DispId(3)] double X2 { get; set; }
+    [DispId(4)] double Y2 { get; set; }
     [DispId(3004)] bool Update();
 }
 
@@ -124,6 +142,7 @@ internal interface IKompasApi5Application
 [ComImport, Guid("111CEFE1-A0A7-11D6-95CE-00C0262D30E3"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
 internal interface IKompasApi5Document3D
 {
+    [DispId(7)] [return: MarshalAs(UnmanagedType.IDispatch)] object? GetPart(int type);
     [DispId(37)] bool SaveAsToAdditionFormat(
         [MarshalAs(UnmanagedType.BStr)] string fileName,
         [MarshalAs(UnmanagedType.IDispatch)] object additionParameters);

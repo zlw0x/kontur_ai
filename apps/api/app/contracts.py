@@ -285,6 +285,10 @@ class ResourceStage(StrEnum):
     KOMPAS_STARTUP = "KOMPAS_STARTUP"
     DOCUMENT_BUILD = "DOCUMENT_BUILD"
     FEATURE_BUILD = "FEATURE_BUILD"
+    # Naming the faces a feature applies to is separately measurable from
+    # building it: on a large model the search dominates, and a stage that
+    # hides inside FEATURE_BUILD cannot be priced or optimised.
+    SELECTOR_RESOLUTION = "SELECTOR_RESOLUTION"
     REBUILD = "REBUILD"
     EXPORT = "EXPORT"
     GEOMETRY_VALIDATION = "GEOMETRY_VALIDATION"

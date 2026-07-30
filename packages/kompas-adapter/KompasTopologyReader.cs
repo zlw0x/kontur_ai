@@ -100,8 +100,18 @@ internal interface IKsCurve3D
 /// </remarks>
 public static class KompasTopologyReader
 {
-    /// <summary>Millimetres. `ST_MIX_MM` in the KOMPAS unit bit vector.</summary>
-    private const int Millimetres = 0;
+    /// <summary>
+    /// The unit bit vector `GetLength` and `GetArea` take, set to millimetres.
+    /// </summary>
+    /// <remarks>
+    /// Measured rather than assumed. On a Ø5 rim KOMPAS v22 answers 1.570796,
+    /// 15.707963, 0.15708 and 0.015708 for bit vectors 0 to 3, and 2π · 2.5 is
+    /// 15.707963 — so 1 is millimetres and 0, the value this reader first
+    /// used, is centimetres. Nothing failed loudly: every length came back a
+    /// plausible number ten times too small, and the first real run had every
+    /// rim selector miss.
+    /// </remarks>
+    private const int Millimetres = 1;
 
     public static IReadOnlyList<FaceDescriptor> ReadFaces(object part)
     {

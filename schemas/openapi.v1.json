@@ -2697,6 +2697,7 @@
           "KOMPAS_STARTUP",
           "DOCUMENT_BUILD",
           "FEATURE_BUILD",
+          "SELECTOR_RESOLUTION",
           "REBUILD",
           "EXPORT",
           "GEOMETRY_VALIDATION",
