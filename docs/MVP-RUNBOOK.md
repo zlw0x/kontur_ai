@@ -60,8 +60,10 @@ This does not remove the user's independent Codex CLI login.
 
 ## Smoke test
 
-Open the web page, enter `MANUAL_API_TOKEN`, upload a clear PNG/JPEG drawing of
-a rectangular plate with dimensions in millimetres and optional circular
+Open the web page, enter `MANUAL_API_TOKEN`, and either press **Попробовать на
+образце** — which loads `apps/web/public/sample-drawing.png`, the same 60 x 30 x 8
+plate the acceptance runs build — or upload a clear PNG/JPEG drawing of a
+rectangular plate with dimensions in millimetres and optional circular
 through-holes. The expected state sequence is:
 
 ```text
@@ -69,9 +71,20 @@ PENDING -> LEASED -> READY
                   \-> WAITING_FOR_USER_ANSWERS -> PENDING -> READY
 ```
 
+Both branches are normal. The same drawing can take either on consecutive runs:
+the model is asked what it can see, and when it is unsure the design says ask
+rather than invent.
+
 At `READY`, inspect the 3D preview and download M3D, STEP, STL and the validation
-report. A failure must retain a typed code in worker/API logs; do not bypass a
-schema, geometry invariant or checksum to force completion.
+report. The dimensions the page shows are read out of that validation report, so
+they are what was measured on the exported file — if they disagree with the
+drawing, the model is wrong, not the label. A failure must retain a typed code in
+worker/API logs; do not bypass a schema, geometry invariant or checksum to force
+completion.
+
+A worked example of both branches, with the four defects the first browser run
+found, is in
+[`docs/acceptance/WEB-END-TO-END-drawing-to-model.md`](acceptance/WEB-END-TO-END-drawing-to-model.md).
 
 ## Repository checks
 
