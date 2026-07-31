@@ -55,9 +55,22 @@ public sealed class RealEngineTests
         };
 
         /// <summary>The first interpreter that can import the engine, or none.</summary>
+        /// <remarks>
+        /// `CAD_ENGINE_PYTHON` is tried before the two spellings on PATH, for the
+        /// same reason `CAD_ENGINE_IMAGE` exists for container mode: a developer
+        /// machine usually has the engine in a virtual environment rather than on
+        /// PATH, and without a way to say so these tests skip themselves on the
+        /// one kind of machine that could run them. It is still a probe — an
+        /// interpreter that cannot import the engine is passed over rather than
+        /// trusted, so a stale variable costs a skip and never a false pass.
+        /// </remarks>
         private static string? Probe()
         {
-            foreach (var candidate in new[] { "python3", "python" })
+            var named = Environment.GetEnvironmentVariable("CAD_ENGINE_PYTHON");
+            var candidates = string.IsNullOrWhiteSpace(named)
+                ? new[] { "python3", "python" }
+                : [named, "python3", "python"];
+            foreach (var candidate in candidates)
             {
                 try
                 {

@@ -62,6 +62,27 @@ The engine is configured in `worker.json` under `cad_engine` — see
 `container` is the default and the mode with the isolation; `process` runs the
 engine through a local interpreter and is for a developer machine.
 
+### Running the engine tests against a real engine
+
+Both suites skip themselves where there is nothing to run against, so a green
+run says less than it looks like until one of these is set:
+
+```powershell
+docker build -f apps/cad-worker/Dockerfile -t cad-ai/cad-worker:ci .
+$env:CAD_ENGINE_IMAGE  = "cad-ai/cad-worker:ci"     # container mode
+$env:CAD_ENGINE_PYTHON = ".venv-cad\Scripts\python.exe"  # process mode
+dotnet test packages/build123d-launcher/tests --nologo
+```
+
+With neither, 11 of the 35 skip. With both, all 35 run — and they are the only
+check that the argument list this side builds and the invocation the other side
+accepts are still the same contract.
+
+The interpreter needs the worker's dependencies, not only the engine:
+`pip install -r apps/cad-worker/requirements.txt`. A virtual environment created
+to read build123d's source has build123d and nothing else, and the failure that
+produces is an import error a long way from its cause.
+
 The worker's credential is protected by DPAPI on Windows and by file permissions
 elsewhere; which one is used is decided by the platform, not configured. To remove
 it:
