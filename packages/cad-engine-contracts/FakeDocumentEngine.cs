@@ -56,7 +56,7 @@ public sealed class FakeDocumentEngine : ICadDocumentEngine
     /// validator this design avoids.
     /// </remarks>
     public Task<IReadOnlyCollection<string>> ValidateAsync(
-        CadDocumentBuildRequest request,
+        CadDocumentValidateRequest request,
         CancellationToken cancellationToken)
     {
         var document = Path.Combine(CadOutputDirectory.Safe(request.JobDirectory), "cad-ir.json");

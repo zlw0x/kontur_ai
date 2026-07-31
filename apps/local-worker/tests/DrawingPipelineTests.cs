@@ -1,5 +1,6 @@
 using CadAi.CadEngine;
 using System.Security.Cryptography;
+using System.Text.Json;
 using CadAi.CodexRunner;
 using CadAi.LocalWorker;
 using Xunit;
@@ -57,6 +58,93 @@ public sealed class DrawingPipelineTests
         }
         finally { Directory.Delete(workspace, recursive: true); }
     }
+
+    /// <summary>
+    /// The shape statement travels to the engine, and only when there is one.
+    /// </summary>
+    /// <remarks>
+    /// The engine is handed a *shape claim*, not a drawing analysis: it has no
+    /// business knowing that a drawing exists, and giving it the confidences, the
+    /// page references and the questions would make it a reader of something it does
+    /// not read.
+    /// </remarks>
+    [Fact]
+    public async Task TheShapeTheDrawingWasReadAsIsHandedToTheEngine()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_4.json"));
+            var engine = new StubValidatingEngine();
+            var result = await new DrawingPipeline(
+                new FakeRunner(AnalysisWithShape(), valid), engine: engine)
+                .RunAsync(workspace, [image]);
+
+            Assert.Equal("CAD_IR_READY", result.Status);
+            Assert.NotNull(engine.SawShapeClaim);
+            var claim = JsonDocument.Parse(File.ReadAllText(engine.SawShapeClaim!)).RootElement;
+            Assert.Equal("rectangle", claim.GetProperty("profile").GetString());
+            Assert.Equal(1, claim.GetProperty("solids").GetInt32());
+            Assert.Equal("p_depth", claim.GetProperty("thickness").GetString());
+            Assert.Equal(1, claim.GetProperty("openings").GetArrayLength());
+            // Nothing about the drawing crosses over: no confidence, no page, no
+            // question, no summary.
+            foreach (var absent in new[] { "confidence", "source", "questions", "summary" })
+                Assert.False(claim.TryGetProperty(absent, out _), absent);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
+    /// An analysis with no shape leaves the compilation checked as it was before.
+    /// </summary>
+    /// <remarks>
+    /// An older artifact, or a reading stage that could not settle the outline. The
+    /// alternative — refusing the job — would make a field that did not exist last
+    /// week into a reason nothing builds.
+    /// </remarks>
+    [Fact]
+    public async Task AnAnalysisWithNoShapeStillCompiles()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_4.json"));
+            var engine = new StubValidatingEngine();
+            var result = await new DrawingPipeline(
+                new FakeRunner(ReadyAnalysis(), valid), engine: engine)
+                .RunAsync(workspace, [image]);
+
+            Assert.Equal("CAD_IR_READY", result.Status);
+            Assert.Equal(1, engine.Validations);
+            Assert.Null(engine.SawShapeClaim);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    private static string AnalysisWithShape() =>
+        """
+        {
+          "schema_version":"0.1.0","stage":"drawing_analysis",
+          "status":"success","confidence":1,"warnings":[],
+          "result":{
+            "ready_for_cad":true,"summary":"Plate 40 by 20 by 10, one hole.",
+            "parameters":[],
+            "shape":{
+              "profile":"rectangle",
+              "openings":[{"kind":"round","count":1}],
+              "solids":1,
+              "thickness_parameter":"p_depth",
+              "note":null
+            },
+            "questions":[]
+          }
+        }
+        """;
 
     private static string ReadyAnalysis() =>
         """

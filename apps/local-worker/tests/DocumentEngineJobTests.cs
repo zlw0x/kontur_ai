@@ -34,7 +34,7 @@ public sealed class DocumentEngineJobTests
             }));
 
         public Task<IReadOnlyCollection<string>> ValidateAsync(
-            CadDocumentBuildRequest request, CancellationToken cancellationToken) =>
+            CadDocumentValidateRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyCollection<string>>(["solid.rectangular_prism"]);
 
         public Task<CadBuildResult> BuildAsync(

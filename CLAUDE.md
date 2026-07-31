@@ -89,8 +89,18 @@ about an axis the document names. A new operation **must name its faces and edge
 with a selector, never an index**. Geometric checks on a sketch live in the engine,
 in front of the kernel.
 
-The drawing agent still extracts only a rectangle and round holes: widening what
-is read off a scan is a vision problem, not a geometry one.
+The reading stage states **what the part is** before any geometry exists — the
+outline, the openings by kind and count, how many solids, which parameter is the
+thickness — and trusted code checks the compiled document against it
+(`cad_ir/shape_claim.py`, `validate --claim`, ADR-025). That is the only thing that
+catches a misread outline: such a document is valid, builds, and measures exactly
+what it declares. A claim carries kinds and counts and **never a coordinate**;
+doubling every dimension leaves it satisfied, because a size is checked by an
+expectation against a number the drawing stated. A new operation has to decide what
+it means for a claim.
+
+What the drawing agent can actually recognise off a scan is still narrower than the
+contract now allows: widening that is a vision problem, not a geometry one.
 
 Every CAD operation is behind a per-operation feature flag (`cad-worker flags`,
 `docs/adr/ADR-021-*`). A new operation gets a key and a declared status in

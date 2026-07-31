@@ -11,7 +11,7 @@
     "warnings": {"type": "array", "items": {"type": "string"}},
     "result": {
       "type": "object",
-      "required": ["ready_for_cad", "summary", "parameters", "questions"],
+      "required": ["ready_for_cad", "summary", "parameters", "shape", "questions"],
       "properties": {
         "ready_for_cad": {"type": "boolean"},
         "summary": {"type": "string", "maxLength": 2000},
@@ -33,6 +33,52 @@
             "additionalProperties": false
           }
         },
+        "shape": {
+          "type": "object",
+          "description": "What the part is, structurally: the outline, the openings, how many solids and which parameter is the thickness. Never where anything is - coordinates are the compilation stage's job. This is checked against the compiled CAD-IR by trusted code, so a misread outline is caught before a valid document that builds the wrong part reaches anyone.",
+          "required": ["profile", "openings", "solids", "thickness_parameter", "note"],
+          "properties": {
+            "profile": {
+              "type": "string",
+              "description": "The outline of the part. Use closed_profile when the outline is not one of the named shapes; never pick the nearest named one.",
+              "enum": ["rectangle", "circle", "slot", "regular_polygon", "closed_profile"]
+            },
+            "openings": {
+              "type": "array",
+              "maxItems": 32,
+              "description": "Holes and cut-outs, grouped by the shape of the opening. Count every one the drawing shows, whether it goes through or not. Empty when the part has none.",
+              "items": {
+                "type": "object",
+                "required": ["kind", "count"],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["round", "slot", "rectangular", "polygonal", "profiled"]
+                  },
+                  "count": {"type": "integer", "minimum": 1, "maximum": 1000}
+                },
+                "additionalProperties": false
+              }
+            },
+            "solids": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "description": "How many separate solid bodies of material the part is made of: one for a plain plate, two for a plate with a boss standing on it."
+            },
+            "thickness_parameter": {
+              "type": ["string", "null"],
+              "maxLength": 64,
+              "description": "The id of the parameter above that holds the part's depth, or null when the drawing does not give one. Naming it is what keeps the dimension a name rather than a number."
+            },
+            "note": {
+              "type": ["string", "null"],
+              "maxLength": 500,
+              "description": "What the outline is, in words, when profile is closed_profile. Read by a person, never by a check."
+            }
+          },
+          "additionalProperties": false
+        },
         "questions": {
           "type": "array",
           "maxItems": 10,
@@ -41,7 +87,10 @@
             "required": ["id", "parameter_id", "text"],
             "properties": {
               "id": {"type": "string", "pattern": "^q_[A-Za-z0-9_.-]{1,61}$"},
-              "parameter_id": {"type": "string"},
+              "parameter_id": {
+                "type": "string",
+                "description": "The parameter this question is about, or the literal \"shape\" when the question is about the outline or the openings rather than a number."
+              },
               "text": {"type": "string", "maxLength": 500}
             },
             "additionalProperties": false

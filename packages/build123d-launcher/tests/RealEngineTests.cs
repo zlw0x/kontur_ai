@@ -165,6 +165,42 @@ public sealed class RealEngineTests
     }
 
     [EngineFact]
+    public async Task AMisreadOutlineIsCaughtByTheRealEngineThroughTheRealCommandLine()
+    {
+        // The whole point of the shape claim, end to end. This document is valid,
+        // builds, and measures exactly what it claims to measure; the only thing
+        // wrong with it is that it is not the outline the drawing was read as.
+        var job = JobWith("lever-plate.v1_4.json");
+        var claim = Path.Combine(job, "shape-claim.json");
+        File.WriteAllText(
+            claim,
+            """{"profile":"rectangle","openings":[{"kind":"round","count":2}],"solids":3}""");
+
+        var refused = await Assert.ThrowsAsync<CadAdapterException>(() =>
+            new Build123dProcessEngine(RealEngine.Options()).ValidateAsync(
+                new CadDocumentValidateRequest(job, [], claim), CancellationToken.None));
+
+        Assert.Equal("SHAPE_CLAIM_CONTRADICTED", refused.Code);
+        Assert.Equal("cad-ir", refused.Stage);
+        Assert.Contains("rectangle", refused.SafeMessage);
+    }
+
+    [EngineFact]
+    public async Task AnHonestReadingOfTheSameDocumentValidates()
+    {
+        var job = JobWith("lever-plate.v1_4.json");
+        var claim = Path.Combine(job, "shape-claim.json");
+        File.WriteAllText(
+            claim,
+            """{"profile":"closed_profile","openings":[{"kind":"round","count":2}],"solids":3}""");
+
+        var required = await new Build123dProcessEngine(RealEngine.Options()).ValidateAsync(
+            new CadDocumentValidateRequest(job, [], claim), CancellationToken.None);
+
+        Assert.Contains("solid.contour_profile", required);
+    }
+
+    [EngineFact]
     public async Task ADocumentTheEngineRefusesArrivesAsItsOwnTypedFailure()
     {
         var job = Directory.CreateTempSubdirectory("cad-real-").FullName;

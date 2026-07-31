@@ -55,7 +55,7 @@ public interface ICadDocumentEngine
     /// the document wanted.
     /// </remarks>
     Task<IReadOnlyCollection<string>> ValidateAsync(
-        CadDocumentBuildRequest request,
+        CadDocumentValidateRequest request,
         CancellationToken cancellationToken);
 
     Task<CadBuildResult> BuildAsync(
@@ -73,6 +73,22 @@ public interface ICadDocumentEngine
 public sealed record CadDocumentBuildRequest(
     string JobDirectory,
     IReadOnlyCollection<string> DisabledCapabilities);
+
+/// <summary>A job to check, and optionally what the drawing was read as.</summary>
+/// <remarks>
+/// <paramref name="ShapeClaimPath"/> is what the reading stage said the part is —
+/// the outline, the openings, how many solids, which parameter is the thickness.
+/// The engine reports where the document contradicts it, which is the only way a
+/// misread outline is ever caught: such a document is valid, builds, and measures
+/// exactly what it claims to measure.
+///
+/// Absent for anything that did not come from a drawing. A manual document has no
+/// claim and needs none.
+/// </remarks>
+public sealed record CadDocumentValidateRequest(
+    string JobDirectory,
+    IReadOnlyCollection<string> DisabledCapabilities,
+    string? ShapeClaimPath = null);
 
 /// <summary>One capability, as the engine declares it.</summary>
 /// <remarks>

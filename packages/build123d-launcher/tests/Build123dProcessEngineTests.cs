@@ -162,6 +162,48 @@ public sealed class Build123dProcessEngineTests
     }
 
     [Fact]
+    public void AShapeClaimIsMountedReadOnlyAndNamedByItsPathInsideTheContainer()
+    {
+        var invocation = EngineCommandLine.Validate(
+            new EngineLaunchOptions { Image = "cad-ai/cad-worker:ci" },
+            Path.GetFullPath("/tmp/job-4"),
+            [],
+            Path.GetFullPath("/tmp/claim.json"));
+
+        // Its own mount rather than a file in the job directory: the claim is what
+        // the drawing was read as, and putting it where the engine writes results
+        // would make it look like one of them. Read-only, because the engine has no
+        // business changing what it is being checked against.
+        Assert.Contains(
+            $"type=bind,src={Path.GetFullPath("/tmp/claim.json")},dst=/claim.json,readonly",
+            invocation.Arguments);
+        // Mounted before the image, named after it.
+        Assert.True(
+            invocation.Arguments.ToList().IndexOf("cad-ai/cad-worker:ci")
+            < invocation.Arguments.ToList().IndexOf("--claim"));
+        Assert.Equal("/claim.json", ValueAfter(invocation, "--claim"));
+    }
+
+    [Fact]
+    public void AValidationWithNoClaimPassesNoClaimAtAll()
+    {
+        // A manual document did not come from a drawing and has nothing to be
+        // checked against. Inventing a claim for it would be inventing a reading.
+        var invocation = EngineCommandLine.Validate(
+            new EngineLaunchOptions(), Path.GetFullPath("/tmp/job-5"), []);
+        Assert.DoesNotContain("--claim", invocation.Arguments);
+    }
+
+    [Fact]
+    public void AShapeClaimAtARelativePathIsRefused()
+    {
+        var refused = Assert.Throws<CadAdapterException>(() =>
+            EngineCommandLine.Validate(
+                new EngineLaunchOptions(), Path.GetFullPath("/tmp/job-6"), [], "claim.json"));
+        Assert.Equal("OUTPUT_PATH_INVALID", refused.Code);
+    }
+
+    [Fact]
     public void ProcessModeRunsTheSameEntryPointThroughAnInterpreter()
     {
         var invocation = EngineCommandLine.Build(

@@ -72,11 +72,11 @@ public sealed class Build123dProcessEngine(
     }
 
     public async Task<IReadOnlyCollection<string>> ValidateAsync(
-        CadDocumentBuildRequest request,
+        CadDocumentValidateRequest request,
         CancellationToken cancellationToken)
     {
         var invocation = EngineCommandLine.Validate(
-            options, request.JobDirectory, request.DisabledCapabilities);
+            options, request.JobDirectory, request.DisabledCapabilities, request.ShapeClaimPath);
         // A validation is a parse, not a build, so it gets the shorter deadline.
         var result = await RunAsync(invocation, options.DescribeTimeout, cancellationToken);
         if (result.ExitCode != 0) throw Failure(result, "validate");

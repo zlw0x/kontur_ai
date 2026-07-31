@@ -22,6 +22,8 @@ internal sealed class StubValidatingEngine : ICadDocumentEngine
 {
     public int Validations { get; private set; }
 
+    public string? SawShapeClaim { get; private set; }
+
     public Task<CadEngineReport> DescribeAsync(
         IReadOnlyCollection<string> disabledCapabilities, CancellationToken cancellationToken) =>
         Task.FromResult(new CadEngineReport(
@@ -29,9 +31,10 @@ internal sealed class StubValidatingEngine : ICadDocumentEngine
             new Dictionary<string, CadCapabilityDeclaration>(StringComparer.Ordinal)));
 
     public async Task<IReadOnlyCollection<string>> ValidateAsync(
-        CadDocumentBuildRequest request, CancellationToken cancellationToken)
+        CadDocumentValidateRequest request, CancellationToken cancellationToken)
     {
         Validations++;
+        SawShapeClaim = request.ShapeClaimPath;
         var document = await File.ReadAllTextAsync(
             Path.Combine(request.JobDirectory, "cad-ir.json"), cancellationToken);
         if (!document.Contains("solid.extrude", StringComparison.Ordinal) &&

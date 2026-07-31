@@ -129,11 +129,39 @@ internal static class EngineCommandLine
         IReadOnlyCollection<string> disabled) =>
         ForJob(options, "build", jobDirectory, disabled);
 
+    /// <summary>Where a shape claim is mounted inside the container.</summary>
+    /// <remarks>
+    /// Its own read-only mount rather than a file inside the job directory: the
+    /// claim is what the *drawing* was read as, and putting it where the engine
+    /// writes its results would make it look like one of them.
+    /// </remarks>
+    internal const string ContainerClaimPath = "/claim.json";
+
     internal static EngineInvocation Validate(
         EngineLaunchOptions options,
         string jobDirectory,
-        IReadOnlyCollection<string> disabled) =>
-        ForJob(options, "validate", jobDirectory, disabled);
+        IReadOnlyCollection<string> disabled,
+        string? shapeClaimPath = null)
+    {
+        var invocation = ForJob(options, "validate", jobDirectory, disabled);
+        if (shapeClaimPath is null) return invocation;
+        var claim = RequireRootedPath(shapeClaimPath);
+        if (options.Runtime == EngineRuntime.Process)
+            return new EngineInvocation(
+                invocation.FileName, [.. invocation.Arguments, "--claim", claim]);
+
+        // In container mode the claim has to be mounted before the image name,
+        // and named by the path it has inside the container afterwards.
+        var arguments = new List<string>(invocation.Arguments);
+        var image = arguments.IndexOf(options.Image);
+        arguments.InsertRange(image, [
+            "--mount",
+            $"type=bind,src={claim},dst={ContainerClaimPath},readonly"
+        ]);
+        arguments.Add("--claim");
+        arguments.Add(ContainerClaimPath);
+        return new EngineInvocation(invocation.FileName, arguments);
+    }
 
     private static EngineInvocation ForJob(
         EngineLaunchOptions options,
