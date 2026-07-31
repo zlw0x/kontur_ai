@@ -73,7 +73,7 @@ def manual_job(client, tmp_path) -> str:
         )
     )
     created = client.post(
-        "/api/v1/manual/cad-jobs", headers=MANUAL, json={"cad_ir": fixture, "requested_formats": ["m3d"]}
+        "/api/v1/manual/cad-jobs", headers=MANUAL, json={"cad_ir": fixture, "requested_formats": ["step", "stl"]}
     )
     assert created.status_code == 201
     return created.json()["job_id"]

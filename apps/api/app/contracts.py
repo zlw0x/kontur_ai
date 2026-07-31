@@ -74,6 +74,30 @@ class WorkerCapability(StrEnum):
     KOMPAS_BUILD = "KOMPAS_BUILD"
 
 
+#: The two names for one thing, folded together.
+#:
+#: A worker built before ENGINE-MIG-008 declares `KOMPAS_BUILD`; one built after
+#: declares `CAD_BUILD`; and a job enqueued before the rename requires the old
+#: name while a job enqueued after requires the new one. All four combinations
+#: have to work, or the rename is an outage on either side of a deploy — which is
+#: exactly what it was until this existed.
+_COARSE_ALIASES: dict[WorkerCapability, WorkerCapability] = {
+    WorkerCapability.KOMPAS_BUILD: WorkerCapability.CAD_BUILD,
+}
+
+
+def canonical_capabilities(
+    capabilities: "set[WorkerCapability] | frozenset[WorkerCapability]",
+) -> set[WorkerCapability]:
+    """The same set with every retired spelling folded onto its current one.
+
+    Compare capabilities through this and never directly: a set comparison on the
+    raw values is what made a worker and a job that meant the same thing look
+    incompatible.
+    """
+    return {_COARSE_ALIASES.get(item, item) for item in capabilities}
+
+
 class ErrorCode(StrEnum):
     INVALID_STATE_TRANSITION = "INVALID_STATE_TRANSITION"
     ORDER_VERSION_CONFLICT = "ORDER_VERSION_CONFLICT"
@@ -220,7 +244,13 @@ class JobCompletionAck(StrictModel):
 
 class ManualCadJobRequest(StrictModel):
     cad_ir: dict[str, Any]
-    requested_formats: list[Literal["m3d", "step", "stl"]] = Field(default_factory=lambda: ["m3d"])
+    #: The two the product delivers (ADR-023). `m3d` was accepted and defaulted
+    #: to until ENGINE-MIG-008, and was never honoured by anything — the worker
+    #: exported whatever its engine produced. Removing the value refuses a request
+    #: nothing could have served rather than accepting and ignoring it.
+    requested_formats: list[Literal["step", "stl"]] = Field(
+        default_factory=lambda: ["step", "stl"]
+    )
 
 
 class ManualCadJobResponse(StrictModel):

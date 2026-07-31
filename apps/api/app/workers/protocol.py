@@ -6,7 +6,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from app.contracts import ErrorCode, JobStatus, JobType, WorkerCapability, WorkerCapabilityManifest
+from app.contracts import (
+    ErrorCode,
+    JobStatus,
+    JobType,
+    WorkerCapability,
+    WorkerCapabilityManifest,
+    canonical_capabilities,
+)
 from app.workers.capabilities import unmet_capabilities
 
 
@@ -121,7 +128,9 @@ class WorkerProtocolService:
                 job.status, job.lease_owner, job.lease_expires_at = JobStatus.PENDING, None, None
             if job.status != JobStatus.PENDING or job.attempt >= job.max_attempts:
                 continue
-            if not job.required_capabilities.issubset(worker.capabilities) or job.required_cad_ir not in worker.supported_cad_ir:
+            if not canonical_capabilities(job.required_capabilities).issubset(
+                canonical_capabilities(worker.capabilities)
+            ) or job.required_cad_ir not in worker.supported_cad_ir:
                 continue
             if unmet_capabilities(worker.capability_manifest, job.required_capability_keys):
                 continue

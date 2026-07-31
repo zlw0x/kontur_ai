@@ -14,6 +14,7 @@ from app.contracts import (
     JobType,
     WorkerCapability,
     WorkerCapabilityManifest,
+    canonical_capabilities,
 )
 from app.ledger.models import WorkerCapabilitySnapshotRow
 from app.workers.capabilities import unmet_capabilities
@@ -159,7 +160,9 @@ class SqlWorkerProtocolService:
             ).all()
             for row in candidates:
                 required = {WorkerCapability(item) for item in row.required_capabilities}
-                if not required.issubset(worker.capabilities) or row.required_cad_ir not in worker.supported_cad_ir:
+                if not canonical_capabilities(required).issubset(
+                    canonical_capabilities(worker.capabilities)
+                ) or row.required_cad_ir not in worker.supported_cad_ir:
                     continue
                 if unmet_capabilities(worker.capability_manifest, list(row.required_capability_keys or [])):
                     continue

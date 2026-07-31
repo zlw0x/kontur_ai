@@ -24,6 +24,7 @@ from app.contracts import (
     ClaimabilityStatus,
     JobClaimabilityReport,
     JobStatus,
+    canonical_capabilities,
 )
 from app.workers.capabilities import (
     MINIMUM_WORKER_VERSION,
@@ -122,7 +123,9 @@ class SchedulerDiagnostics:
                     f"worker {worker.app_version}, requires at least {MINIMUM_WORKER_VERSION}",
                 )
             ]
-        if not job.required_capabilities.issubset(worker.capabilities):
+        if not canonical_capabilities(job.required_capabilities).issubset(
+            canonical_capabilities(worker.capabilities)
+        ):
             missing = sorted(item.value for item in job.required_capabilities - worker.capabilities)
             return [
                 blocker(

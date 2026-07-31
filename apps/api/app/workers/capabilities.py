@@ -1,9 +1,9 @@
 """The capability registry (POSTMVP-003) and its diagnostics (POSTMVP-003A).
 
-A worker declares what its installed KOMPAS and adapter can actually build.
-The API refuses to lease a job whose operations the worker cannot serve, so an
-unsupported feature fails at scheduling time with a typed reason instead of
-halfway through a CAD session on the user's machine.
+A worker declares what its installed engine can actually build. The API refuses
+to lease a job whose operations the worker cannot serve, so an unsupported
+feature fails at scheduling time with a typed reason instead of halfway through
+a build on the user's machine.
 
 Keys are versioned vocabulary, not free text: adding one here is the deliberate
 step that makes a new operation schedulable.
@@ -27,7 +27,6 @@ from app.contracts import (
 
 SOLID_RECTANGULAR_PRISM = "solid.rectangular_prism"
 FEATURE_HOLE_SIMPLE_THROUGH = "feature.hole.simple_through"
-EXPORT_M3D = "export.m3d"
 EXPORT_STEP = "export.step"
 EXPORT_STL = "export.stl"
 VALIDATE_MANIFOLD = "validate.manifold"
@@ -37,10 +36,16 @@ VALIDATE_HOLE_COUNT = "validate.hole_count"
 #: Everything every build needs, whatever the part is. A worker that cannot
 #: serve all of these cannot complete a BUILD_CAD or ANALYZE_DRAWING job at all,
 #: so these are demanded before a job is ever leased.
+#:
+#: `export.m3d` was here until ENGINE-MIG-008 and had to leave with the engine
+#: that produced it. Demanding it of every job meant no build123d worker could
+#: ever be leased anything: it declares no such capability, so every order would
+#: have sat at `CAPABILITY_NOT_SUPPORTED` while a healthy worker polled forever.
+#: A baseline naming one engine's native format was always a latent version of
+#: that failure; it only became visible when the engine changed.
 BASELINE_CAPABILITIES: tuple[str, ...] = (
     SOLID_RECTANGULAR_PRISM,
     FEATURE_HOLE_SIMPLE_THROUGH,
-    EXPORT_M3D,
     EXPORT_STEP,
     EXPORT_STL,
     VALIDATE_MANIFOLD,

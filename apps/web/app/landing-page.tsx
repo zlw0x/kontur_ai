@@ -69,7 +69,7 @@ export default function LandingPage({ onOpenStudio }: LandingPageProps) {
             <div className="result-panel">
               <div className="demo-panel-bar">
                 <span className="panel-index">02</span>
-                <span><b>Готовая 3D-модель</b><small>STEP · STL · M3D</small></span>
+                <span><b>Готовая 3D-модель</b><small>STEP · STL</small></span>
                 <i className="panel-ready"><LandingIcon name="check" /></i>
               </div>
               <div className="demo-model">
@@ -100,7 +100,7 @@ export default function LandingPage({ onOpenStudio }: LandingPageProps) {
         <div className="how-grid">
           <article className="how-card first"><span className="card-number">01</span><span className="card-icon"><LandingIcon name="upload" /></span><h3>Загрузите чертёж</h3><p>Фото, скан или набросок с размерами — система разберётся с исходным материалом.</p><span className="card-link">PNG или JPG <Arrow /></span></article>
           <article className="how-card"><span className="card-number">02</span><span className="card-icon cyan-icon"><LandingIcon name="message" /></span><h3>Подтвердите важное</h3><p>Если размер или обозначение неочевидны, KONTUR задаст короткий уточняющий вопрос.</p><span className="card-link">Вы всегда в контроле <Arrow /></span></article>
-          <article className="how-card featured"><span className="card-number">03</span><span className="card-icon"><LandingIcon name="cube" /></span><h3>Получите 3D-модель</h3><p>Готовая геометрия, которую можно открыть в CAD-системе или передать в производство.</p><span className="card-link">STEP · STL · M3D <Arrow /></span></article>
+          <article className="how-card featured"><span className="card-number">03</span><span className="card-icon"><LandingIcon name="cube" /></span><h3>Получите 3D-модель</h3><p>Готовая геометрия, которую можно открыть в CAD-системе или передать в производство.</p><span className="card-link">STEP · STL <Arrow /></span></article>
         </div>
       </section>
 

@@ -1,7 +1,13 @@
 # ENGINE-MIG-008: switch-over and removal acceptance
 
-**Date:** 2026-07-31 · **Result:** PASS. KOMPAS is gone, the worker runs on Linux,
-and the image is built by CI. The migration is finished.
+**Date:** 2026-07-31 · **Result:** PASS, **after a correction the same day.** KOMPAS
+is gone, the worker runs on Linux, and the image is built by CI.
+
+The first version of this record claimed the switch-over was finished when it was
+not: the engine had been removed but the *service* still required its output
+format in three places, so no order could have been built. That is written up under
+"Found afterwards" below rather than quietly fixed, because the reason it was
+missed is more useful than the fix.
 
 Nine thousand lines out, roughly a thousand in. This is the step ADR-023 said would
 come last and only after the replacement was proven, and it is deliberately a
@@ -40,6 +46,59 @@ cad-worker flags --disable sketch.slot
 The part built is the one the deleted adapter refused by name. `doctor`, `flags`
 and `run-job` all run from the `net8.0` build, on Linux, with no Windows anywhere
 in the path.
+
+This is the `run-job` path, which does not touch the API. What it does *not* prove
+is that an order can be scheduled — see "Found afterwards" below.
+
+## Found afterwards: the service still required M3D
+
+Removing the engine that produced `model.m3d` did not remove the three places the
+API demanded one. Each would have stopped an order on its own, and together they
+made the whole cycle impossible while every test stayed green.
+
+| Gate | What it did |
+|---|---|
+| `workers/capabilities.py` — `export.m3d` in `BASELINE_CAPABILITIES` | demanded of **every** `BUILD_CAD` and `ANALYZE_DRAWING` job. build123d declares no such capability, so a healthy worker was refused every job with `CAPABILITY_NOT_SUPPORTED` and polled forever |
+| `main.py` — `"M3D" not in artifact_types` | a completed build was rejected `409 M3D artifact is required` |
+| `main.py` — `has_model = any(type == "M3D")` | an order could never reach `READY` |
+
+And a fourth, which this migration introduced: the worker began declaring the
+coarse capability as `CAD_BUILD` while the API still enqueued jobs requiring
+`KOMPAS_BUILD`. A raw set comparison made a worker and a job that meant exactly
+the same thing look incompatible.
+
+**Why nothing caught it.** Every test asserted the *old* rule — five of them
+uploaded an artifact called `M3D` and expected a 200 — so the suite defended the
+requirement rather than the behaviour. And the acceptance run for ENGINE-MIG-007
+went through `run-job`, which is the path that skips the API entirely. A milestone
+whose whole subject is scheduling was accepted without once exercising
+claim → build → complete → READY.
+
+**The fix.**
+
+- `BASELINE_CAPABILITIES` demands `export.step` and `export.stl`. A baseline naming
+  one engine's native format was always this failure waiting for the engine to
+  change.
+- `DELIVERED_MODEL_ARTIFACTS = ("STEP", "STL")` — one place, in the API — is what a
+  finished build owes, and a partial upload is refused with the missing kind named.
+  These are a statement about the *product* (ADR-023, `AGENTS.md` rule 11), which is
+  the difference from `M3D`: STEP and STL are what a customer receives, not what an
+  engine happens to write.
+- `canonical_capabilities()` folds `KOMPAS_BUILD` onto `CAD_BUILD` in all three
+  comparisons, so all four combinations of old and new names across a deploy work.
+  A parametrised test covers all four.
+- `ManualCadJobRequest.requested_formats` no longer accepts `m3d`. It was accepted
+  and never honoured — the worker exported whatever its engine produced — so
+  refusing it is more honest than ignoring it.
+- The web page stops offering M3D on a new order and stops promising it on the
+  landing page. It still *displays* one if an old order has it: artifacts are files
+  and are served as written.
+
+**Verified end to end through the API**, which is what should have been done the
+first time: an order created, claimed by a worker publishing the manifest the real
+engine publishes (no `export.m3d`, `CAD_BUILD`), STEP and STL uploaded, a
+completion with only STEP refused `409 a completed build owes STL`, the full
+completion accepted, the order `COMPLETED`, and STEP downloaded.
 
 ## The three decisions that needed care
 

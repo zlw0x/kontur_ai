@@ -44,7 +44,11 @@ type IconName =
   | "trash"
   | "upload";
 
-const artifactOrder = ["M3D", "STEP", "STL", "VALIDATION_REPORT"];
+// The order results are shown in. `M3D` is still listed, and last: nothing has
+// produced one since the CAD engine changed (ADR-023), but artifacts are files
+// and are served as written, so an order finished before that still shows
+// everything it was delivered.
+const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT", "M3D"];
 const statusCopy: Record<string, string> = {
   PENDING: "Ожидает запуска",
   LEASED: "Создаём модель",
@@ -71,8 +75,9 @@ export default function Home() {
   const [material, setMaterial] = useState<Material>("aluminum");
   const [precision, setPrecision] = useState<"standard" | "high">("high");
   const [viewMode, setViewMode] = useState<ViewMode>("model");
+  // What a new order asks for. No M3D: nothing produces one, and offering a
+  // format that cannot arrive is a promise the page cannot keep.
   const [outputs, setOutputs] = useState<Record<string, boolean>>({
-    M3D: true,
     STEP: true,
     STL: true,
     VALIDATION_REPORT: true,
@@ -877,7 +882,7 @@ function Icon({ name }: { name: IconName }) {
 
 function artifactLabel(type: string) {
   return {
-    M3D: "Исходная модель",
+    M3D: "Исходная модель КОМПАС",
     STEP: "STEP-модель",
     STL: "STL-модель",
     VALIDATION_REPORT: "Паспорт модели",
@@ -886,7 +891,7 @@ function artifactLabel(type: string) {
 
 function artifactDescription(type: string) {
   return {
-    M3D: "Для КОМПАС-3D",
+    M3D: "Из заказов до смены движка",
     STEP: "Для CAD-систем",
     STL: "Для производства",
     VALIDATION_REPORT: "Результаты проверки",

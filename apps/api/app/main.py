@@ -61,6 +61,17 @@ from .workers.sql_protocol import SqlWorkerProtocolService
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("cad-ai-api")
 
+#: The files a finished build owes a customer (ADR-023, `AGENTS.md` rule 11).
+#:
+#: Named here rather than derived from the worker's manifest because these are a
+#: statement about the *product*, not about an engine: STEP is the exact geometry
+#: a customer takes into any CAD system and STL is the mesh. That is the whole
+#: difference from what stood here until ENGINE-MIG-008, which was `M3D` — a
+#: KOMPAS-native format, written into the definition of a finished job, which no
+#: engine has produced since the migration and which therefore made every
+#: `BUILD_CAD` completion fail with 409.
+DELIVERED_MODEL_ARTIFACTS: tuple[str, ...] = ("STEP", "STL")
+
 def build_worker_protocol():
     if settings.worker_repository_mode == "memory":
         return WorkerProtocolService(InMemoryWorkerRepository(), settings.worker_enrollment_token)
@@ -271,7 +282,7 @@ def create_manual_cad_job(
             order_id,
             JobType.BUILD_CAD,
             idempotency_key,
-            {WorkerCapability.KOMPAS_BUILD},
+            {WorkerCapability.CAD_BUILD},
             normalized.document.schema_version,
             required_capability_keys(JobType.BUILD_CAD),
         )
@@ -347,7 +358,7 @@ async def create_drawing_job(
         order_id,
         JobType.ANALYZE_DRAWING,
         "sha256:" + hashlib.sha256(f"{order_id}:{stored.sha256}:0".encode()).hexdigest(),
-        {WorkerCapability.AI_DRAWING, WorkerCapability.KOMPAS_BUILD},
+        {WorkerCapability.AI_DRAWING, WorkerCapability.CAD_BUILD},
         CAD_IR_VERSION,
         required_capability_keys(JobType.ANALYZE_DRAWING),
     ))
@@ -385,7 +396,8 @@ def get_drawing_job(
             ).get("questions", [])
         except (ArtifactIntegrityError, json.JSONDecodeError):
             questions = []
-    has_model = any(item["type"].upper() == "M3D" for item in artifacts)
+    present = {item["type"].upper() for item in artifacts}
+    has_model = all(kind in present for kind in DELIVERED_MODEL_ARTIFACTS)
     status = (
         "READY" if has_model
         else "WAITING_FOR_USER_ANSWERS" if questions
@@ -459,7 +471,7 @@ def answer_drawing_questions(
         "sha256:" + hashlib.sha256(
             f"{order_id}:{stored.sha256}:{round_number}:{request.model_dump_json()}".encode()
         ).hexdigest(),
-        {WorkerCapability.AI_DRAWING, WorkerCapability.KOMPAS_BUILD},
+        {WorkerCapability.AI_DRAWING, WorkerCapability.CAD_BUILD},
         CAD_IR_VERSION,
         required_capability_keys(JobType.ANALYZE_DRAWING),
     ))
@@ -538,6 +550,9 @@ def download_manual_artifact(
     except ArtifactIntegrityError as error:
         raise HTTPException(status_code=404, detail="artifact was not found") from error
     media_types = {
+        # Kept although nothing produces one any more: artifacts are files and
+        # are served as written, so an order completed before ENGINE-MIG-008
+        # still downloads everything it was delivered.
         "M3D": "application/octet-stream",
         "STEP": "model/step",
         "STL": "model/stl",
@@ -698,10 +713,16 @@ def complete_job(job_id: uuid.UUID, request: JobCompletionRequest, authorization
     artifact_types = {artifact.type.upper() for artifact in request.artifacts}
     if job is None:
         raise HTTPException(status_code=404, detail="job was not found")
-    if job.job_type == JobType.BUILD_CAD and "M3D" not in artifact_types:
-        raise HTTPException(status_code=409, detail="M3D artifact is required")
+    missing_model = [kind for kind in DELIVERED_MODEL_ARTIFACTS if kind not in artifact_types]
+    if job.job_type == JobType.BUILD_CAD and missing_model:
+        raise HTTPException(
+            status_code=409,
+            detail=f"a completed build owes {', '.join(missing_model)}",
+        )
+    # A drawing job either produced the model or stopped to ask something. Both
+    # are finished work; only silence is not.
     if job.job_type == JobType.ANALYZE_DRAWING and not (
-        "M3D" in artifact_types or
+        not missing_model or
         {"DRAWING_ANALYSIS", "CLARIFICATION_QUESTIONS"}.issubset(artifact_types)
     ):
         raise HTTPException(status_code=409, detail="drawing analysis artifacts are required")

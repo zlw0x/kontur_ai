@@ -4,6 +4,7 @@ quietly and left for a capable one, never handed the job."""
 
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.contracts import (
@@ -204,3 +205,130 @@ def test_claim_endpoint_rejects_an_incapable_worker(monkeypatch):
         json={**body, "capability_manifest": manifest().model_dump(mode="json")},
     )
     assert capable.json()["job"] is not None
+
+
+# --- the engine changed and the baseline had to (ENGINE-MIG-008) ------------
+
+
+def build123d_manifest() -> WorkerCapabilityManifest:
+    """A manifest shaped like the one the real engine publishes.
+
+    Written out rather than derived from `MVP_CAPABILITIES` on purpose: the point
+    is that a worker declaring what build123d actually declares is schedulable.
+    Building the manifest from the API's own list would make the test agree with
+    itself no matter what the engine says.
+    """
+    return WorkerCapabilityManifest(
+        worker_version="0.5.0",
+        engine={
+            "engine_id": "build123d",
+            "engine_version": "0.11.1",
+            "kernel_id": "opencascade",
+            "kernel_version": "7.9.3.1.1",
+        },
+        cad_ir_versions=[CAD_IR_VERSION],
+        capabilities={
+            "solid.rectangular_prism": CapabilityStatus.BETA,
+            "solid.contour_profile": CapabilityStatus.BETA,
+            "feature.hole.simple_through": CapabilityStatus.BETA,
+            "feature.boss.additive": CapabilityStatus.BETA,
+            "sketch.arc": CapabilityStatus.BETA,
+            "sketch.slot": CapabilityStatus.BETA,
+            "sketch.regular_polygon": CapabilityStatus.BETA,
+            "sketch.islands": CapabilityStatus.BETA,
+            "sketch.construction_geometry": CapabilityStatus.BETA,
+            "sketch.plane.base": CapabilityStatus.BETA,
+            "sketch.plane.datum_offset": CapabilityStatus.BETA,
+            "sketch.plane.face_selector": CapabilityStatus.BETA,
+            "sketch.constraints": CapabilityStatus.BETA,
+            "sketch.driving_dimensions": CapabilityStatus.BETA,
+            "export.step": CapabilityStatus.BETA,
+            "export.stl": CapabilityStatus.BETA,
+            "validate.manifold": CapabilityStatus.BETA,
+            "validate.bounding_box": CapabilityStatus.BETA,
+            "validate.hole_count": CapabilityStatus.BETA,
+            "solid.revolve": CapabilityStatus.EXPERIMENTAL,
+            "cut.revolve": CapabilityStatus.EXPERIMENTAL,
+        },
+    )
+
+
+def test_a_worker_running_the_real_engine_can_be_leased_a_build():
+    """The regression this exists for.
+
+    `export.m3d` was in the baseline until ENGINE-MIG-008, so a build123d worker —
+    which cannot produce one and does not claim to — was refused every job with
+    `CAPABILITY_NOT_SUPPORTED`. Nothing was broken on the worker; the order simply
+    never moved, and a healthy worker polled forever.
+    """
+    required = required_capability_keys(JobType.BUILD_CAD)
+
+    assert unmet_capabilities(build123d_manifest(), required) == []
+    assert unmet_capabilities(build123d_manifest(), required_capability_keys(
+        JobType.ANALYZE_DRAWING)) == []
+
+
+def test_the_baseline_demands_no_engine_native_format():
+    """A baseline naming one engine's own format is a scheduling failure waiting
+    for the engine to change."""
+    assert "export.m3d" not in MVP_CAPABILITIES
+    assert "export.step" in MVP_CAPABILITIES
+    assert "export.stl" in MVP_CAPABILITIES
+
+
+def test_an_experimental_operation_still_does_not_make_a_job_leasable():
+    """Unchanged by the above: revolve is declared experimental and the baseline
+    does not ask for it, so it neither blocks a build nor becomes schedulable."""
+    assert "solid.revolve" not in MVP_CAPABILITIES
+    demanded = required_capability_keys(JobType.BUILD_CAD) + ["solid.revolve"]
+    assert unmet_capabilities(build123d_manifest(), demanded) == ["solid.revolve"]
+
+
+# --- the coarse capability was renamed too ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("job_declares", "worker_declares"),
+    [
+        (WorkerCapability.CAD_BUILD, WorkerCapability.CAD_BUILD),
+        # A job enqueued before the rename, served by a worker built after it.
+        (WorkerCapability.KOMPAS_BUILD, WorkerCapability.CAD_BUILD),
+        # A worker built before the rename, given a job enqueued after it.
+        (WorkerCapability.CAD_BUILD, WorkerCapability.KOMPAS_BUILD),
+        (WorkerCapability.KOMPAS_BUILD, WorkerCapability.KOMPAS_BUILD),
+    ],
+)
+def test_either_spelling_of_the_coarse_capability_matches_either(job_declares, worker_declares):
+    """All four combinations, because all four happen across a deploy.
+
+    `KOMPAS_BUILD` is stored in rows written by every earlier release, and
+    `CAD_BUILD` is what a current worker sends. Comparing the raw values made a
+    worker and a job that meant exactly the same thing look incompatible, and the
+    order simply never moved.
+    """
+    service, worker = memory_service()
+    service.heartbeat(
+        worker, [worker_declares], [CAD_IR_VERSION], 1, build123d_manifest())
+    job = Job(
+        uuid4(),
+        uuid4(),
+        JobType.BUILD_CAD,
+        f"sha256:{uuid4()}",
+        {job_declares},
+        CAD_IR_VERSION,
+        required_capability_keys(JobType.BUILD_CAD),
+    )
+    service.repo.jobs[job.id] = job
+
+    assert service.claim(worker) is not None
+
+
+def test_a_worker_that_only_analyses_is_still_not_given_a_build():
+    """Folding the two names together must not fold anything else together."""
+    service, worker = memory_service()
+    service.heartbeat(
+        worker, [WorkerCapability.AI_DRAWING], [CAD_IR_VERSION], 1, build123d_manifest())
+    job = build_cad_job()
+    service.repo.jobs[job.id] = job
+
+    assert service.claim(worker) is None

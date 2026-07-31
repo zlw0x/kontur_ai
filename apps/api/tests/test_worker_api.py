@@ -86,24 +86,26 @@ def test_job_heartbeat_and_completion_are_authenticated_and_idempotent(monkeypat
         "message_code": "FEATURE_BUILDING", "safe_details": {"feature_index": 1}
     })
     assert heartbeat.status_code == 204
-    artifact_bytes = b"fake-m3d"
-    artifact_sha = hashlib.sha256(artifact_bytes).hexdigest().upper()
-    uploaded = client.put(
-        f"/api/v1/workers/jobs/{job_id}/artifacts/M3D",
-        headers={**headers, "x-content-sha256": artifact_sha},
-        content=artifact_bytes,
-    )
-    assert uploaded.status_code == 200
+    delivered = []
+    for kind, content in (("STEP", b"ISO-10303-21;"), ("STL", b"solid fake")):
+        uploaded = client.put(
+            f"/api/v1/workers/jobs/{job_id}/artifacts/{kind}",
+            headers={**headers, "x-content-sha256": hashlib.sha256(content).hexdigest().upper()},
+            content=content,
+        )
+        assert uploaded.status_code == 200
+        delivered.append(uploaded.json())
     payload = {
         "job_id": str(job_id), "idempotency_key": "sha256:complete",
         "result": {"status": "success"},
-        "artifacts": [uploaded.json()],
+        "artifacts": delivered,
     }
     first = client.post(f"/api/v1/workers/jobs/{job_id}/complete", headers=headers, json=payload)
     replay = client.post(f"/api/v1/workers/jobs/{job_id}/complete", headers=headers, json=payload)
+    assert first.status_code == 200
     assert first.json()["idempotent_replay"] is False
     assert replay.json()["idempotent_replay"] is True
-    assert len(protocol.repo.artifacts[job_id]) == 1
+    assert len(protocol.repo.artifacts[job_id]) == 2
 
 
 def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_path):
@@ -119,7 +121,7 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
     created = client.post(
         "/api/v1/manual/cad-jobs",
         headers=manual_headers,
-        json={"cad_ir": fixture, "requested_formats": ["m3d"]},
+        json={"cad_ir": fixture, "requested_formats": ["step", "stl"]},
     )
     assert created.status_code == 201
     job_id = created.json()["job_id"]
@@ -154,20 +156,39 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
     assert len(downloaded.content) == source["size_bytes"]
     assert hashlib.sha256(downloaded.content).hexdigest().upper() == source["sha256"]
 
-    artifact = b"m3d-result"
+    artifact = b"ISO-10303-21;"
     digest = hashlib.sha256(artifact).hexdigest().upper()
     bad = client.put(
-        f"/api/v1/workers/jobs/{job_id}/artifacts/M3D",
+        f"/api/v1/workers/jobs/{job_id}/artifacts/STEP",
         headers={**headers, "x-content-sha256": "0" * 64},
         content=artifact,
     )
     assert bad.status_code == 409
-    uploaded = client.put(
-        f"/api/v1/workers/jobs/{job_id}/artifacts/M3D",
-        headers={**headers, "x-content-sha256": digest},
-        content=artifact,
+    delivered = []
+    for kind, content in (("STEP", artifact), ("STL", b"solid manual")):
+        uploaded = client.put(
+            f"/api/v1/workers/jobs/{job_id}/artifacts/{kind}",
+            headers={**headers, "x-content-sha256": hashlib.sha256(content).hexdigest().upper()},
+            content=content,
+        )
+        assert uploaded.status_code == 200
+        delivered.append(uploaded.json())
+
+    # A build that produced only half of what it owes is refused, and says which
+    # half is missing.
+    partial = client.post(
+        f"/api/v1/workers/jobs/{job_id}/complete",
+        headers=headers,
+        json={
+            "job_id": job_id,
+            "idempotency_key": claim["idempotency_key"],
+            "result": {"status": "success"},
+            "artifacts": [delivered[0]],
+        },
     )
-    assert uploaded.status_code == 200
+    assert partial.status_code == 409
+    assert "STL" in partial.json()["detail"]
+
     completed = client.post(
         f"/api/v1/workers/jobs/{job_id}/complete",
         headers=headers,
@@ -175,7 +196,7 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
             "job_id": job_id,
             "idempotency_key": claim["idempotency_key"],
             "result": {"status": "success"},
-            "artifacts": [uploaded.json()],
+            "artifacts": delivered,
         },
     )
     assert completed.status_code == 200
@@ -183,7 +204,7 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
     assert status.status_code == 200
     assert status.json()["status"] == "COMPLETED"
     result = client.get(
-        f"/api/v1/manual/cad-jobs/{job_id}/artifacts/M3D",
+        f"/api/v1/manual/cad-jobs/{job_id}/artifacts/STEP",
         headers=manual_headers,
     )
     assert result.status_code == 200
@@ -298,7 +319,7 @@ def test_a_manual_submission_is_normalised_and_its_lineage_returned(monkeypatch,
     created = client.post(
         "/api/v1/manual/cad-jobs",
         headers={"x-manual-api-token": "local-development-manual-api-token-change-me"},
-        json={"cad_ir": legacy, "requested_formats": ["m3d"]},
+        json={"cad_ir": legacy, "requested_formats": ["step", "stl"]},
     )
 
     assert created.status_code == 201
@@ -329,7 +350,7 @@ def test_a_submission_that_cannot_be_migrated_is_refused_with_its_reasons(monkey
     refused = client.post(
         "/api/v1/manual/cad-jobs",
         headers={"x-manual-api-token": "local-development-manual-api-token-change-me"},
-        json={"cad_ir": legacy, "requested_formats": ["m3d"]},
+        json={"cad_ir": legacy, "requested_formats": ["step", "stl"]},
     )
 
     assert refused.status_code == 422
