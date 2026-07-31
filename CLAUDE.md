@@ -137,6 +137,14 @@ Two things left over from the migration, both named in
 because stored rows carry them, and they leave when none do; and no deployment has
 run on the container image yet.
 
+The image itself is now **testable rather than merely defined**. `ContainerEngineTests`
+drives the launcher against a real daemon in the mode production uses — the manifest, a
+build whose results come back out of the bind mount, a shape claim on its own read-only
+mount, and a flag the operator set — and skips itself unless `CAD_ENGINE_IMAGE` names an
+image, which the `cad-worker-image` CI job now sets after building one. Until that job has
+run, container mode has still only ever been checked by reading the argument list the
+launcher builds.
+
 ## What was landed before the engine changed
 
 Everything below is delivered. It was built against KOMPAS and its acceptance

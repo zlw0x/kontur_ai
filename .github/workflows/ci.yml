@@ -93,14 +93,14 @@ jobs:
           python3 -c "import json,sys; d=json.load(open('described.json')); \
             assert d['engine_id']=='build123d', d; \
             assert [a['kind'] for a in d['artifacts']]==['STEP','STL'], d; \
-            assert d['capabilities']['solid.revolve']['status']=='experimental', d; \
+            assert d['capabilities']['solid.revolve']['status'] in ('beta','stable'), d; \
             print('image describes itself:', d['engine_version'], d['kernel_version'])"
       # And it builds a real part, in the container, with a bind-mounted job and
       # nothing else writable. A `describe` that works proves the wheels
       # installed; this proves the kernel runs.
       - run: |
           mkdir -p job
-          cp tests/fixtures/cad-ir/lever-plate.v1_4.json job/cad-ir.json
+          cp tests/fixtures/cad-ir/lever-plate.v1_7.json job/cad-ir.json
           # The uid the launcher passes in production, for the same reason: the
           # job directory is a bind mount owned by whoever runs the worker, and a
           # container running as anyone else cannot write the results into it.
@@ -109,6 +109,17 @@ jobs:
             cad-ai/cad-worker:ci build --job /work
           test -s job/output/model.step
           test -s job/output/model.stl
+      # And the launcher against the same image, in the mode production uses. Every
+      # other check of container mode reads the argument list the launcher builds,
+      # which is the right way to test that `--read-only` is there and cannot check
+      # whether a real daemon accepts the whole invocation. These tests skip
+      # themselves unless CAD_ENGINE_IMAGE names an image, so this is the one job
+      # that can run them.
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - run: dotnet test packages/build123d-launcher/tests --nologo
+        env:
+          CAD_ENGINE_IMAGE: cad-ai/cad-worker:ci
   web:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: apps/web}}

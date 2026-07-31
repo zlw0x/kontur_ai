@@ -115,10 +115,17 @@ public sealed class RealEngineTests
         Assert.NotEmpty(report.Engine.EngineVersion);
         Assert.Equal(["STEP", "STL"], report.Engine.Artifacts.Select(item => item.Kind));
 
-        // Maturity, straight from the engine that decides it. Revolve is
-        // experimental, which the API refuses on an ordinary claim.
+        // Maturity, straight from the engine that decides it, and read here rather
+        // than pinned: the golden corpus is what promotes an operation
+        // (POSTMVP-013/014), and an assertion naming today's rung would have to be
+        // edited on every promotion. What this side needs is that the statuses arrive
+        // intact and mean something the API can schedule on.
         Assert.Equal("beta", report.Capabilities["sketch.arc"].Status);
-        Assert.Equal("experimental", report.Capabilities["solid.revolve"].Status);
+        Assert.Contains(
+            report.Capabilities["solid.revolve"].Status,
+            new[] { "experimental", "beta", "stable" });
+        Assert.Equal(
+            "experimental", report.Capabilities["feature.chamfer.asymmetric"].Status);
     }
 
     [EngineFact]
