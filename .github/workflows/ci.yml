@@ -20,6 +20,27 @@ jobs:
       - run: python scripts/generate_schemas.py --check
       - run: python scripts/validate_schemas.py
       - run: python scripts/check_openapi_compatibility.py
+  # Real geometry, on a Linux runner, with no licence and no GUI — the whole
+  # point of ADR-023. The `api` job runs these too, but without the engine
+  # installed, so there the parity suite skips itself and only the neutral half
+  # runs. This job is the one that actually builds the fixtures.
+  cad-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        # The version the worker's own image pins. A parity run on a different
+        # interpreter would be evidence about a build nobody ships.
+        with: {python-version: "3.12"}
+      # OpenCascade links against these even headless; the same list the
+      # worker's Dockerfile installs, for the same reason.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libgl1 libglu1-mesa libxi6 libxmu6 libsm6 libice6 libx11-6 \
+            libexpat1 libfontconfig1 fonts-dejavu-core
+      - run: pip install -r apps/cad-worker/requirements.txt pytest==8.4.1
+      - run: pytest -q packages/build123d-adapter/tests
   local-worker:
     runs-on: windows-latest
     steps:
