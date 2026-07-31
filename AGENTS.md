@@ -42,6 +42,7 @@ packages/contracts
 packages/cad-ir
 packages/cad-engine-contracts
 packages/build123d-adapter
+packages/build123d-launcher
 packages/kompas-adapter
 packages/geometry-validation
 infra
@@ -50,6 +51,8 @@ tests/fixtures
 ```
 
 `apps/cad-worker` and `packages/build123d-adapter` are the migration target (ADR-023). `packages/kompas-adapter` is removed at the end of it, not before.
+
+`packages/build123d-launcher` is the .NET side of the new engine: it starts the CAD worker as a child process, hands it one job directory and the feature flags of the run, and turns what it prints into the typed results the rest of the worker already understands. It targets plain `net8.0` for the same reason the contracts do — the engine it launches is a Linux container, so nothing on the path to it may need Windows. Nothing from a document reaches an argument, an environment variable or a file name: the command line is built from a fixed vocabulary and the only variable in it is a job directory the worker itself chose.
 
 `packages/cad-engine-contracts` already exists and holds the engine-neutral half: the build plan, the sketch vocabulary, the CAD-IR parser, the selectors, the validators, `ICadAdapter`, the typed errors and the fake adapter. It targets plain `net8.0` and its tests do too — that is the check that keeps it neutral, because the day something there needs COM it stops compiling instead of quietly making CI need Windows again. An engine declares what it is and what it produces through `CadEngineDescription`; nothing else may assume a format.
 

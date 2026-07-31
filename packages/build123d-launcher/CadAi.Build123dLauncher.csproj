@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Plain net8.0, and that is the whole point of the migration: the engine
+         this launches is a Linux container, so nothing that reaches it may need
+         Windows. The framework is the check — an interop type creeping in here
+         stops compiling instead of quietly re-tying the CAD path to a desktop. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\cad-engine-contracts\CadAi.CadEngine.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The command line this builds is a security property, so it is asserted
+         directly rather than inferred from what a process happened to do. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>CadAi.Build123dLauncher.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

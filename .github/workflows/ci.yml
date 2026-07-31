@@ -41,6 +41,14 @@ jobs:
             libexpat1 libfontconfig1 fonts-dejavu-core
       - run: pip install -r apps/cad-worker/requirements.txt pytest==8.4.1
       - run: pytest -q packages/build123d-adapter/tests apps/cad-worker/tests
+      # The launcher against the engine it launches. Its stub tests run on the
+      # Windows job too, and they cannot catch the one thing this can: the C#
+      # records and the JSON the Python worker prints are two hand-written
+      # descriptions of one format, and only a run with both sides present
+      # notices when they drift.
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: "8.0.x"}
+      - run: dotnet test packages/build123d-launcher/tests/CadAi.Build123dLauncher.Tests.csproj --nologo
   local-worker:
     runs-on: windows-latest
     steps:
