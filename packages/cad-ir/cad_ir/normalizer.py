@@ -6,11 +6,12 @@ or guesses at intent. Anything the canonical version cannot express is a typed
 `CAD_IR_MIGRATION_FAILED` rather than a silent approximation — a migration that
 quietly drops a recorded assumption is worse than one that refuses.
 
-Three paths arriving at the canonical version. 0.1.0 and 1.1 share the sketch
+Four paths arriving at the canonical version. 0.1.0 and 1.1 share the sketch
 translation, because both express exactly the same two shapes — a centred
-rectangle and a circle — and each of those becomes a contour. 1.2 needs no
-translation at all: 1.3 only adds names, constraints and dimensions, so a 1.2
-document is already a 1.3 document that happens to use none of them.
+rectangle and a circle — and each of those becomes a contour. 1.2 and 1.3 need no
+translation at all: each later version only *added* something older documents do
+not use — names, constraints and dimensions in 1.3, revolve in 1.4 — so lifting
+one is relabelling and nothing else.
 
 The original document is kept as an artifact and its hash is recorded in the
 lineage, so nothing an older version carried is lost even where the canonical
@@ -38,11 +39,12 @@ from .errors import CadIrValidationError, ValidationIssue
 #: Bumped whenever this translation changes. Two documents normalised by
 #: different versions may differ, and the lineage has to say which produced
 #: the canonical form on file.
-NORMALIZER_VERSION = "1.2"
+NORMALIZER_VERSION = "1.3"
 
 LEGACY_VERSION = "0.1.0"
 SKETCH_ENTITY_VERSION = "1.1"
 PRE_CONSTRAINT_VERSION = "1.2"
+PRE_REVOLVE_VERSION = "1.3"
 
 _FEATURE_TYPES = {"extrude_add": "solid.extrude", "extrude_cut": "cut.extrude"}
 
@@ -103,10 +105,11 @@ def normalize(value: dict[str, Any], metadata: DocumentMetadata | None = None) -
         document = validate_canonical(_translate(value, metadata))
     elif version == SKETCH_ENTITY_VERSION:
         document = validate_canonical(_relabel(_lift_sketches(value)))
-    elif version == PRE_CONSTRAINT_VERSION:
-        # Purely additive: 1.3 only adds names, constraints and dimensions, and
-        # a 1.2 document has none of them. Nothing about the part changes, so
-        # this is the one migration that is genuinely a relabelling.
+    elif version in (PRE_CONSTRAINT_VERSION, PRE_REVOLVE_VERSION):
+        # Purely additive, both of them: 1.3 added names, constraints and
+        # dimensions, 1.4 added revolve, and an older document uses none of it.
+        # Nothing about the part changes, so these are the migrations that are
+        # genuinely a relabelling.
         document = validate_canonical(_relabel(value))
     elif version is None:
         raise CadIrValidationError(

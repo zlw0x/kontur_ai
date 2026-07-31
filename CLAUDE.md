@@ -34,9 +34,11 @@ What this changes:
 
 - Two user-facing results, `model.step` and `model.stl`. **`model.m3d` leaves the
   product.** The manifest, validation report and audit events stay internal.
-- CAD-IR does not change. It was the trust boundary precisely so that the engine
-  underneath it could be replaced, and ADR-018 through ADR-022 survive intact.
-- POSTMVP-008 revolve was **not** built on KOMPAS, deliberately: it lands on
+- CAD-IR did not change *because of* the engine. It was the trust boundary
+  precisely so that the engine underneath it could be replaced, and ADR-018
+  through ADR-022 survive intact. It is now **1.4**, and the one thing 1.4 adds
+  is revolve (`docs/adr/ADR-024-*`).
+- POSTMVP-008 revolve was **not** built on KOMPAS, deliberately: it landed on
   build123d in ENGINE-MIG-006 instead. The auxiliary plane types 15 and 16, and
   POSTMVP-009 onwards as scoped against KOMPAS, are superseded.
 - The KOMPAS implementation is not deleted until build123d reaches parity on the
@@ -45,10 +47,20 @@ What this changes:
 Two costs are real and are recorded in the ADR rather than discovered later: a
 STEP file cannot carry the constraints a delivered M3D could, so the model a
 customer opens is exact but not editable-by-dimension; and the selector resolver
-has to be written again against a different topology model.
+has to be written again against a different topology model. A third was found by
+building: OpenCascade carries a **seam edge** on every closed cylindrical face and
+KOMPAS does not, so edge counts differ by one per closed cylinder. A seam is the
+only edge of a solid that touches exactly one face, which is how an edge selector
+will exclude them.
 
 The order of work is ENGINE-MIG-001 through 008. Do not start the old
 POSTMVP-009.
+
+Done so far: 001–005, and 006 (`docs/acceptance/ENGINE-MIG-006-fixture-parity.md`
+and `-revolve.md`). **Next is ENGINE-MIG-007**, the service integration — and it
+owes one debt from 006: the build123d worker has no feature-flag surface, so
+revolve is the first operation in this repository that is not behind a
+per-operation flag. ADR-021 is not waived; 007 pays it.
 
 ## What was landed on KOMPAS
 

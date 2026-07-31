@@ -1,0 +1,399 @@
+{
+  "document": {
+    "coordinate_system": "right_handed",
+    "name": "flanged bushing",
+    "part_type": "single_part",
+    "units": "mm"
+  },
+  "expectations": [
+    {
+      "id": "expect.bounds",
+      "size_mm": {
+        "x": 36.0,
+        "y": 36.0,
+        "z": 30.0
+      },
+      "tolerance_mm": 0.05,
+      "type": "bounding_box"
+    },
+    {
+      "id": "expect.bodies",
+      "type": "body_count",
+      "value": 1
+    },
+    {
+      "id": "expect.holes",
+      "type": "through_hole_count",
+      "value": 1
+    }
+  ],
+  "features": [
+    {
+      "depends_on": [],
+      "enabled": true,
+      "id": "feature.bush",
+      "inputs": {
+        "angle_deg": 360.0,
+        "axis": {
+          "entity": "axis.centre",
+          "kind": "construction_line"
+        },
+        "both_directions": false,
+        "sketch": {
+          "constraints": [],
+          "construction": [
+            {
+              "end": [
+                0.0,
+                {
+                  "parameter": "bush_height"
+                }
+              ],
+              "id": "axis.centre",
+              "start": [
+                0.0,
+                0.0
+              ],
+              "type": "line"
+            }
+          ],
+          "dimensions": [],
+          "id": "sketch.section",
+          "inner": [],
+          "outer": {
+            "id": "profile.section",
+            "segments": [
+              {
+                "end": [
+                  {
+                    "parameter": "flange_radius"
+                  },
+                  0.0
+                ],
+                "id": "section.flange_face",
+                "start": [
+                  {
+                    "parameter": "bore_radius"
+                  },
+                  0.0
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "flange_radius"
+                  },
+                  {
+                    "parameter": "flange_thickness"
+                  }
+                ],
+                "id": "section.flange_rim",
+                "start": [
+                  {
+                    "parameter": "flange_radius"
+                  },
+                  0.0
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "body_radius"
+                  },
+                  {
+                    "parameter": "flange_thickness"
+                  }
+                ],
+                "id": "section.shoulder",
+                "start": [
+                  {
+                    "parameter": "flange_radius"
+                  },
+                  {
+                    "parameter": "flange_thickness"
+                  }
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "body_radius"
+                  },
+                  {
+                    "parameter": "bush_height"
+                  }
+                ],
+                "id": "section.body_wall",
+                "start": [
+                  {
+                    "parameter": "body_radius"
+                  },
+                  {
+                    "parameter": "flange_thickness"
+                  }
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "bore_radius"
+                  },
+                  {
+                    "parameter": "bush_height"
+                  }
+                ],
+                "id": "section.top_face",
+                "start": [
+                  {
+                    "parameter": "body_radius"
+                  },
+                  {
+                    "parameter": "bush_height"
+                  }
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "bore_radius"
+                  },
+                  0.0
+                ],
+                "id": "section.bore_wall",
+                "start": [
+                  {
+                    "parameter": "bore_radius"
+                  },
+                  {
+                    "parameter": "bush_height"
+                  }
+                ],
+                "type": "line"
+              }
+            ],
+            "type": "path"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XZ"
+          }
+        }
+      },
+      "produces": [
+        {
+          "id": "body.bush",
+          "kind": "solid_body"
+        }
+      ],
+      "type": "solid.revolve"
+    },
+    {
+      "depends_on": [
+        "feature.bush"
+      ],
+      "enabled": true,
+      "id": "feature.groove",
+      "inputs": {
+        "angle_deg": 360.0,
+        "axis": {
+          "axis": {
+            "end": [
+              0.0,
+              1.0
+            ],
+            "start": [
+              0.0,
+              0.0
+            ]
+          },
+          "kind": "points"
+        },
+        "both_directions": false,
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.groove",
+          "inner": [],
+          "outer": {
+            "id": "groove.section",
+            "segments": [
+              {
+                "end": [
+                  {
+                    "parameter": "groove_tool_radius"
+                  },
+                  {
+                    "parameter": "groove_lower_z"
+                  }
+                ],
+                "start": [
+                  {
+                    "parameter": "groove_floor_radius"
+                  },
+                  {
+                    "parameter": "groove_lower_z"
+                  }
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "groove_tool_radius"
+                  },
+                  {
+                    "parameter": "groove_upper_z"
+                  }
+                ],
+                "start": [
+                  {
+                    "parameter": "groove_tool_radius"
+                  },
+                  {
+                    "parameter": "groove_lower_z"
+                  }
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "groove_floor_radius"
+                  },
+                  {
+                    "parameter": "groove_upper_z"
+                  }
+                ],
+                "start": [
+                  {
+                    "parameter": "groove_tool_radius"
+                  },
+                  {
+                    "parameter": "groove_upper_z"
+                  }
+                ],
+                "type": "line"
+              },
+              {
+                "end": [
+                  {
+                    "parameter": "groove_floor_radius"
+                  },
+                  {
+                    "parameter": "groove_lower_z"
+                  }
+                ],
+                "start": [
+                  {
+                    "parameter": "groove_floor_radius"
+                  },
+                  {
+                    "parameter": "groove_upper_z"
+                  }
+                ],
+                "type": "line"
+              }
+            ],
+            "type": "path"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XZ"
+          }
+        },
+        "source_body": {
+          "result": "body.bush"
+        }
+      },
+      "produces": [],
+      "type": "cut.revolve"
+    }
+  ],
+  "metadata": {
+    "generator": "fixture",
+    "generator_version": "1.0"
+  },
+  "parameters": [
+    {
+      "id": "bore_radius",
+      "name": "Bore radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 8.0
+    },
+    {
+      "id": "body_radius",
+      "name": "Body radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 12.0
+    },
+    {
+      "id": "flange_radius",
+      "name": "Flange radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 18.0
+    },
+    {
+      "id": "flange_thickness",
+      "name": "Flange thickness",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 5.0
+    },
+    {
+      "id": "bush_height",
+      "name": "Overall height",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 30.0
+    },
+    {
+      "id": "groove_floor_radius",
+      "name": "Groove floor radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 11.0
+    },
+    {
+      "id": "groove_tool_radius",
+      "name": "Groove tool reach, past the body wall",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 12.5
+    },
+    {
+      "id": "groove_lower_z",
+      "name": "Groove lower edge",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 15.0
+    },
+    {
+      "id": "groove_upper_z",
+      "name": "Groove upper edge",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 20.0
+    }
+  ],
+  "reference_geometry": [],
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.4"
+}

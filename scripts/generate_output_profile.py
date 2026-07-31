@@ -29,6 +29,12 @@ be handed a model that needs it.
 
 Auxiliary planes, face selectors, constraints and driving dimensions all reach
 the adapter through the manual API instead.
+
+Revolve (CAD-IR 1.4) is left out for a different reason, and not because of the
+dialect. The drawing agent reads a rectangle and round holes; a turned profile and
+the centre line it goes round are not something it can extract yet, so offering
+the operation would only invite a model to invent one. Widening what is read off a
+scan is a vision problem, and the operation waits for it.
 """
 
 from __future__ import annotations
@@ -41,8 +47,8 @@ from typing import Any
 ROOT = Path(__file__).parents[1]
 TARGET = ROOT / "schemas" / "cad-ir-mvp-output.schema.json"
 
-SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.3"
-CAD_IR_VERSION = "1.3"
+SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.4"
+CAD_IR_VERSION = "1.4"
 
 MAX_COORDINATE = 1_000_000
 

@@ -20,7 +20,7 @@ namespace CadAi.LocalWorker;
 public static class WorkerCapabilities
 {
     public const string WorkerVersion = "0.4.0";
-    public const string CadIrVersion = "1.3";
+    public const string CadIrVersion = "1.4";
 
     /// <summary>
     /// Behaviour version of a capability, independent of the worker build.

@@ -14,8 +14,9 @@ is which line the profile went round. A document that cannot name its axis has
 not finished reading the drawing.
 
 **A profile may touch the axis but never cross it.** Crossing means the two sides
-sweep through each other, and what comes out is not a solid anyone drew. The
-adapter refuses it rather than letting the kernel produce whatever it produces.
+sweep through each other, and what comes out is not a solid anyone drew. That one
+is geometry — it needs the parameters resolved — so like every other geometric
+check it lives in the adapter, in front of the kernel, and not here.
 """
 
 from __future__ import annotations
@@ -24,8 +25,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import Field, model_validator
 
-from .base import Id, Point2, Scalar, StrictModel
-from .sketch import Sketch
+from .base import FeatureResult, FeatureType, Id, Provenance, ResultRef, Scalar, StrictModel
+from .sketch import ConstructionLine, Point2, Sketch
 
 
 class RevolveAxis(StrictModel):
@@ -84,6 +85,7 @@ class RevolveInputs(StrictModel):
     axis: RevolveAxisSpec
     angle_deg: Scalar = 360.0
     both_directions: bool = False
+    source_body: ResultRef | None = None
 
     @model_validator(mode="after")
     def validate_angle(self) -> "RevolveInputs":
@@ -92,23 +94,54 @@ class RevolveInputs(StrictModel):
                 raise ValueError("a revolve turns more than 0 and at most 360 degrees")
         return self
 
+    @model_validator(mode="after")
+    def validate_axis_entity(self) -> "RevolveInputs":
+        """A named axis names a construction line of this sketch, and nothing else.
+
+        Checked here rather than in the adapter for the same reason `Sketch`
+        checks its own names: it is a statement about the document, not about
+        geometry. An axis naming a profile segment would also be a drawing that
+        revolves a part of itself, and an axis naming a circle is not a line at
+        all.
+
+        `both_directions` is refused on a full turn in the same breath. Half of
+        360 each way is 360, so it changes nothing about the solid and everything
+        about what a reader thinks the document says.
+        """
+        if isinstance(self.axis, RevolveByConstructionLine):
+            lines = {
+                entity.id
+                for entity in self.sketch.construction
+                if isinstance(entity, ConstructionLine)
+            }
+            if self.axis.entity not in lines:
+                raise ValueError(
+                    f"the axis names {self.axis.entity}, which is not a construction line "
+                    f"of sketch {self.sketch.id}"
+                )
+        if self.both_directions and self.angle_deg == 360.0:
+            raise ValueError("a full turn is the same in both directions; drop both_directions")
+        return self
+
 
 class SolidRevolveFeature(StrictModel):
     id: Id
-    type: Literal["solid.revolve"]
+    type: Literal[FeatureType.SOLID_REVOLVE]
     enabled: bool = True
     depends_on: Annotated[list[Id], Field(max_length=64)] = Field(default_factory=list)
-    produces: Annotated[list, Field(max_length=64)] = Field(default_factory=list)
+    produces: Annotated[list[FeatureResult], Field(max_length=64)] = Field(default_factory=list)
     inputs: RevolveInputs
+    provenance: Provenance | None = None
 
 
 class CutRevolveFeature(StrictModel):
     id: Id
-    type: Literal["cut.revolve"]
+    type: Literal[FeatureType.CUT_REVOLVE]
     enabled: bool = True
     depends_on: Annotated[list[Id], Field(max_length=64)] = Field(default_factory=list)
-    produces: Annotated[list, Field(max_length=64)] = Field(default_factory=list)
+    produces: Annotated[list[FeatureResult], Field(max_length=64)] = Field(default_factory=list)
     inputs: RevolveInputs
+    provenance: Provenance | None = None
 
 
 __all__ = [

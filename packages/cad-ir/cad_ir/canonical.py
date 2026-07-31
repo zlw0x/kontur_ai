@@ -35,6 +35,7 @@ from pydantic import Field, model_validator
 from .base import (  # re-exported: this is still the one place to read the document from
     ID_PATTERN,
     FeatureResult,
+    FeatureType,
     Id,
     ParameterRef,
     Provenance,
@@ -50,14 +51,23 @@ from .constraints import (  # re-exported alongside the document
     DrivingDimension,
     SketchConstraint,
 )
+from .revolve import (  # re-exported alongside the document
+    CutRevolveFeature,
+    RevolveAxis,
+    RevolveAxisSpec,
+    RevolveByConstructionLine,
+    RevolveByPoints,
+    RevolveInputs,
+    SolidRevolveFeature,
+)
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.3"
+CAD_IR_VERSION = "1.4"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.3",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.4",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -65,7 +75,7 @@ SUPPORTED_VERSIONS: tuple[str, ...] = ("1.3",)
 #: adapter. A document declaring an old version while using a new entity would
 #: otherwise be accepted — and a document lying about its version is the start of
 #: a compatibility problem, not the end of one.
-MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2")
+MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3")
 
 class ParameterType(StrEnum):
     LENGTH = "length"
@@ -93,18 +103,6 @@ class ParameterStatus(StrEnum):
     INFERRED = "inferred"
     ASSUMED = "assumed"
     UNRESOLVED = "unresolved"
-
-
-class FeatureType(StrEnum):
-    """What the canonical version can express.
-
-    Adding an operation here is an additive version change that comes with an
-    adapter, a verifier and fixtures — not a widening of this enum on its own.
-    """
-
-    SOLID_EXTRUDE = "solid.extrude"
-    CUT_EXTRUDE = "cut.extrude"
-    DATUM_PLANE_OFFSET = "datum.plane.offset"
 
 
 class Direction(StrEnum):
@@ -210,7 +208,13 @@ class DatumPlaneOffsetFeature(StrictModel):
 
 
 Feature = Annotated[
-    Union[SolidExtrudeFeature, CutExtrudeFeature, DatumPlaneOffsetFeature],
+    Union[
+        SolidExtrudeFeature,
+        CutExtrudeFeature,
+        SolidRevolveFeature,
+        CutRevolveFeature,
+        DatumPlaneOffsetFeature,
+    ],
     Field(discriminator="type"),
 ]
 

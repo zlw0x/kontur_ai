@@ -33,10 +33,10 @@ makes about reading a mesh back as a file rather than through the CAD library.
 
 | Fixture | Bodies | Faces | Edges | Volume mm³ | Bounding box |
 |---|---|---|---|---|---|
-| `plate.v1_3` | 1 | 6 planar | 12 | 8 000.0000 | [40, 20, 10] |
-| `plate-with-hole.v1_3` | 1 | 6 planar, 1 cylindrical | 15 | 7 717.2567 | [40, 20, 10] |
-| `constrained-plate.v1_3` | 1 | 6 planar, 2 cylindrical | 18 | 13 595.7523 | [60, 30, 8] |
-| `lever-plate.v1_3` | 1 | 12 planar, 5 cylindrical | 39 | 18 530.7344 | [80, 30, 15] |
+| `plate.v1_4` | 1 | 6 planar | 12 | 8 000.0000 | [40, 20, 10] |
+| `plate-with-hole.v1_4` | 1 | 6 planar, 1 cylindrical | 15 | 7 717.2567 | [40, 20, 10] |
+| `constrained-plate.v1_4` | 1 | 6 planar, 2 cylindrical | 18 | 13 595.7523 | [60, 30, 8] |
+| `lever-plate.v1_4` | 1 | 12 planar, 5 cylindrical | 39 | 18 530.7344 | [80, 30, 15] |
 
 Face counts, body counts and bounding boxes match what KOMPAS reported for the
 same documents. Edge counts do not, for one reason, below.

@@ -16,13 +16,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from build123d import Plane, export_step, export_stl, extrude
+from build123d import Plane, export_step, export_stl, extrude, revolve
 from cad_ir.canonical import (
     CadIrDocument,
     CutExtrudeFeature,
+    CutRevolveFeature,
     DatumPlaneOffsetFeature,
     Direction,
     SolidExtrudeFeature,
+    SolidRevolveFeature,
 )
 from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
@@ -30,6 +32,7 @@ from .constraints import DegreesOfFreedom, validate
 from .entities import named_entities
 from .errors import CadEngineError, unsupported
 from .parameters import Parameters
+from .revolves import axis_points, require_profile_clear_of_axis, world_axis
 from .selectors import require_one, resolve_faces
 from .topology import read_faces
 from .identity import ARTIFACTS, EngineDescription, describe
@@ -94,6 +97,10 @@ def build_part(document: CadIrDocument):
             part = _extrude_feature(feature, part, planes, params)
             continue
 
+        if isinstance(feature, (SolidRevolveFeature, CutRevolveFeature)):
+            part = _revolve_feature(feature, part, planes, params)
+            continue
+
         raise unsupported(
             f"This engine cannot build a {feature.type} feature yet.", "feature"
         )
@@ -154,6 +161,58 @@ def _extrude_feature(feature, part, planes: dict[str, Plane], params):
             placed, amount=distance * _sense(feature, plane), dir=plane.z_dir
         )
 
+    return _combine(part, solid, is_cut)
+
+
+def _revolve_feature(feature, part, planes: dict[str, Plane], params):
+    """A profile turned about a line in its own sketch plane.
+
+    The first operation this service gained after the engine changed, and the
+    first written against a documented call rather than against measured COM
+    constants (ADR-023). What is left to get right is therefore all about the
+    document: which line the axis is, which way round the sweep goes, and whether
+    the profile describes a solid at all.
+    """
+    inputs = feature.inputs
+    sketch = inputs.sketch
+    _check_assertions(sketch, params)
+
+    plane = _sketch_plane(sketch.plane, planes, part)
+    face = sketch_face(sketch.outer, list(sketch.inner), params)
+
+    points = axis_points(inputs, sketch, params)
+    require_profile_clear_of_axis(face, points, feature.id)
+
+    angle = params.resolve(inputs.angle_deg, f"{feature.id} angle")
+    if not 0 < angle <= 360:
+        raise CadEngineError(
+            "DIMENSION_OUT_OF_RANGE",
+            "feature",
+            f"{feature.id} turns {angle}°; a revolve turns more than 0 and at most 360.",
+        )
+
+    is_cut = isinstance(feature, CutRevolveFeature)
+    if part is None and is_cut:
+        raise CadEngineError(
+            "UNSUPPORTED_FEATURE_SET",
+            "feature",
+            f"{feature.id} cuts, but nothing has been built for it to cut.",
+        )
+
+    axis = world_axis(plane, points)
+    solid = revolve(plane.location * face, axis, angle)
+    if inputs.both_directions:
+        # Swept one way and then turned back half of it, rather than swept twice.
+        # Two sweeps meeting at the profile leave a face between them that
+        # `clean()` then has to find, and a revolve of exactly 180° each way would
+        # meet twice; rotating one sweep is the same solid with no seam to remove.
+        solid = solid.rotate(axis, -angle / 2)
+
+    return _combine(part, solid, is_cut)
+
+
+def _combine(part, solid, is_cut: bool):
+    """This feature's solid, joined to or cut from what came before."""
     if part is None:
         return solid
     combined = part - solid if is_cut else part + solid

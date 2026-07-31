@@ -28,6 +28,26 @@ ID_PATTERN = r"^[a-z][a-z0-9_.-]{1,63}$"
 Id = Annotated[str, Field(pattern=ID_PATTERN)]
 
 
+class FeatureType(StrEnum):
+    """What the canonical version can express.
+
+    Adding an operation here is an additive version change that comes with an
+    adapter, a verifier and fixtures — not a widening of this enum on its own.
+
+    It lives here rather than in `canonical` because an operation now gets a
+    module of its own once it is bigger than a pair of fields, and such a module
+    has to name its own type without importing the document that collects it.
+    One enum, imported downwards, instead of a cycle or a second list of strings
+    to keep in step.
+    """
+
+    SOLID_EXTRUDE = "solid.extrude"
+    CUT_EXTRUDE = "cut.extrude"
+    SOLID_REVOLVE = "solid.revolve"
+    CUT_REVOLVE = "cut.revolve"
+    DATUM_PLANE_OFFSET = "datum.plane.offset"
+
+
 class ResultKind(StrEnum):
     SOLID_BODY = "solid_body"
     FACE = "face"

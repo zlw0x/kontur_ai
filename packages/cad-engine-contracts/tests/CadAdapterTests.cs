@@ -204,10 +204,22 @@ public sealed class CadAdapterTests
     }
 
     [Fact]
+    public void ParserRejectsARevolveByNameRatherThanByVersion()
+    {
+        // CAD-IR 1.4 added revolve and this adapter consumes 1.4, because the
+        // addition is additive: a 1.4 document that does not revolve is a 1.3
+        // document. What it cannot do is build one, and "this adapter cannot
+        // build solid.revolve" is a far more useful sentence than a version
+        // mismatch on a document whose version is right (ADR-023).
+        Assert.Equal("UNSUPPORTED_FEATURE_TYPE", CodeOf(Plate().Replace(
+            @"""type"":""solid.extrude""", @"""type"":""solid.revolve""", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void ParserRejectsADocumentWithNoVersion()
     {
         Assert.Equal("CAD_IR_VERSION_MISSING",
-            CodeOf(Plate().Replace(@"""schema_version"":""1.3"",", "", StringComparison.Ordinal)));
+            CodeOf(Plate().Replace(@"""schema_version"":""1.4"",", "", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -216,9 +228,9 @@ public sealed class CadAdapterTests
         // "Too new" tells an operator to upgrade the worker. "Unsupported"
         // sends them looking for a malformed document.
         Assert.Equal("CAD_IR_VERSION_TOO_NEW", CodeOf(Plate().Replace(
-            @"""schema_version"":""1.3""", @"""schema_version"":""1.4""", StringComparison.Ordinal)));
+            @"""schema_version"":""1.4""", @"""schema_version"":""1.5""", StringComparison.Ordinal)));
         Assert.Equal("CAD_IR_VERSION_UNSUPPORTED", CodeOf(Plate().Replace(
-            @"""schema_version"":""1.3""", @"""schema_version"":""1.2""", StringComparison.Ordinal)));
+            @"""schema_version"":""1.4""", @"""schema_version"":""1.2""", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -317,7 +329,7 @@ public sealed class CadAdapterTests
     private static string Plate() =>
         "{" +
         @"""schema"":""cad-ai/cad-ir""," +
-        @"""schema_version"":""1.3""," +
+        @"""schema_version"":""1.4""," +
         @"""document"":{""units"":""mm""}," +
         Parameters + "," +
         @"""features"":[{" +

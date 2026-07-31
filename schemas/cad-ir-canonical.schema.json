@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.3",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.4",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -612,6 +612,64 @@
         "direction"
       ],
       "title": "CutExtrudeInputs",
+      "type": "object"
+    },
+    "CutRevolveFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "cut.revolve",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 64,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/RevolveInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "CutRevolveFeature",
       "type": "object"
     },
     "DatumPlaneOffsetFeature": {
@@ -1610,6 +1668,152 @@
       "title": "ResultRef",
       "type": "object"
     },
+    "RevolveAxis": {
+      "additionalProperties": false,
+      "description": "The line the profile goes round, in the sketch's own plane.\n\nTwo points rather than a point and a direction: the same two numbers a\ndrawing gives, and no normalisation for a reader to get wrong. They are in\nsketch coordinates, because that is where the profile is — an axis in world\ncoordinates would have to be projected onto the sketch plane, and a document\nwhose axis is off the plane would then be silently corrected onto it.",
+      "properties": {
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "End",
+          "type": "array"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "RevolveAxis",
+      "type": "object"
+    },
+    "RevolveByConstructionLine": {
+      "additionalProperties": false,
+      "description": "The axis is a named construction line in the same sketch.\n\nThe form a drawing usually takes: a centre line is drawn, and the profile is\ndimensioned from it. Naming it keeps one line as the single statement of\nwhere the axis is, so moving it moves the axis rather than leaving two\nnumbers to disagree.",
+      "properties": {
+        "kind": {
+          "const": "construction_line",
+          "title": "Kind",
+          "type": "string"
+        },
+        "entity": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Entity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "entity"
+      ],
+      "title": "RevolveByConstructionLine",
+      "type": "object"
+    },
+    "RevolveByPoints": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "points",
+          "title": "Kind",
+          "type": "string"
+        },
+        "axis": {
+          "$ref": "#/$defs/RevolveAxis"
+        }
+      },
+      "required": [
+        "kind",
+        "axis"
+      ],
+      "title": "RevolveByPoints",
+      "type": "object"
+    },
+    "RevolveInputs": {
+      "additionalProperties": false,
+      "description": "One revolve.\n\n`angle_deg` is how far round, and 360 is the ordinary case. Partial angles\nare allowed because the roadmap asks for them and because a segment of a disc\nis a real part; `both_directions` sweeps half each way, which is how a\ndrawing states a symmetric partial revolve without moving the profile.",
+      "properties": {
+        "sketch": {
+          "$ref": "#/$defs/Sketch"
+        },
+        "axis": {
+          "discriminator": {
+            "mapping": {
+              "construction_line": "#/$defs/RevolveByConstructionLine",
+              "points": "#/$defs/RevolveByPoints"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RevolveByConstructionLine"
+            },
+            {
+              "$ref": "#/$defs/RevolveByPoints"
+            }
+          ],
+          "title": "Axis"
+        },
+        "angle_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "default": 360.0,
+          "title": "Angle Deg"
+        },
+        "both_directions": {
+          "default": false,
+          "title": "Both Directions",
+          "type": "boolean"
+        },
+        "source_body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "sketch",
+        "axis"
+      ],
+      "title": "RevolveInputs",
+      "type": "object"
+    },
     "Size3": {
       "additionalProperties": false,
       "properties": {
@@ -2088,6 +2292,64 @@
       "title": "SolidExtrudeInputs",
       "type": "object"
     },
+    "SolidRevolveFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "solid.revolve",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 64,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/RevolveInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "SolidRevolveFeature",
+      "type": "object"
+    },
     "SourceRegion": {
       "additionalProperties": false,
       "description": "Where on the drawing a value came from, in normalised page coordinates.\n\nOptional, and kept out of the geometry: it exists so a wrong dimension can\nbe traced back to the mark that produced it.",
@@ -2207,8 +2469,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.3",
-      "default": "1.3",
+      "const": "1.4",
+      "default": "1.4",
       "title": "Schema Version",
       "type": "string"
     },
@@ -2237,8 +2499,10 @@
         "discriminator": {
           "mapping": {
             "cut.extrude": "#/$defs/CutExtrudeFeature",
+            "cut.revolve": "#/$defs/CutRevolveFeature",
             "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
-            "solid.extrude": "#/$defs/SolidExtrudeFeature"
+            "solid.extrude": "#/$defs/SolidExtrudeFeature",
+            "solid.revolve": "#/$defs/SolidRevolveFeature"
           },
           "propertyName": "type"
         },
@@ -2248,6 +2512,12 @@
           },
           {
             "$ref": "#/$defs/CutExtrudeFeature"
+          },
+          {
+            "$ref": "#/$defs/SolidRevolveFeature"
+          },
+          {
+            "$ref": "#/$defs/CutRevolveFeature"
           },
           {
             "$ref": "#/$defs/DatumPlaneOffsetFeature"

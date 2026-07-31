@@ -33,8 +33,15 @@ public static class CadIrBuildPlanParser
     /// Public because an engine has to declare which contract it consumes: a STEP
     /// file is traceable to the document that produced it only if the version of
     /// that document travels with the result.
+    ///
+    /// 1.4 added revolve, which this adapter cannot build and — being replaced
+    /// by build123d — never will (ADR-023). Consuming 1.4 anyway is deliberate:
+    /// the addition is additive, so a 1.4 document that does not revolve is a 1.3
+    /// document, and refusing all of them over an operation the document does not
+    /// use would strand the working engine for no reason. A document that *does*
+    /// revolve is refused by feature type, which says what is actually wrong.
     /// </remarks>
-    public const string CadIrVersion = "1.3";
+    public const string CadIrVersion = "1.4";
     private const double MaxCoordinateMm = 1_000_000;
 
     public static async Task<CadBuildPlan> ParseFileAsync(
