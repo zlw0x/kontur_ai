@@ -14,8 +14,11 @@ measured and is wrong on the first machine with a different install.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Mapping
 
 from cad_ir.canonical import CAD_IR_VERSION
+
+from .capabilities import CapabilityGate
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,11 @@ class EngineDescription:
     kernel_version: str | None
     cad_ir_version: str
     artifacts: tuple[ArtifactKind, ...] = field(default_factory=tuple)
+    #: What this engine builds, by capability key, with the flags of this run
+    #: already applied. The worker that launches this process publishes these to
+    #: the API, so the statuses the scheduler reads and the gate the build
+    #: enforces come from one call rather than from two lists to keep in step.
+    capabilities: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
     @property
     def required_artifacts(self) -> tuple[ArtifactKind, ...]:
@@ -51,6 +59,9 @@ class EngineDescription:
                 {"kind": item.kind, "file": item.file_name, "required": item.required}
                 for item in self.artifacts
             ],
+            "capabilities": {
+                key: dict(value) for key, value in sorted(self.capabilities.items())
+            },
         }
 
 
@@ -78,8 +89,9 @@ def _version_of(module_name: str) -> str | None:
         return None
 
 
-def describe() -> EngineDescription:
-    """This engine, as it is actually installed."""
+def describe(gate: CapabilityGate | None = None) -> EngineDescription:
+    """This engine, as it is actually installed, under the flags of this run."""
+    effective = gate or CapabilityGate.all_enabled()
     return EngineDescription(
         engine_id="build123d",
         engine_version=_version_of("build123d") or "unknown",
@@ -91,4 +103,5 @@ def describe() -> EngineDescription:
         or _version_of("OCP"),
         cad_ir_version=CAD_IR_VERSION,
         artifacts=ARTIFACTS,
+        capabilities=effective.declarations(),
     )

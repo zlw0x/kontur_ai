@@ -1,16 +1,28 @@
 """The CAD worker: one job in, STEP and STL out.
 
-    python -m cad_worker build --job /work/job-123
-    python -m cad_worker describe
+    python -m cad_worker build --job /work/job-123 [--disable KEY ...]
+    python -m cad_worker describe [--disable KEY ...]
 
 A job directory has `cad-ir.json` in it and gets an `output/` written beside it.
 Nothing else is read and nothing outside it is written.
 
 This process is deliberately small. It takes a document, validates it, builds it
 and writes two files; it has no network, no shell, and no way to be told to run
-anything. The scheduling, the leases and the retries stay where they already are
-(ENGINE-MIG-007) — a CAD worker that also talked to the API would be a second
-place for both to go wrong.
+anything. The scheduling, the leases and the retries stay where they are — a CAD
+worker that also talked to the API would be a second place for both to go wrong.
+
+**Feature flags arrive on the command line, and nowhere else.** ADR-021 puts a
+rollback switch on the worker rather than on the server, because the thing that
+has to stop is the thing that drives the kernel and it has to stop even when the
+server cannot be reached to say so. This process is not that worker: it is a
+container with a read-only root, started per job, with nothing durable to store a
+flag in. The worker that launches it holds the flag file and passes the keys
+down, and `describe` applies the same keys to the manifest it publishes — so the
+statuses the API schedules against and the gate the build actually enforces come
+from one place.
+
+An unknown key is refused rather than ignored. A typo in a rollback switch must
+not leave an operator believing an operation is off while it runs.
 """
 
 from __future__ import annotations
@@ -21,6 +33,7 @@ import sys
 from pathlib import Path
 
 from cad_engine_build123d import CadEngineError, build, describe
+from cad_engine_build123d.capabilities import CapabilityGate
 # Imported from the module rather than the package: a submodule named erify` and
 # a function named `verify` cannot both live in one namespace, and the one that
 # wins is whichever was imported last.
@@ -39,20 +52,39 @@ def main(argv: list[str] | None = None) -> int:
 
     build_command = commands.add_parser("build", help="build one job directory")
     build_command.add_argument("--job", required=True, help="the job directory")
+    _add_flags(build_command)
 
-    commands.add_parser("describe", help="print what this engine is and produces")
+    _add_flags(commands.add_parser("describe", help="print what this engine is and does"))
 
     arguments = parser.parse_args(argv)
+    try:
+        gate = CapabilityGate.disabling(arguments.disable)
+    except CadEngineError as error:
+        # Before anything else, and on both commands. A manifest published with
+        # a flag the engine did not understand would advertise the wrong thing.
+        print(json.dumps(_failure(error)))
+        return 1
+
     if arguments.command == "describe":
-        print(json.dumps(describe().as_dict(), indent=2))
+        print(json.dumps(describe(gate).as_dict(), indent=2))
         return 0
-    return _build(Path(arguments.job))
+    return _build(Path(arguments.job), gate)
 
 
-def _build(job: Path) -> int:
+def _add_flags(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--disable",
+        action="append",
+        default=[],
+        metavar="CAPABILITY",
+        help="turn one operation off for this run; repeatable",
+    )
+
+
+def _build(job: Path, gate: CapabilityGate) -> int:
     try:
         document = _read_document(job)
-        outcome = build(document, job / "output")
+        outcome = build(document, job / "output", gate)
         # Reopened by a reader that did not build them. A successful export is
         # not evidence that the model is right, and the expectations come from
         # the document rather than from the plan that produced the geometry.
@@ -72,18 +104,7 @@ def _build(job: Path) -> int:
                 "; ".join(f"{item.name}: {item.detail}" for item in failed),
             )
     except CadEngineError as error:
-        # A typed failure, on stdout as JSON, because the caller is a program.
-        # The message describes the document and never the machine.
-        print(
-            json.dumps(
-                {
-                    "status": "FAILED",
-                    "code": error.code,
-                    "stage": error.stage,
-                    "message": error.safe_message,
-                }
-            )
-        )
+        print(json.dumps(_failure(error)))
         return 1
 
     print(
@@ -91,6 +112,11 @@ def _build(job: Path) -> int:
             {
                 "status": "COMPLETED",
                 "engine": outcome.engine.as_dict(),
+                # Echoed back so the caller can see the flags it meant to pass
+                # actually arrived. A launcher that dropped one would otherwise
+                # produce a perfectly successful build of something an operator
+                # had turned off.
+                "disabled_capabilities": sorted(gate.disabled),
                 "verified": report.valid,
                 "artifacts": [
                     {
@@ -106,6 +132,19 @@ def _build(job: Path) -> int:
         )
     )
     return 0
+
+
+def _failure(error: CadEngineError) -> dict:
+    """A typed failure, on stdout as JSON, because the caller is a program.
+
+    The message describes the document and never the machine.
+    """
+    return {
+        "status": "FAILED",
+        "code": error.code,
+        "stage": error.stage,
+        "message": error.safe_message,
+    }
 
 
 def _read_document(job: Path):

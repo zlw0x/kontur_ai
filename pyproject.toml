@@ -3,9 +3,14 @@
 # themselves when it is not installed, so the suite stays runnable on a machine
 # with no CAD library at all — which is the property ENGINE-MIG-002 set up and
 # the reason the neutral half is worth keeping separate.
-testpaths = ["apps/api/tests", "packages/build123d-adapter/tests"]
+testpaths = [
+    "apps/api/tests",
+    "apps/cad-worker/tests",
+    "packages/build123d-adapter/tests",
+]
 pythonpath = [
     "apps/api",
+    "apps/cad-worker",
     "packages/cad-ir",
     "packages/build123d-adapter",
 ]

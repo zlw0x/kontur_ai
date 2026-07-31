@@ -11,6 +11,7 @@ generated script. An engine written in Python does not weaken that rule; it make
 stating it again worthwhile.
 """
 
+from .capabilities import CapabilityGate, requirements
 from .errors import CadEngineError, unsupported
 from .identity import ARTIFACTS, ArtifactKind, EngineDescription, describe
 
@@ -46,10 +47,12 @@ __all__ = [
     "BuildOutcome",
     "BuiltArtifact",
     "CadEngineError",
+    "CapabilityGate",
     "EngineDescription",
     "VerificationReport",
     "build",
     "build_part",
     "describe",
+    "requirements",
     "unsupported",
 ]

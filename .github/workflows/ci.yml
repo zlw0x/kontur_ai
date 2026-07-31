@@ -40,7 +40,7 @@ jobs:
             libgl1 libglu1-mesa libxi6 libxmu6 libsm6 libice6 libx11-6 \
             libexpat1 libfontconfig1 fonts-dejavu-core
       - run: pip install -r apps/cad-worker/requirements.txt pytest==8.4.1
-      - run: pytest -q packages/build123d-adapter/tests
+      - run: pytest -q packages/build123d-adapter/tests apps/cad-worker/tests
   local-worker:
     runs-on: windows-latest
     steps:

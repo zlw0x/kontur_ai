@@ -28,6 +28,7 @@ from cad_ir.canonical import (
 )
 from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
+from .capabilities import CapabilityGate, requirements
 from .constraints import DegreesOfFreedom, validate
 from .entities import named_entities
 from .errors import CadEngineError, unsupported
@@ -59,20 +60,39 @@ class BuildOutcome:
     engine: EngineDescription
 
 
-def build(document: CadIrDocument, output_directory: Path) -> BuildOutcome:
-    """Build the document and write the two user-facing results."""
-    output = _safe_output(output_directory)
-    part = build_part(document)
+def build(
+    document: CadIrDocument,
+    output_directory: Path,
+    gate: CapabilityGate | None = None,
+) -> BuildOutcome:
+    """Build the document and write the two user-facing results.
+
+    The output path is checked first and created last. Checked first because
+    paying for a whole build to discover the directory was never usable is a
+    waste nobody can get back; created last because a build that is refused —
+    for a disabled operation, or for a document that does not describe a solid —
+    should leave nothing behind at all. An empty `output/` beside a failed job
+    reads like a build that ran.
+    """
+    output = _resolved_output(output_directory)
+    part = build_part(document, gate)
+    output.mkdir(parents=True, exist_ok=True)
     artifacts = _export(part, output)
     return BuildOutcome(part=part, artifacts=artifacts, engine=describe())
 
 
-def build_part(document: CadIrDocument):
+def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
     """The solid, with nothing written to disk.
 
     Separate from `build` so geometry can be measured in a test without an
     export, and so an export failure is distinguishable from a modelling one.
     """
+    # Checked on the document, whole, before a single face is made (ADR-021). A
+    # gate applied feature by feature would let a document needing a disabled
+    # operation build half a part first, which is the outcome a rollback exists
+    # to prevent.
+    (gate or CapabilityGate.all_enabled()).require_all(requirements(document))
+
     part = None
     #: Datum planes, by the id of the result they produce, so a later sketch can
     #: name one. Named, never indexed — the rule ADR-019 sets for faces holds
@@ -370,14 +390,13 @@ def _plane_result_id(feature: DatumPlaneOffsetFeature) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _safe_output(path: Path) -> Path:
+def _resolved_output(path: Path) -> Path:
+    """Where the results will go, absolute, and not created yet."""
     if path is None or not str(path).strip():
         raise CadEngineError(
             "OUTPUT_PATH_INVALID", "prepare", "An output directory is required."
         )
-    resolved = Path(path).resolve()
-    resolved.mkdir(parents=True, exist_ok=True)
-    return resolved
+    return Path(path).resolve()
 
 
 def _export(part, output: Path) -> tuple[BuiltArtifact, ...]:
