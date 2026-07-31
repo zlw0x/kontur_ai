@@ -70,7 +70,41 @@ public sealed class WorkerConfigStore(WorkerPaths paths)
     }
 }
 
-public sealed class DpapiCredentialStore(WorkerPaths paths)
+/// <summary>
+/// Where the worker's credential is kept.
+/// </summary>
+/// <remarks>
+/// One interface and two implementations because the worker stopped being a
+/// Windows program (ENGINE-MIG-008) and DPAPI is a Windows facility. Windows keeps
+/// the behaviour it had; everywhere else the credential is a file only its owner
+/// can read.
+///
+/// Chosen by the platform rather than configured. A setting here would let a
+/// deployment ask for the weaker option on a machine that supports the stronger
+/// one, and nobody choosing that would be doing it deliberately.
+/// </remarks>
+public interface ICredentialStore
+{
+    bool Exists { get; }
+
+    void Save(string credential);
+
+    string Load();
+
+    void Delete();
+}
+
+public static class CredentialStore
+{
+    public static ICredentialStore CreateDefault(WorkerPaths paths) =>
+        OperatingSystem.IsWindows()
+            ? new DpapiCredentialStore(paths)
+            : new OwnerOnlyFileCredentialStore(paths);
+}
+
+/// <summary>The credential, encrypted to the current user by Windows.</summary>
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
+public sealed class DpapiCredentialStore(WorkerPaths paths) : ICredentialStore
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("cad-ai-worker-v1");
     public bool Exists => File.Exists(paths.CredentialPath);
@@ -95,9 +129,56 @@ public sealed class DpapiCredentialStore(WorkerPaths paths)
     }
 }
 
+/// <summary>
+/// The credential in a file no other user can read.
+/// </summary>
+/// <remarks>
+/// What a Unix daemon does with a bearer token, and stated plainly rather than
+/// dressed up: this is *not* encryption. It is the same protection the worker's
+/// job directories and its Codex session already have — the file mode, and the
+/// fact that the account owning it is the account the credential belongs to.
+/// Encrypting at rest with a key stored beside the ciphertext would look stronger
+/// and be the same thing.
+///
+/// The mode is set before the secret is written, not after. A file created
+/// world-readable and then narrowed is readable for as long as that takes.
+/// </remarks>
+public sealed class OwnerOnlyFileCredentialStore(WorkerPaths paths) : ICredentialStore
+{
+    public bool Exists => File.Exists(paths.CredentialPath);
+
+    public void Save(string credential)
+    {
+        Directory.CreateDirectory(paths.StateRoot);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(paths.StateRoot, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        var temp = paths.CredentialPath + ".tmp";
+        using (var stream = new FileStream(
+                   temp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            stream.Write(Encoding.UTF8.GetBytes(credential));
+        }
+        File.Move(temp, paths.CredentialPath, true);
+    }
+
+    public string Load()
+    {
+        if (!Exists) throw new WorkerException("AUTH_REQUIRED", "Worker enrollment is required.", 3);
+        return File.ReadAllText(paths.CredentialPath, Encoding.UTF8);
+    }
+
+    public void Delete()
+    {
+        if (Exists) File.Delete(paths.CredentialPath);
+    }
+}
+
 public static class EnrollmentCommand
 {
-    public static async Task<int> RunAsync(string[] args, WorkerConfigStore configs, DpapiCredentialStore credentials)
+    public static async Task<int> RunAsync(string[] args, WorkerConfigStore configs, ICredentialStore credentials)
     {
         var server = Argument(args, "--server") ?? throw new WorkerException("CONFIG_INVALID", "--server is required.", 2);
         var token = Argument(args, "--token") ?? throw new WorkerException("CONFIG_INVALID", "--token is required.", 2);
@@ -135,7 +216,7 @@ public static class EnrollmentCommand
 
 public static class WorkerDoctor
 {
-    public static Task<int> RunAsync(WorkerConfigStore configs, DpapiCredentialStore credentials, WorkerPaths paths)
+    public static Task<int> RunAsync(WorkerConfigStore configs, ICredentialStore credentials, WorkerPaths paths)
     {
         Directory.CreateDirectory(paths.WorkspaceRoot);
         var writeProbe = Path.Combine(paths.WorkspaceRoot, $".probe-{Guid.NewGuid():N}");

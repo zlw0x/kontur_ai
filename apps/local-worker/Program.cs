@@ -6,7 +6,7 @@ try
 {
     var paths = WorkerPaths.CreateDefault();
     var configStore = new WorkerConfigStore(paths);
-    var credentialStore = new DpapiCredentialStore(paths);
+    var credentialStore = CredentialStore.CreateDefault(paths);
     var command = args.FirstOrDefault()?.ToLowerInvariant() ?? "doctor";
 
     switch (command)

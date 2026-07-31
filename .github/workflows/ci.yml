@@ -41,15 +41,30 @@ jobs:
             libexpat1 libfontconfig1 fonts-dejavu-core
       - run: pip install -r apps/cad-worker/requirements.txt pytest==8.4.1
       - run: pytest -q packages/build123d-adapter/tests apps/cad-worker/tests
-      # The launcher against the engine it launches. Its stub tests run on the
-      # Windows job too, and they cannot catch the one thing this can: the C#
+      # The launcher against the engine it launches. The stub tests run in the
+      # `worker` job too, and they cannot catch the one thing this can: the C#
       # records and the JSON the Python worker prints are two hand-written
       # descriptions of one format, and only a run with both sides present
       # notices when they drift.
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: "8.0.x"}
       - run: dotnet test packages/build123d-launcher/tests/CadAi.Build123dLauncher.Tests.csproj --nologo
-  local-worker:
+  # The .NET half, on Linux. It ran on windows-latest until ENGINE-MIG-008,
+  # because the CAD adapter was COM and the worker was `net8.0-windows`; both are
+  # gone, so the platform the production worker runs on is now the platform CI
+  # checks it on.
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: "8.0.x"}
+      - run: dotnet build CadAi.sln --nologo
+      - run: dotnet test CadAi.sln --nologo --no-build
+  # Windows is still a supported place to run the worker — an operator's machine
+  # with Codex signed in — so it is still built and tested there. What changed is
+  # that it is no longer the only place, and no longer where the CAD engine lives.
+  worker-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +72,43 @@ jobs:
         with: {dotnet-version: "8.0.x"}
       - run: dotnet build CadAi.sln --nologo
       - run: dotnet test CadAi.sln --nologo --no-build
+  # The engine as it actually ships. Everything else runs the interpreter from a
+  # checkout; this is the artifact a deployment pulls, and until now nothing built
+  # it (ENGINE-MIG-008).
+  #
+  # Not pushed anywhere. Publishing is a deployment decision with a registry and
+  # a credential behind it; what CI owes is that the image builds and that the
+  # thing inside it answers.
+  cad-worker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/cad-worker/Dockerfile -t cad-ai/cad-worker:ci .
+      # Run it the way the launcher runs it, so the image is checked under the
+      # restrictions it will actually have rather than under none.
+      - run: |
+          docker run --rm --read-only --network none --user "$(id -u):$(id -g)" \
+            --tmpfs /tmp cad-ai/cad-worker:ci describe > described.json
+          cat described.json
+          python3 -c "import json,sys; d=json.load(open('described.json')); \
+            assert d['engine_id']=='build123d', d; \
+            assert [a['kind'] for a in d['artifacts']]==['STEP','STL'], d; \
+            assert d['capabilities']['solid.revolve']['status']=='experimental', d; \
+            print('image describes itself:', d['engine_version'], d['kernel_version'])"
+      # And it builds a real part, in the container, with a bind-mounted job and
+      # nothing else writable. A `describe` that works proves the wheels
+      # installed; this proves the kernel runs.
+      - run: |
+          mkdir -p job
+          cp tests/fixtures/cad-ir/lever-plate.v1_4.json job/cad-ir.json
+          # The uid the launcher passes in production, for the same reason: the
+          # job directory is a bind mount owned by whoever runs the worker, and a
+          # container running as anyone else cannot write the results into it.
+          docker run --rm --read-only --network none --user "$(id -u):$(id -g)" \
+            --tmpfs /tmp --mount "type=bind,src=$PWD/job,dst=/work" \
+            cad-ai/cad-worker:ci build --job /work
+          test -s job/output/model.step
+          test -s job/output/model.stl
   web:
     runs-on: ubuntu-latest
     defaults: {run: {working-directory: apps/web}}

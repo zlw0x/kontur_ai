@@ -265,7 +265,7 @@ public static class ClaimLoop
 {
     public static async Task<int> RunAsync(
         WorkerConfigStore configs,
-        DpapiCredentialStore credentials,
+        ICredentialStore credentials,
         WorkerPaths paths,
         CancellationToken cancellation,
         bool runOnce = false)

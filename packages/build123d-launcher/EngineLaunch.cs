@@ -28,6 +28,41 @@ public sealed record EngineLaunchOptions
     /// <summary>Container by default: the mode with the isolation.</summary>
     public EngineRuntime Runtime { get; init; } = EngineRuntime.Container;
 
+    /// <summary>
+    /// Who the container runs as, as `uid:gid`, or nothing to leave it to the
+    /// runtime.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to the user running this worker, on the platforms where that
+    /// means anything. The image creates an unprivileged user of its own and the
+    /// first version of this passed it — which cannot work: the job directory is
+    /// a bind mount owned by the worker, and a container running as some other
+    /// uid cannot write the `output/` the engine has to produce. The alternatives
+    /// were to loosen the directory's permissions or to match the uid, and only
+    /// one of those is a smaller hole.
+    ///
+    /// Nothing is given away by it. The container runs as the account that
+    /// already owns the job directory and already runs the worker, so it gains no
+    /// access the worker did not have; what it loses is the ability to write
+    /// anywhere else, which the read-only root takes care of.
+    /// </remarks>
+    public string? ContainerUser { get; init; } = DefaultContainerUser();
+
+    private static string? DefaultContainerUser()
+    {
+        if (OperatingSystem.IsWindows()) return null;
+        try
+        {
+            return $"{Unix.geteuid()}:{Unix.getegid()}";
+        }
+        catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException)
+        {
+            // A platform with no libc to ask. Leaving it to the runtime is the
+            // honest answer; a guessed uid would be worse than none.
+            return null;
+        }
+    }
+
     /// <summary>The container runtime binary. `podman` works as well as `docker`.</summary>
     public string ContainerCommand { get; init; } = "docker";
 
@@ -133,13 +168,17 @@ internal static class EngineCommandLine
             // more thing with an outbound path from a trusted machine.
             "--read-only",
             "--network", "none",
-            // Not root inside the container either; the image creates this user
-            // and this repeats it so a rebuilt image cannot quietly drop it.
-            "--user", "10001:10001",
             // The read-only root leaves nowhere to write, and the engine needs a
             // scratch directory for one dependency's cache.
             "--tmpfs", "/tmp"
         ];
+        // Not root inside the container, and specifically the user that owns the
+        // job directory, so the engine can write the results it was asked for.
+        if (options.ContainerUser is { Length: > 0 } user)
+        {
+            arguments.Add("--user");
+            arguments.Add(user);
+        }
         if (jobDirectory is not null)
         {
             arguments.Add("--mount");
@@ -171,4 +210,23 @@ internal static class EngineCommandLine
                 "The job directory handed to the CAD engine must be an absolute path.");
         return Path.GetFullPath(jobDirectory);
     }
+}
+
+
+/// <summary>The two questions this needs libc for.</summary>
+/// <remarks>
+/// A container that has to write into a bind mount must run as the uid that owns
+/// it, and .NET exposes no managed way to ask what that uid is.
+/// </remarks>
+internal static class Unix
+{
+    // DllImport rather than the source-generated LibraryImport: the generated
+    // marshaller requires unsafe code, and turning that on for a project whose
+    // whole job is starting a process would be a poor trade for two calls that
+    // take nothing and return an integer.
+    [System.Runtime.InteropServices.DllImport("libc", SetLastError = false)]
+    internal static extern uint geteuid();
+
+    [System.Runtime.InteropServices.DllImport("libc", SetLastError = false)]
+    internal static extern uint getegid();
 }

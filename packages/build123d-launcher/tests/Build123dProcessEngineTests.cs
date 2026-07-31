@@ -129,7 +129,15 @@ public sealed class Build123dProcessEngineTests
         // rather than left to how the image happens to be run.
         Assert.Contains("--read-only", invocation.Arguments);
         Assert.Equal("none", ValueAfter(invocation, "--network"));
-        Assert.Equal("10001:10001", ValueAfter(invocation, "--user"));
+        // The user that owns the job directory, because a container running as
+        // anyone else cannot write the results into a bind mount owned by the
+        // worker. On Windows the flag is left off: the runtime's file ownership
+        // for a bind mount does not work that way.
+        if (OperatingSystem.IsWindows())
+            Assert.DoesNotContain("--user", invocation.Arguments);
+        else
+            Assert.Equal(
+                $"{Unix.geteuid()}:{Unix.getegid()}", ValueAfter(invocation, "--user"));
         Assert.Equal(
             $"type=bind,src={Path.GetFullPath("/tmp/job-1")},dst=/work",
             ValueAfter(invocation, "--mount"));
@@ -137,6 +145,20 @@ public sealed class Build123dProcessEngineTests
         // the path the engine is told about is the container's, not this one's.
         Assert.Equal("cad-ai/cad-worker:2026-07-31", invocation.Arguments[^4]);
         Assert.Equal(["build", "--job", "/work"], invocation.Arguments.TakeLast(3));
+    }
+
+    [Fact]
+    public void AnExplicitContainerUserOverridesTheDefaultAndAnEmptyOneOmitsIt()
+    {
+        var named = EngineCommandLine.Build(
+            new EngineLaunchOptions { ContainerUser = "4242:4242" }, Path.GetFullPath("/tmp/j"), []);
+        Assert.Equal("4242:4242", ValueAfter(named, "--user"));
+
+        // Left to the runtime, which is what a deployment with its own idea of
+        // container identity — rootless podman, user namespaces — will want.
+        var unset = EngineCommandLine.Build(
+            new EngineLaunchOptions { ContainerUser = null }, Path.GetFullPath("/tmp/j"), []);
+        Assert.DoesNotContain("--user", unset.Arguments);
     }
 
     [Fact]
