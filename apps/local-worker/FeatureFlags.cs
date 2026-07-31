@@ -1,7 +1,6 @@
-using CadAi.CadEngine;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CadAi.KompasAdapter;
+using System.Text.RegularExpressions;
 
 namespace CadAi.LocalWorker;
 
@@ -13,7 +12,7 @@ namespace CadAi.LocalWorker;
 /// The roadmap's definition of done asks for a feature flag and a rollback per
 /// operation. This is that, and the shape it takes matters: a flag is stored on
 /// the worker rather than on the server, because the thing that has to stop is
-/// the thing that drives KOMPAS, and it has to stop even if the server cannot be
+/// the thing that drives the kernel, and it has to stop even if the server cannot be
 /// reached to be told.
 ///
 /// Two effects, and both are needed for a rollback to be real. The manifest
@@ -24,6 +23,13 @@ namespace CadAi.LocalWorker;
 ///
 /// The file is absent by default and every operation is on. That is deliberate:
 /// a missing file must not be able to silently disable a service.
+///
+/// What this no longer does is decide whether a key names something real. It used
+/// to check against a list compiled into the worker; the engine now declares its
+/// own capabilities and refuses an unknown `--disable` before it does anything
+/// else, so a list here would be a second vocabulary to keep in step
+/// (ENGINE-MIG-008). A key that is not even shaped like one is still refused
+/// here, because that is a property of the file rather than of an engine.
 /// </remarks>
 public sealed class FeatureFlags
 {
@@ -63,13 +69,7 @@ public sealed class FeatureFlags
                 $"{FileName} exists but could not be read; refusing to run as if it were absent.");
         }
         var keys = parsed?.Disabled ?? [];
-        var unknown = keys.Where(key => !CadCapabilities.All.Contains(key)).Order().ToArray();
-        if (unknown.Length > 0)
-            // A typo in a rollback switch is the worst possible time to fail
-            // silently: the operator believes an operation is off and it is not.
-            throw new WorkerException(
-                "FEATURE_FLAGS_UNKNOWN_CAPABILITY",
-                $"{FileName} disables capabilities this build does not have: {string.Join(", ", unknown)}.");
+        foreach (var key in keys) Require(key);
         return new FeatureFlags(new HashSet<string>(keys, StringComparer.Ordinal));
     }
 
@@ -99,9 +99,6 @@ public sealed class FeatureFlags
         return disabled.Remove(capability);
     }
 
-    /// <summary>The gate the adapter's parser checks a document against.</summary>
-    public CapabilityGate Gate() => CapabilityGate.Disabling(disabled);
-
     /// <summary>
     /// The status to publish for a capability whose built-in status is `status`.
     /// </summary>
@@ -113,12 +110,24 @@ public sealed class FeatureFlags
     public string EffectiveStatus(string capability, string status) =>
         IsEnabled(capability) ? status : "disabled";
 
+    /// <summary>
+    /// The shape of a capability key, shared with the API's own pattern.
+    /// </summary>
+    /// <remarks>
+    /// A typo in a rollback switch is the worst possible time to fail silently.
+    /// This catches the half a file can be judged on — `Sketch Arc` is not a key
+    /// in any engine — and the engine catches the other half by refusing a
+    /// well-formed key it does not declare.
+    /// </remarks>
+    private static readonly Regex KeyPattern =
+        new(@"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$", RegexOptions.Compiled);
+
     private static void Require(string capability)
     {
-        if (!CadCapabilities.All.Contains(capability))
+        if (!KeyPattern.IsMatch(capability))
             throw new WorkerException(
                 "FEATURE_FLAGS_UNKNOWN_CAPABILITY",
-                $"No such capability: {capability}.");
+                $"Not a capability key: {capability}.");
     }
 
     private sealed record FeatureFlagFile(

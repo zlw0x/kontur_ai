@@ -33,6 +33,10 @@ public sealed class DocumentEngineJobTests
                     disabledCapabilities.Contains("sketch.slot") ? "disabled" : "beta", "1.0")
             }));
 
+        public Task<IReadOnlyCollection<string>> ValidateAsync(
+            CadDocumentBuildRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyCollection<string>>(["solid.rectangular_prism"]);
+
         public Task<CadBuildResult> BuildAsync(
             CadDocumentBuildRequest request, CancellationToken cancellationToken)
         {
@@ -91,8 +95,7 @@ public sealed class DocumentEngineJobTests
         var job = JobWith("plate.v1_4.json");
         var engine = new StubEngine();
 
-        var code = await LocalCadJobHandler.RunAsync(
-            job, PathsIn(job), fakeCad: false, documentEngine: engine);
+        var code = await LocalCadJobHandler.RunAsync(job, PathsIn(job), engine);
 
         Assert.Equal(0, code);
         Assert.Equal(job, engine.SawJobDirectory);
@@ -124,7 +127,7 @@ public sealed class DocumentEngineJobTests
         flags.Save(paths);
         var engine = new StubEngine();
 
-        await LocalCadJobHandler.RunAsync(job, paths, fakeCad: false, documentEngine: engine);
+        await LocalCadJobHandler.RunAsync(job, paths, engine);
 
         // The rollback switch is on the worker and the engine is a container
         // started per job, so the only way a flag reaches the thing that builds
@@ -137,8 +140,7 @@ public sealed class DocumentEngineJobTests
     {
         var job = JobWith("plate.v1_4.json");
         var refused = await Assert.ThrowsAsync<WorkerException>(() =>
-            LocalCadJobHandler.RunAsync(
-                job, PathsIn(job), fakeCad: false, documentEngine: new StubEngine(refuse: true)));
+            LocalCadJobHandler.RunAsync(job, PathsIn(job), new StubEngine(refuse: true)));
 
         Assert.Equal("CAPABILITY_DISABLED", refused.Code);
         var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(job, "state.json")));
@@ -149,17 +151,20 @@ public sealed class DocumentEngineJobTests
     }
 
     [Fact]
-    public async Task AskingForTheFakeEngineStillGetsTheFakeEngine()
+    public async Task TheFakeEngineFinishesAJobAndProducesNothingDeliverable()
     {
-        // `--fake-cad` is how CI and the smoke test run without any engine at
-        // all, and a configured document engine must not take it over.
+        // `--fake-cad` is how CI and the smoke test exercise the lease, the
+        // ledger and the upload path with no engine at all. The one file it
+        // writes is named for what it is, so nothing downstream can mistake it
+        // for a model.
         var job = JobWith("plate.v1_4.json");
-        var engine = new StubEngine();
 
-        await LocalCadJobHandler.RunAsync(job, PathsIn(job), fakeCad: true, documentEngine: engine);
+        var code = await LocalCadJobHandler.RunAsync(
+            job, PathsIn(job), new FakeDocumentEngine(WorkerCapabilities.CadIrVersion));
 
-        Assert.Null(engine.SawJobDirectory);
-        Assert.True(File.Exists(Path.Combine(job, "output", "model.fake-cad.json")));
+        Assert.Equal(0, code);
+        Assert.True(File.Exists(Path.Combine(job, "output", FakeDocumentEngine.FileName)));
+        Assert.False(File.Exists(Path.Combine(job, "output", "model.step")));
     }
 
     // --- what the worker publishes ------------------------------------------
@@ -173,10 +178,6 @@ public sealed class DocumentEngineJobTests
         Assert.Equal("build123d", manifest.Engine!.EngineId);
         Assert.Equal("opencascade", manifest.Engine.KernelId);
         Assert.Equal("7.9.3.1.1", manifest.Engine.KernelVersion);
-        // Not filled with the kernel's version. `kompas_version` names one
-        // engine, and a reader of this manifest would be wrong about what built
-        // the model.
-        Assert.Null(manifest.KompasVersion);
         Assert.Equal(["1.4"], manifest.CadIrVersions);
         Assert.Equal("1.2.3", manifest.CodexCliVersion);
 
@@ -199,29 +200,28 @@ public sealed class DocumentEngineJobTests
     // --- choosing an engine --------------------------------------------------
 
     [Fact]
-    public void TheDefaultIsStillKompasUntilSomeoneChoosesOtherwise()
+    public void ThereIsOneRealEngineAndAWorkerWithNoConfigurationStillGetsIt()
     {
-        // Changing the engine a deployment uses should be a decision someone
-        // takes, not something that happens because a build was upgraded.
-        Assert.Null(WorkerEngine.SelectDocumentEngine(null));
-        Assert.Null(WorkerEngine.SelectDocumentEngine(new CadEngineConfig()));
-        Assert.Equal(CadEngineConfig.Kompas, new CadEngineConfig().Engine);
+        // A container by default, which is the mode with the isolation ADR-023
+        // asks for. A worker enrolled before the setting existed does not have to
+        // be reconfigured to keep working.
+        Assert.IsType<Build123dProcessEngine>(WorkerEngine.Select(null));
+        Assert.IsType<Build123dProcessEngine>(WorkerEngine.Select(new CadEngineConfig()));
+        Assert.Equal("container", new CadEngineConfig().Runtime);
     }
 
     [Fact]
-    public void ConfiguringBuild123dSelectsIt()
+    public void AskingForTheFakeGetsTheFakeWhateverIsConfigured()
     {
-        var engine = WorkerEngine.SelectDocumentEngine(
-            new CadEngineConfig(Engine: CadEngineConfig.Build123d));
-        Assert.IsType<Build123dProcessEngine>(engine);
+        Assert.IsType<FakeDocumentEngine>(
+            WorkerEngine.Select(new CadEngineConfig(), fake: true));
     }
 
     [Fact]
     public void ARuntimeNobodyImplementsIsRefusedRatherThanGuessedAt()
     {
         var refused = Assert.Throws<WorkerException>(() =>
-            WorkerEngine.SelectDocumentEngine(
-                new CadEngineConfig(Engine: CadEngineConfig.Build123d, Runtime: "kubernetes")));
+            WorkerEngine.Select(new CadEngineConfig(Runtime: "kubernetes")));
         Assert.Equal("CONFIG_INVALID", refused.Code);
     }
 }

@@ -1,10 +1,19 @@
 """The CAD worker: one job in, STEP and STL out.
 
     python -m cad_worker build --job /work/job-123 [--disable KEY ...]
+    python -m cad_worker validate --job /work/job-123 [--disable KEY ...]
     python -m cad_worker describe [--disable KEY ...]
 
 A job directory has `cad-ir.json` in it and gets an `output/` written beside it.
 Nothing else is read and nothing outside it is written.
+
+`validate` is `build` without the geometry: the same schema, the same trusted
+validator and the same capability gate, answering only whether this engine would
+accept the document. It exists for the repair loop, which needs to know whether a
+document the AI just wrote is acceptable *before* paying for a build, and which
+must be told that by the thing that will do the accepting. A second validator on
+the calling side is how a document becomes valid on one side of a boundary and
+refused on the other.
 
 This process is deliberately small. It takes a document, validates it, builds it
 and writes two files; it has no network, no shell, and no way to be told to run
@@ -33,7 +42,7 @@ import sys
 from pathlib import Path
 
 from cad_engine_build123d import CadEngineError, build, describe
-from cad_engine_build123d.capabilities import CapabilityGate
+from cad_engine_build123d.capabilities import CapabilityGate, requirements
 # Imported from the module rather than the package: a submodule named erify` and
 # a function named `verify` cannot both live in one namespace, and the one that
 # wins is whichever was imported last.
@@ -54,6 +63,10 @@ def main(argv: list[str] | None = None) -> int:
     build_command.add_argument("--job", required=True, help="the job directory")
     _add_flags(build_command)
 
+    check = commands.add_parser("validate", help="check a document without building it")
+    check.add_argument("--job", required=True, help="the job directory")
+    _add_flags(check)
+
     _add_flags(commands.add_parser("describe", help="print what this engine is and does"))
 
     arguments = parser.parse_args(argv)
@@ -68,7 +81,34 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "describe":
         print(json.dumps(describe(gate).as_dict(), indent=2))
         return 0
+    if arguments.command == "validate":
+        return _validate(Path(arguments.job), gate)
     return _build(Path(arguments.job), gate)
+
+
+def _validate(job: Path, gate: CapabilityGate) -> int:
+    """Would this engine accept the document? Nothing is built and nothing written."""
+    try:
+        document = _read_document(job)
+        needed = requirements(document)
+        gate.require_all(needed)
+    except CadEngineError as error:
+        print(json.dumps(_failure(error)))
+        return 1
+    print(
+        json.dumps(
+            {
+                "status": "VALID",
+                "cad_ir_version": document.schema_version,
+                "disabled_capabilities": sorted(gate.disabled),
+                # What the document asks of an engine, so a caller can see why a
+                # worker was or was not compatible without guessing at it.
+                "required_capabilities": sorted(needed),
+            },
+            indent=2,
+        )
+    )
+    return 0
 
 
 def _add_flags(command: argparse.ArgumentParser) -> None:

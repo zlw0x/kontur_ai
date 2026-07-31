@@ -26,24 +26,24 @@ try
             return await LocalCadJobHandler.RunAsync(
                 args.Skip(1).FirstOrDefault(value => !value.StartsWith("--", StringComparison.Ordinal)),
                 paths,
-                args.Contains("--fake-cad", StringComparer.OrdinalIgnoreCase),
                 // The same engine `run` would use, so a job reproduced by hand
-                // is built by the thing that built it in production. A worker
-                // that has not enrolled has no configuration and therefore no
-                // configured engine, which is the KOMPAS default.
-                documentEngine: WorkerEngine.SelectDocumentEngine(configStore.Load()?.CadEngine));
+                // is built by the thing that built it in production.
+                WorkerEngine.Select(
+                    configStore.Load()?.CadEngine,
+                    fake: args.Contains("--fake-cad", StringComparer.OrdinalIgnoreCase)));
         case "analyze-drawing":
             // --inject-cad-ir-fault is an acceptance affordance and is offered
             // here only. `run` serves real orders and must never reach it.
             return await DrawingJobHandler.RunAsync(
                 args.Skip(1).FirstOrDefault(value => !value.StartsWith("--", StringComparison.Ordinal)),
                 args.Contains("--inject-cad-ir-fault", StringComparer.OrdinalIgnoreCase));
-        case "probe-kompas":
-            return await KompasProbe.RunAsync();
         case "flags":
-            return await FlagsCommand.RunAsync(args.Skip(1).ToArray(), paths);
-        case "resolve-selectors":
-            return await SelectorDiagnostic.RunAsync(args.Skip(1).ToArray(), paths);
+            return await FlagsCommand.RunAsync(args.Skip(1).ToArray(), paths, configStore);
+        case "describe-engine":
+            // What `probe-kompas` was for, without a desktop application to
+            // probe: the engine says what it is and what it can build, and a
+            // failure to answer is the thing an operator needed to find out.
+            return await EngineDescribeCommand.RunAsync(paths, configStore);
         case "probe-codex":
             return await CodexProbe.RunAsync(paths);
         case "logout":
@@ -51,7 +51,7 @@ try
             Console.WriteLine(JsonSerializer.Serialize(new { status = "LOGGED_OUT" }));
             return 0;
         default:
-            Console.Error.WriteLine("Usage: cad-worker doctor | enroll --server URL --token TOKEN | run [--once] | run-job PATH [--fake-cad] | analyze-drawing PATH [--inject-cad-ir-fault] | probe-kompas | probe-codex | resolve-selectors [DIR] | flags [--disable KEY] [--enable KEY] | logout");
+            Console.Error.WriteLine("Usage: cad-worker doctor | enroll --server URL --token TOKEN | run [--once] | run-job PATH [--fake-cad] | analyze-drawing PATH [--inject-cad-ir-fault] | describe-engine | probe-codex | flags [--disable KEY] [--enable KEY] | logout");
             return 2;
     }
 }

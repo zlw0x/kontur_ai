@@ -2,7 +2,6 @@ using CadAi.CadEngine;
 using System.Security.Cryptography;
 using System.Text;
 using CadAi.CodexRunner;
-using CadAi.KompasAdapter;
 using CadAi.LocalWorker;
 using Xunit;
 
@@ -15,7 +14,7 @@ public sealed class ResourceLedgerTests
     {
         var ledger = new ResourceLedger("job-1");
         using (var scope = ledger.Begin(
-            ledger.Key("cad", "session", "1"), ResourceEventType.CAD_SESSION, ResourceStage.KOMPAS_STARTUP))
+            ledger.Key("cad", "session", "1"), ResourceEventType.CAD_SESSION, ResourceStage.CAD_STARTUP))
         {
             Thread.Sleep(5);
             scope.Succeeded();
@@ -100,7 +99,7 @@ public sealed class ResourceLedgerTests
     {
         var ledger = new ResourceLedger("job-1", attempt: 3);
         using (var scope = ledger.Begin(
-            ledger.Key("cad", "session", "1"), ResourceEventType.CAD_SESSION, ResourceStage.KOMPAS_STARTUP))
+            ledger.Key("cad", "session", "1"), ResourceEventType.CAD_SESSION, ResourceStage.CAD_STARTUP))
         {
             scope.Succeeded();
         }
@@ -187,7 +186,7 @@ public sealed class ResourceLedgerTests
                 Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_4.json"));
             var runner = new FakeRunner(ReadyAnalysis(), valid);
 
-            var result = await new DrawingPipeline(runner, ledger: ledger).RunAsync(workspace, [image]);
+            var result = await new DrawingPipeline(runner, ledger: ledger, engine: new StubValidatingEngine()).RunAsync(workspace, [image]);
 
             Assert.Equal("CAD_IR_READY", result.Status);
             var aiRuns = ledger.Events.Where(item => item.EventType == "AI_RUN").ToArray();
@@ -224,7 +223,7 @@ public sealed class ResourceLedgerTests
                 @"""type"": ""solid.extrude""", @"""type"": ""cut.extrude""", StringComparison.Ordinal);
             var runner = new FakeRunner(ReadyAnalysis(), invalid, valid);
 
-            await new DrawingPipeline(runner, ledger: ledger).RunAsync(workspace, [image]);
+            await new DrawingPipeline(runner, ledger: ledger, engine: new StubValidatingEngine()).RunAsync(workspace, [image]);
 
             Assert.Single(ledger.Events, item => item.EventType == "REPAIR_ITERATION");
             Assert.Single(ledger.Events, item => item.AgentRole == "REPAIR");
@@ -252,45 +251,29 @@ public sealed class ResourceLedgerTests
         Assert.False(error.Operations[1].Success);
     }
 
+    /// <summary>
+    /// The manifest is the engine's answer, not a list compiled into the worker.
+    /// </summary>
+    /// <remarks>
+    /// A list here would be a second place for the truth to live, and the failure
+    /// it produces is the worst kind available: the API schedules an operation the
+    /// worker then refuses (ENGINE-MIG-008). What this side adds is what the engine
+    /// cannot know — which worker build this is, and which Codex CLI it found.
+    /// </remarks>
     [Fact]
-    public void TheCapabilityManifestDeclaresOnlyWhatThisBuildConstructs()
+    public async Task TheCapabilityManifestIsWhateverTheEngineSaysItIs()
     {
-        var manifest = WorkerCapabilities.Manifest("22.0", "codex-cli 0.145.0");
+        var report = await new FakeDocumentEngine("1.4").DescribeAsync([], CancellationToken.None);
+        var manifest = WorkerCapabilities.ManifestFor(report, "codex-cli 0.145.0");
 
         Assert.Equal("1.0", manifest.SchemaVersion);
-        Assert.Equal([WorkerCapabilities.CadIrVersion], manifest.CadIrVersions);
-        Assert.Equal("stable", manifest.Capabilities["solid.rectangular_prism"].Status);
-        Assert.Equal("1.0", manifest.Capabilities["solid.rectangular_prism"].Version);
-        Assert.Equal("stable", manifest.Capabilities["feature.hole.simple_through"].Status);
-        // Nothing this build cannot construct may be advertised: a key here
+        Assert.Equal(WorkerCapabilities.WorkerVersion, manifest.WorkerVersion);
+        Assert.Equal("codex-cli 0.145.0", manifest.CodexCliVersion);
+        Assert.Equal(["1.4"], manifest.CadIrVersions);
+        Assert.Equal("fake", manifest.Engine!.EngineId);
+        // The fake declares nothing, so nothing is advertised. A key in a manifest
         // tells the API to start scheduling that operation on this machine.
-        Assert.DoesNotContain("solid.revolve", manifest.Capabilities.Keys);
-        Assert.DoesNotContain("feature.shell", manifest.Capabilities.Keys);
-        Assert.DoesNotContain("sketch.spline", manifest.Capabilities.Keys);
-        // The declared set is exactly the set the parser can refuse on, so an
-        // operation cannot be turned off without the API hearing about it.
-        Assert.Equal(CadCapabilities.All.Order(), manifest.Capabilities.Keys.Order());
-    }
-
-    /// <summary>
-    /// Everything POSTMVP-006 added is beta, not stable. One real acceptance
-    /// part is not the ten positive and ten negative fixtures the roadmap asks
-    /// for before an operation is called stable.
-    /// </summary>
-    [Fact]
-    public void TheOperationsAddedWithContoursAreDeclaredBeta()
-    {
-        var manifest = WorkerCapabilities.Manifest();
-
-        foreach (var key in new[]
-                 {
-                     CadCapabilities.SolidContourProfile, CadCapabilities.SketchArc,
-                     CadCapabilities.SketchSlot, CadCapabilities.SketchRegularPolygon,
-                     CadCapabilities.SketchIslands, CadCapabilities.SketchConstruction,
-                     CadCapabilities.SketchPlaneDatum, CadCapabilities.SketchPlaneFaceSelector,
-                     CadCapabilities.FeatureBossAdditive
-                 })
-            Assert.Equal("beta", manifest.Capabilities[key].Status);
+        Assert.Empty(manifest.Capabilities);
     }
 
     private static string ReadyAnalysis() =>

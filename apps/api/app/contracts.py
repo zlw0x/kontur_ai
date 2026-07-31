@@ -56,7 +56,21 @@ class JobType(StrEnum):
 
 
 class WorkerCapability(StrEnum):
+    """What kind of work a worker will take, coarsely.
+
+    `CAD_BUILD` replaces `KOMPAS_BUILD` (ENGINE-MIG-008): the coarse capability
+    named an engine, and the engine is gone. The old name is kept as a member
+    rather than deleted because it is stored — in `worker.capabilities` and in
+    `order.required_capabilities`, as JSON strings written by every release before
+    this one. Removing it would make those rows unparseable, which turns a rename
+    into an outage.
+
+    So both names parse and `CAD_BUILD` is what anything new writes. The old
+    member leaves once no stored row carries it.
+    """
+
     AI_DRAWING = "AI_DRAWING"
+    CAD_BUILD = "CAD_BUILD"
     KOMPAS_BUILD = "KOMPAS_BUILD"
 
 
@@ -282,6 +296,10 @@ class ResourceStage(StrEnum):
     CAD_IR_COMPILATION = "CAD_IR_COMPILATION"
     SCHEMA_VALIDATION = "SCHEMA_VALIDATION"
     SEMANTIC_VALIDATION = "SEMANTIC_VALIDATION"
+    #: Renamed from KOMPAS_STARTUP with the engine (ENGINE-MIG-008). The old
+    #: value is still accepted because ledger rows already carry it, and a
+    #: measurement that cannot be read back is a measurement that was not taken.
+    CAD_STARTUP = "CAD_STARTUP"
     KOMPAS_STARTUP = "KOMPAS_STARTUP"
     DOCUMENT_BUILD = "DOCUMENT_BUILD"
     FEATURE_BUILD = "FEATURE_BUILD"
@@ -799,8 +817,7 @@ class WorkerEngineDeclaration(StrictModel):
     engine and reports a version that only that engine has. Putting an
     OpenCascade version in a field called `kompas_version` would make every
     reader of a manifest wrong about what produced the model, and the field is
-    still the right one for the worker that does drive KOMPAS — until
-    ENGINE-MIG-008 removes both it and the engine.
+    still read by anything holding an older manifest.
 
     Optional, because a worker older than this build does not send it and being
     unable to say which engine it uses is not a reason to refuse its work.

@@ -20,63 +20,75 @@ namespace CadAi.CadEngine.Tests;
 public sealed class CadEngineDescriptionTests
 {
     [Fact]
-    public void TheFakeEngineDescribesItselfWithoutBuildingAnything()
+    public async Task TheFakeEngineDescribesItselfWithoutBuildingAnything()
     {
-        var engine = new FakeCadAdapter().Describe();
+        var report = await new FakeDocumentEngine("1.4").DescribeAsync([], CancellationToken.None);
 
-        Assert.Equal("fake", engine.EngineId);
-        Assert.Equal(CadIrBuildPlanParser.CadIrVersion, engine.CadIrVersion);
-        Assert.Equal("FAKE_CAD", Assert.Single(engine.Artifacts).Kind);
+        Assert.Equal("fake", report.Engine.EngineId);
+        Assert.Equal("1.4", report.Engine.CadIrVersion);
+        Assert.Equal("FAKE_CAD", Assert.Single(report.Engine.Artifacts).Kind);
+        // Nothing declared, so the API will not schedule real work to a worker
+        // running it. A fake that advertised operations would be a fake that gets
+        // given a customer's order.
+        Assert.Empty(report.Capabilities);
     }
 
     /// <summary>
     /// A result that did not say which engine produced it would be untraceable
-    /// exactly when it matters: two engines building the same document and
-    /// disagreeing.
+    /// exactly when it matters: a delivered model nobody can trace to a build.
     /// </summary>
     [Fact]
     public async Task ABuildResultCarriesTheEngineThatProducedIt()
     {
-        var directory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var job = Directory.CreateTempSubdirectory("cad-fake-");
         try
         {
-            var adapter = new FakeCadAdapter();
-            var result = await adapter.BuildAsync(
-                new CadBuildRequest(Plan(), directory), CancellationToken.None);
+            File.WriteAllText(Path.Combine(job.FullName, "cad-ir.json"), "{}");
+            var result = await new FakeDocumentEngine("1.4").BuildAsync(
+                new CadDocumentBuildRequest(job.FullName, []), CancellationToken.None);
 
             Assert.NotNull(result.Engine);
             // Field by field rather than record equality: the description holds a
             // list, and a record compares that by reference, so two equal
             // descriptions built separately would compare unequal.
-            var expected = adapter.Describe();
+            var expected = FakeDocumentEngine.Identity("1.4");
             Assert.Equal(expected.EngineId, result.Engine!.EngineId);
             Assert.Equal(expected.EngineVersion, result.Engine.EngineVersion);
             Assert.Equal(expected.KernelId, result.Engine.KernelId);
             Assert.Equal(expected.CadIrVersion, result.Engine.CadIrVersion);
             Assert.Equal(
-                expected.Artifacts.Select(item => item.Kind),
-                result.Engine.Artifacts.Select(item => item.Kind));
-            // And the checksum is of the bytes on disk, not of what was meant.
-            var artifact = Assert.Single(result.Artifacts);
-            Assert.Equal(new FileInfo(artifact.Path).Length, artifact.SizeBytes);
-            Assert.Equal(64, artifact.Sha256.Length);
+                FakeDocumentEngine.FileName,
+                Path.GetFileName(Assert.Single(result.Artifacts).Path));
         }
         finally
         {
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+            job.Delete(recursive: true);
         }
     }
 
-    /// <remarks>
-    /// The distinction the upload check runs on: a job that did not produce
-    /// something its engine promised has failed, and a job missing something the
-    /// engine called optional has not.
-    /// </remarks>
+    /// <summary>A job with no document is a typed refusal, not an empty success.</summary>
+    [Fact]
+    public async Task TheFakeStillRefusesAJobWithNoDocument()
+    {
+        var job = Directory.CreateTempSubdirectory("cad-fake-");
+        try
+        {
+            var refused = await Assert.ThrowsAsync<CadAdapterException>(() =>
+                new FakeDocumentEngine("1.4").BuildAsync(
+                    new CadDocumentBuildRequest(job.FullName, []), CancellationToken.None));
+            Assert.Equal("CAD_IR_MISSING", refused.Code);
+        }
+        finally
+        {
+            job.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void OnlyTheArtifactsAnEngineCallsRequiredAreRequired()
     {
         var engine = new CadEngineDescription(
-            "example", "1", "kernel", "9", "1.3",
+            "example", "1", "kernel", "9", "1.4",
             [
                 new CadArtifactKind("STEP", "model.step"),
                 new CadArtifactKind("STL", "model.stl"),
@@ -97,7 +109,7 @@ public sealed class CadEngineDescriptionTests
     [Fact]
     public void AnUnknownKernelVersionIsExpressible()
     {
-        var engine = new CadEngineDescription("example", "1", "kernel", null, "1.3", []);
+        var engine = new CadEngineDescription("example", "1", "kernel", null, "1.4", []);
 
         Assert.Null(engine.KernelVersion);
     }
@@ -109,19 +121,4 @@ public sealed class CadEngineDescriptionTests
 
         Assert.Equal("OUTPUT_PATH_INVALID", error.Code);
     }
-
-    private static CadBuildPlan Plan() => new(
-        [
-            new ExtrudeFeaturePlan(
-                "feature.base",
-                new SketchPlan(
-                    "sketch.base",
-                    new BasePlanePlan("XY"),
-                    new CircleContourPlan(new Point2(0, 0), 10),
-                    [],
-                    []),
-                8,
-                IsCut: false)
-        ],
-        new ExpectedGeometryPlan(20, 20, 8, 0.05, 1, 0));
 }

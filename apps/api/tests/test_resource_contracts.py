@@ -18,6 +18,7 @@ from app.contracts import (
     ResourceStage,
     ServiceTier,
     TokenSource,
+    WorkerCapability,
     WorkerCapabilityManifest,
 )
 
@@ -292,3 +293,22 @@ def test_a_non_ai_event_needs_no_model():
         ],
     )
     assert batch.events[0].ai is None
+
+
+def test_the_coarse_capability_no_longer_names_an_engine_and_the_old_name_still_parses():
+    """ENGINE-MIG-008 renamed KOMPAS_BUILD to CAD_BUILD.
+
+    The old member stays because it is *stored*: every release before this one
+    wrote it into `worker.capabilities` and `order.required_capabilities` as a JSON
+    string. Deleting it would make those rows unparseable, which turns a rename
+    into an outage.
+    """
+    assert WorkerCapability("CAD_BUILD") is WorkerCapability.CAD_BUILD
+    assert WorkerCapability("KOMPAS_BUILD") is WorkerCapability.KOMPAS_BUILD
+    assert WorkerCapability.CAD_BUILD != WorkerCapability.KOMPAS_BUILD
+
+
+def test_the_ledger_stage_no_longer_names_an_engine_and_the_old_value_still_parses():
+    """A measurement that cannot be read back is a measurement that was not taken."""
+    assert ResourceStage("CAD_STARTUP") is ResourceStage.CAD_STARTUP
+    assert ResourceStage("KOMPAS_STARTUP") is ResourceStage.KOMPAS_STARTUP

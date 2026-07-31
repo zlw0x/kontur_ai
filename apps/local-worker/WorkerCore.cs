@@ -31,22 +31,18 @@ public sealed record WorkerPaths(string StateRoot, string WorkspaceRoot, string 
 /// the engine — the command line is built from a fixed vocabulary in the
 /// launcher, and the only variable in it is a job directory this worker chose.
 ///
-/// `kompas` remains the default until ENGINE-MIG-008. Changing the engine a
-/// deployment uses should be a decision someone takes, not something that
-/// happens because a build was upgraded.
+/// There is one engine, so there is no longer a setting that names it
+/// (ENGINE-MIG-008). What is left is how to reach it: `container` is the mode with
+/// the isolation ADR-023 asks for and is the default, and `process` runs the same
+/// entry point through a local interpreter for a developer machine.
 /// </remarks>
 public sealed record CadEngineConfig(
-    string Engine = CadEngineConfig.Kompas,
     string Runtime = "container",
     string ContainerCommand = "docker",
     string Image = "cad-ai/cad-worker:latest",
     string PythonCommand = "python",
     string? WorkingDirectory = null,
-    int BuildTimeoutMinutes = 15)
-{
-    public const string Kompas = "kompas";
-    public const string Build123d = "build123d";
-}
+    int BuildTimeoutMinutes = 15);
 
 public sealed record WorkerConfig(
     string ServerUrl,
@@ -54,8 +50,8 @@ public sealed record WorkerConfig(
     string WorkerName,
     int PollSeconds = 5,
     int LeaseSeconds = 60,
-    // Optional so a worker enrolled before this build keeps working: an absent
-    // section means KOMPAS, which is what such a worker was already doing.
+    // Optional so a worker enrolled before this setting existed keeps working:
+    // an absent section means the defaults, which is a container.
     CadEngineConfig? CadEngine = null);
 
 public sealed class WorkerConfigStore(WorkerPaths paths)
@@ -150,7 +146,7 @@ public static class WorkerDoctor
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             status, worker = WorkerCapabilities.WorkerVersion, mode = "fake", credential = credentials.Exists ? "protected" : "missing",
-            workspace = "writable", kompas = "not-probed", codex = "not-probed"
+            workspace = "writable", engine = "not-started", codex = "not-probed"
         }));
         return Task.FromResult(status == "READY" ? 0 : 3);
     }

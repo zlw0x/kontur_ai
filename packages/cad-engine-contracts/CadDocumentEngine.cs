@@ -40,6 +40,24 @@ public interface ICadDocumentEngine
         IReadOnlyCollection<string> disabledCapabilities,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Would this engine accept the document? Nothing is built.
+    /// </summary>
+    /// <remarks>
+    /// The repair loop's question. It has to know whether a document the AI just
+    /// wrote is acceptable before paying for a build, and it has to be told by the
+    /// thing that will do the accepting — a check on this side would be a second
+    /// opinion, and two validators that disagree is how a document becomes valid
+    /// on one side of a boundary and refused on the other.
+    ///
+    /// Returns what the document requires, which is also what makes a refusal
+    /// legible: an operator reading `CAPABILITY_DISABLED` learns which operation
+    /// the document wanted.
+    /// </remarks>
+    Task<IReadOnlyCollection<string>> ValidateAsync(
+        CadDocumentBuildRequest request,
+        CancellationToken cancellationToken);
+
     Task<CadBuildResult> BuildAsync(
         CadDocumentBuildRequest request,
         CancellationToken cancellationToken);

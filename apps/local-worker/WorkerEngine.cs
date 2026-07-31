@@ -1,6 +1,5 @@
 using CadAi.Build123dLauncher;
 using CadAi.CadEngine;
-using CadAi.KompasAdapter;
 
 namespace CadAi.LocalWorker;
 
@@ -8,111 +7,19 @@ namespace CadAi.LocalWorker;
 /// The one place that says which CAD engine this worker builds with.
 /// </summary>
 /// <remarks>
-/// Everything else in the pipeline asks the engine what it is and what it
-/// produces (<see cref="CadEngineDescription"/>) rather than knowing. That is the
-/// whole point of ENGINE-MIG-002: when build123d replaces KOMPAS the change is
-/// this file, not a search for every literal that named a format.
+/// There is one engine now: build123d on OpenCascade, in a container
+/// (ADR-023, ENGINE-MIG-008). What used to be a choice between two is a choice
+/// between the real engine and a fake that builds nothing, which is a different
+/// kind of choice — the fake exists so CI and the smoke test can exercise the
+/// lease, the ledger and the upload path without an engine at all.
 ///
-/// It is a selector rather than a setting on purpose. Which engine a build used
-/// has to be recorded, not configured per job — a job whose engine depended on an
-/// environment variable would produce results that cannot be compared with each
-/// other.
+/// Everything else in the pipeline asks the engine what it is and what it
+/// produces (<see cref="CadEngineDescription"/>) rather than knowing. That is what
+/// ENGINE-MIG-002 set up, and it is the reason this file was the whole change when
+/// the engine was replaced.
 /// </remarks>
 internal static class WorkerEngine
 {
-    public static ICadAdapter Select(bool fake) =>
-        fake ? new FakeCadAdapter() : new KompasApi7Adapter();
-
-    /// <summary>The engine a real build uses.</summary>
-    public static ICadAdapter Adapter => Select(fake: false);
-
-    /// <summary>
-    /// The build123d engine, when this deployment is configured for it.
-    /// </summary>
-    /// <remarks>
-    /// Nothing rather than a fallback: a worker configured for an engine it
-    /// cannot construct must not quietly build with a different one. The two
-    /// engines produce the same geometry from the same document and different
-    /// files from it, and a silent substitution would be discovered by a customer
-    /// opening a model in a format nobody chose.
-    ///
-    /// This is the second engine and there will not be a third. ENGINE-MIG-008
-    /// deletes the KOMPAS branch and this method loses its condition.
-    /// </remarks>
-    public static ICadDocumentEngine? SelectDocumentEngine(CadEngineConfig? config)
-    {
-        if (config is null || !string.Equals(config.Engine, CadEngineConfig.Build123d, StringComparison.Ordinal))
-            return null;
-        if (!Enum.TryParse<EngineRuntime>(config.Runtime, ignoreCase: true, out var runtime))
-            throw new WorkerException(
-                "CONFIG_INVALID",
-                $"cad_engine.runtime must be container or process, not {config.Runtime}.",
-                2);
-        return new Build123dProcessEngine(new EngineLaunchOptions
-        {
-            Runtime = runtime,
-            ContainerCommand = config.ContainerCommand,
-            Image = config.Image,
-            PythonCommand = config.PythonCommand,
-            WorkingDirectory = config.WorkingDirectory,
-            BuildTimeout = TimeSpan.FromMinutes(Math.Clamp(config.BuildTimeoutMinutes, 1, 240))
-        });
-    }
-
-    /// <summary>
-    /// The engine this worker is configured for, and what it says about itself.
-    /// </summary>
-    /// <remarks>
-    /// Resolved once for a worker rather than per job. Describing a container
-    /// engine means starting it, and the claim loop asks what it can build on
-    /// every poll — a process per poll would be a container start every few
-    /// seconds to learn something that only changes when a flag does.
-    ///
-    /// So the answer is cached against the flags it was asked under, which is the
-    /// one thing that changes it. An operator turning an operation off gets a new
-    /// manifest on the next poll, and nothing else pays for it.
-    /// </remarks>
-    public sealed class EngineSelection(ICadDocumentEngine? document)
-    {
-        private CadEngineReport? cached;
-        private IReadOnlySet<string> cachedFor = new HashSet<string>();
-
-        public static EngineSelection For(CadEngineConfig? config) =>
-            new(SelectDocumentEngine(config));
-
-        public ICadDocumentEngine? Document => document;
-
-        /// <summary>What this worker publishes, from whichever engine it uses.</summary>
-        public async Task<WorkerCapabilityManifestPayload> ManifestAsync(
-            FeatureFlags flags,
-            string? codexCliVersion = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (document is null) return WorkerCapabilities.Manifest(flags: flags);
-            return WorkerCapabilities.ManifestFor(
-                await ReportAsync(flags, cancellationToken), codexCliVersion);
-        }
-
-        /// <summary>What the engine produces, so the pipeline knows what to upload.</summary>
-        public async Task<CadEngineDescription> DescribeAsync(
-            FeatureFlags flags,
-            CancellationToken cancellationToken = default) =>
-            document is null
-                ? Adapter.Describe()
-                : (await ReportAsync(flags, cancellationToken)).Engine;
-
-        private async Task<CadEngineReport> ReportAsync(
-            FeatureFlags flags,
-            CancellationToken cancellationToken)
-        {
-            var disabled = flags.Disabled;
-            if (cached is not null && cachedFor.SetEquals(disabled)) return cached;
-            cached = await document!.DescribeAsync([.. disabled], cancellationToken);
-            cachedFor = new HashSet<string>(disabled, StringComparer.Ordinal);
-            return cached;
-        }
-    }
-
     /// <summary>
     /// What the pipeline writes itself, regardless of engine.
     /// </summary>
@@ -131,4 +38,79 @@ internal static class WorkerEngine
         ("CLARIFICATION_QUESTIONS", "clarification-questions.json"),
         ("CAD_IR", "cad-ir.json")
     ];
+
+    /// <summary>The engine a job is built with.</summary>
+    /// <remarks>
+    /// A configuration that cannot be turned into an engine is a refusal, never a
+    /// fallback. A worker that quietly built with something other than what it was
+    /// configured for would produce results nobody could compare.
+    /// </remarks>
+    public static ICadDocumentEngine Select(CadEngineConfig? config, bool fake = false)
+    {
+        if (fake) return new FakeDocumentEngine(WorkerCapabilities.CadIrVersion);
+        var settings = config ?? new CadEngineConfig();
+        if (!Enum.TryParse<EngineRuntime>(settings.Runtime, ignoreCase: true, out var runtime))
+            throw new WorkerException(
+                "CONFIG_INVALID",
+                $"cad_engine.runtime must be container or process, not {settings.Runtime}.",
+                2);
+        return new Build123dProcessEngine(new EngineLaunchOptions
+        {
+            Runtime = runtime,
+            ContainerCommand = settings.ContainerCommand,
+            Image = settings.Image,
+            PythonCommand = settings.PythonCommand,
+            WorkingDirectory = settings.WorkingDirectory,
+            BuildTimeout = TimeSpan.FromMinutes(Math.Clamp(settings.BuildTimeoutMinutes, 1, 240))
+        });
+    }
+
+    /// <summary>
+    /// The engine this worker is configured for, and what it says about itself.
+    /// </summary>
+    /// <remarks>
+    /// Resolved once for a worker rather than per job. Describing a container
+    /// engine means starting it, and the claim loop asks what it can build on
+    /// every poll — a process per poll would be a container start every few
+    /// seconds to learn something that only changes when a flag does.
+    ///
+    /// So the answer is cached against the flags it was asked under, which is the
+    /// one thing that changes it. An operator turning an operation off gets a new
+    /// manifest on the next poll, and nothing else pays for it.
+    /// </remarks>
+    public sealed class EngineSelection(ICadDocumentEngine engine)
+    {
+        private CadEngineReport? cached;
+        private IReadOnlySet<string> cachedFor = new HashSet<string>();
+
+        public static EngineSelection For(CadEngineConfig? config, bool fake = false) =>
+            new(Select(config, fake));
+
+        public ICadDocumentEngine Engine => engine;
+
+        /// <summary>What this worker publishes to the API.</summary>
+        public async Task<WorkerCapabilityManifestPayload> ManifestAsync(
+            FeatureFlags flags,
+            string? codexCliVersion = null,
+            CancellationToken cancellationToken = default) =>
+            WorkerCapabilities.ManifestFor(
+                await ReportAsync(flags, cancellationToken), codexCliVersion);
+
+        /// <summary>What the engine produces, so the pipeline knows what to upload.</summary>
+        public async Task<CadEngineDescription> DescribeAsync(
+            FeatureFlags flags,
+            CancellationToken cancellationToken = default) =>
+            (await ReportAsync(flags, cancellationToken)).Engine;
+
+        private async Task<CadEngineReport> ReportAsync(
+            FeatureFlags flags,
+            CancellationToken cancellationToken)
+        {
+            var disabled = flags.Disabled;
+            if (cached is not null && cachedFor.SetEquals(disabled)) return cached;
+            cached = await engine.DescribeAsync([.. disabled], cancellationToken);
+            cachedFor = new HashSet<string>(disabled, StringComparer.Ordinal);
+            return cached;
+        }
+    }
 }

@@ -27,7 +27,7 @@ public sealed class DrawingPipelineTests
                   }
                 }
                 """);
-            var result = await new DrawingPipeline(runner).RunAsync(workspace, [image]);
+            var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine()).RunAsync(workspace, [image]);
             Assert.Equal("WAITING_FOR_USER_ANSWERS", result.Status);
             Assert.Null(result.CadIrPath);
             Assert.Equal(1, runner.Calls);
@@ -50,7 +50,7 @@ public sealed class DrawingPipelineTests
                 @"""type"": ""cut.extrude""",
                 StringComparison.Ordinal);
             var runner = new FakeRunner(ReadyAnalysis(), invalid, valid);
-            var result = await new DrawingPipeline(runner).RunAsync(workspace, [image]);
+            var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine()).RunAsync(workspace, [image]);
             Assert.Equal("CAD_IR_READY", result.Status);
             Assert.NotNull(result.CadIrPath);
             Assert.Equal(3, runner.Calls);

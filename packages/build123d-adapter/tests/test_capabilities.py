@@ -183,39 +183,31 @@ def test_nothing_on_a_two_milestone_old_engine_claims_to_be_stable():
     assert {declared.status for declared in caps.DECLARED.values()} == {"beta", "experimental"}
 
 
-# --- the two engines use one vocabulary ------------------------------------
+# --- there is only one vocabulary now --------------------------------------
 
 
-def kompas_keys() -> set[str]:
-    """The .NET engine's capability keys, read from its own source.
+def test_no_dotnet_file_declares_a_capability_key_of_its_own():
+    """The drift this used to guard against is now unrepresentable.
 
-    Read rather than duplicated. A copy of this list in Python would be a second
-    place for the vocabulary to live, which is the failure this test exists to
-    catch.
+    Until ENGINE-MIG-008 there were two engines and two lists of keys, and a test
+    here read `CadCapabilities.cs` and asserted the only differences were
+    deliberate. That file is gone with KOMPAS, and the worker asks the engine what
+    it can build instead of carrying an answer.
+
+    What is left worth checking is that it stays that way. A `const string ... =
+    "solid.something"` reappearing on the .NET side would be the same second
+    vocabulary under a new name, and the failure it produces is the one that is
+    hardest to see: the API schedules an operation the worker then refuses.
     """
-    source = (ROOT / "packages" / "cad-engine-contracts" / "CadCapabilities.cs").read_text("utf-8")
-    return set(re.findall(r'public const string \w+ = "([^"]+)";', source))
-
-
-def test_the_two_engines_spell_the_same_operation_the_same_way():
-    """The API schedules on these names.
-
-    Two engines with different words for one operation means a job routed by
-    capability cannot be routed at all — and the failure would look like a worker
-    that is simply never compatible, with nothing saying why.
-
-    Every difference below is deliberate and named. A new key on either side that
-    is not in this list fails here, which is the point.
-    """
-    kompas = kompas_keys()
-    build123d = set(caps.ALL)
-
-    assert kompas - build123d == {
-        # KOMPAS-native, and leaving the product with KOMPAS (ADR-023).
-        "export.m3d",
-    }
-    assert build123d - kompas == {
-        # CAD-IR 1.4, and deliberately never built on KOMPAS (ADR-024).
-        "solid.revolve",
-        "cut.revolve",
-    }
+    declarations: list[str] = []
+    for source in (ROOT / "packages").rglob("*.cs"):
+        if "/obj/" in source.as_posix() or "/bin/" in source.as_posix():
+            continue
+        for name, value in re.findall(
+            r'const string (\w+)\s*=\s*"([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)"', source.read_text("utf-8")
+        ):
+            if value in caps.ALL:
+                declarations.append(f"{source.relative_to(ROOT)}: {name} = {value}")
+    assert not declarations, (
+        "the .NET side declares capability keys again: " + "; ".join(declarations)
+    )

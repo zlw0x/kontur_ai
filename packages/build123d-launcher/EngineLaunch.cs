@@ -91,6 +91,19 @@ internal static class EngineCommandLine
     internal static EngineInvocation Build(
         EngineLaunchOptions options,
         string jobDirectory,
+        IReadOnlyCollection<string> disabled) =>
+        ForJob(options, "build", jobDirectory, disabled);
+
+    internal static EngineInvocation Validate(
+        EngineLaunchOptions options,
+        string jobDirectory,
+        IReadOnlyCollection<string> disabled) =>
+        ForJob(options, "validate", jobDirectory, disabled);
+
+    private static EngineInvocation ForJob(
+        EngineLaunchOptions options,
+        string command,
+        string jobDirectory,
         IReadOnlyCollection<string> disabled)
     {
         var job = RequireRootedPath(jobDirectory);
@@ -99,12 +112,12 @@ internal static class EngineCommandLine
                 options.ContainerCommand,
                 [
                     .. ContainerPrefix(options, job),
-                    "build", "--job", ContainerJobPath,
+                    command, "--job", ContainerJobPath,
                     .. Flags(disabled)
                 ])
             : new EngineInvocation(
                 options.PythonCommand,
-                ["-m", "cad_worker", "build", "--job", job, .. Flags(disabled)]);
+                ["-m", "cad_worker", command, "--job", job, .. Flags(disabled)]);
     }
 
     private static IReadOnlyList<string> ContainerPrefix(

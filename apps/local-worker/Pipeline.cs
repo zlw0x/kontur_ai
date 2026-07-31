@@ -3,8 +3,6 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
-using CadAi.GeometryValidation;
-using CadAi.KompasAdapter;
 
 namespace CadAi.LocalWorker;
 
@@ -39,22 +37,16 @@ public static class LocalCadJobHandler
     public static async Task<int> RunAsync(
         string? path,
         WorkerPaths paths,
-        bool fakeCad,
+        ICadDocumentEngine engine,
         CancellationToken cancellationToken = default,
-        ResourceLedger? ledger = null,
-        // Absent means KOMPAS, which is what every deployment does until one is
-        // configured otherwise (ENGINE-MIG-007). Passed in rather than resolved
-        // here so a test can hand in an engine without a config file.
-        ICadDocumentEngine? documentEngine = null)
+        ResourceLedger? ledger = null)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new WorkerException("JOB_PATH_REQUIRED", "run-job requires a job directory.", 2);
         var fullPath = Path.GetFullPath(path);
-        var workspaceRoot = Path.GetFullPath(paths.WorkspaceRoot);
-        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(Path.GetFullPath(paths.WorkspaceRoot));
         Directory.CreateDirectory(fullPath);
-        var cadIrPath = Path.Combine(fullPath, "cad-ir.json");
-        if (!File.Exists(cadIrPath))
+        if (!File.Exists(Path.Combine(fullPath, "cad-ir.json")))
             return await FakeJobHandler.RunAsync(fullPath, paths);
 
         var output = Path.Combine(fullPath, "output");
@@ -64,122 +56,12 @@ public static class LocalCadJobHandler
             JsonSerializer.Serialize(new { status = "BUILDING", started_at = DateTimeOffset.UtcNow }));
         try
         {
-            // The gate is checked on the document, before any COM object
-            // exists: a disabled operation must cost a typed error rather
-            // than a half-built model.
-            var flags = FeatureFlags.Load(paths);
-            // Branched before anything is created. The document engine writes
-            // its own `output/`, and creating an empty one here first would
-            // leave a directory behind after a refusal that reads like a build
-            // that ran.
-            if (!fakeCad && documentEngine is not null)
-                return await RunWithDocumentEngineAsync(
-                    documentEngine, fullPath, output, state, flags, cancellationToken, ledger);
-            Directory.CreateDirectory(output);
-            var plan = await CadIrBuildPlanParser.ParseFileAsync(
-                cadIrPath, cancellationToken, flags.Gate());
-            var adapter = WorkerEngine.Select(fakeCad);
-            CadBuildResult result;
-            using (var session = ledger?.Begin(
-                ledger.Key("cad", "session", "1"),
-                ResourceEventType.CAD_SESSION,
-                ResourceStage.KOMPAS_STARTUP))
-            {
-                try
-                {
-                    result = await adapter.BuildAsync(new CadBuildRequest(plan, output), cancellationToken);
-                    session?.WithCad(new CadUsagePayload(
-                        "rectangular_prism_with_holes",
-                        result.Operations?.Count,
-                        FailedFeatureCount: 0,
-                        SessionReuseCount: 0,
-                        ForcedTermination: false,
-                        ResultBytes: result.Artifacts.Sum(artifact => artifact.SizeBytes)));
-                    session?.Succeeded();
-                    RecordOperations(ledger, result.Operations);
-                }
-                catch (CadAdapterException error)
-                {
-                    session?.Failed(error.Code);
-                    // The steps that ran before the failure are on the
-                    // exception; a build that died after twenty minutes still
-                    // consumed them.
-                    RecordOperations(ledger, error.Operations);
-                    throw;
-                }
-            }
-            GeometryValidationResult? validation = null;
-            if (!fakeCad)
-            {
-                using var check = ledger?.Begin(
-                    ledger.Key("validate", "geometry", "1"),
-                    ResourceEventType.VALIDATION,
-                    ResourceStage.GEOMETRY_VALIDATION);
-                validation = GeometryValidator.Validate(
-                    Path.Combine(output, "model.m3d"),
-                    Path.Combine(output, "model.step"),
-                    Path.Combine(output, "model.stl"),
-                    // The document's own expectations, not numbers derived
-                    // from the plan: a verifier that cannot disagree with the
-                    // builder is not verifying anything.
-                    new ExpectedGeometry(
-                        plan.Expectations.SizeXMm,
-                        plan.Expectations.SizeYMm,
-                        plan.Expectations.SizeZMm,
-                        plan.Expectations.BodyCount,
-                        plan.Expectations.ThroughHoleCount,
-                        plan.Expectations.ToleranceMm));
-                if (validation.Valid) check?.Succeeded();
-                else check?.Failed("GEOMETRY_VALIDATION_FAILED");
-            }
-            await FakeJobHandler.AtomicWriteAsync(
-                Path.Combine(output, "validation-report.json"),
-                JsonSerializer.Serialize(new
-                {
-                    valid = validation?.Valid ?? true,
-                    // Kept under its old name so nothing downstream has to change
-                    // at once, and now taken from the engine rather than from a
-                    // ternary that knew the two engines by name.
-                    adapter = result.Engine?.EngineId ?? adapter.Describe().EngineId,
-                    // What built this, on what, against which contract. During a
-                    // migration two engines produce a STEP from the same document,
-                    // and when they disagree the first question is which one wrote
-                    // the file in front of you.
-                    engine = result.Engine is { } identity
-                        ? new
-                        {
-                            engine_id = identity.EngineId,
-                            engine_version = identity.EngineVersion,
-                            kernel_id = identity.KernelId,
-                            kernel_version = identity.KernelVersion,
-                            cad_ir_version = identity.CadIrVersion
-                        }
-                        : null,
-                    geometry = validation,
-                    artifacts = result.Artifacts.Select(artifact => new
-                    {
-                        artifact.Kind,
-                        file = Path.GetFileName(artifact.Path),
-                        artifact.SizeBytes,
-                        artifact.Sha256
-                    })
-                }));
-            if (validation is { Valid: false })
-                throw new CadAdapterException(
-                    "GEOMETRY_VALIDATION_FAILED",
-                    "validation",
-                    "Generated CAD artifacts failed deterministic geometry validation.");
-            await FakeJobHandler.AtomicWriteAsync(
-                state,
-                JsonSerializer.Serialize(new { status = "COMPLETED", completed_at = DateTimeOffset.UtcNow }));
-            Console.WriteLine(JsonSerializer.Serialize(new
-            {
-                status = "COMPLETED",
-                adapter = fakeCad ? "fake" : "kompas-api7",
-                artifacts = result.Artifacts.Count,
-                path = fullPath
-            }));
-            return 0;
+            // Nothing is created before the build is attempted. The engine writes
+            // its own `output/`, and an empty one left behind by a refusal reads
+            // like a build that ran.
+            return await RunWithDocumentEngineAsync(
+                engine, fullPath, output, state,
+                FeatureFlags.Load(paths), cancellationToken, ledger);
         }
         catch (CadAdapterException error)
         {
@@ -224,7 +106,7 @@ public static class LocalCadJobHandler
         using (var session = ledger?.Begin(
             ledger.Key("cad", "session", "1"),
             ResourceEventType.CAD_SESSION,
-            ResourceStage.KOMPAS_STARTUP))
+            ResourceStage.CAD_STARTUP))
         {
             try
             {
@@ -367,11 +249,11 @@ public static class LocalCadJobHandler
     /// <remarks>
     /// Recording every step as FEATURE_BUILD made startup, save and export
     /// indistinguishable from actual feature work, so export attempts were
-    /// never counted and a slow KOMPAS launch looked like slow modelling.
+    /// never counted and a slow engine launch looked like slow modelling.
     /// </remarks>
     private static ResourceStage LedgerStageFor(string adapterStage) => adapterStage switch
     {
-        "activation" => ResourceStage.KOMPAS_STARTUP,
+        "activation" => ResourceStage.CAD_STARTUP,
         "document" => ResourceStage.DOCUMENT_BUILD,
         "sketch" or "feature" => ResourceStage.FEATURE_BUILD,
         "save" or "export" => ResourceStage.EXPORT,
@@ -405,7 +287,7 @@ public static class ClaimLoop
                 var response = await client.PostAsJsonAsync("/api/v1/workers/claim", new
                 {
                     protocol_version = "1.0", worker_id = config.WorkerId,
-                    capabilities = new[] { "AI_DRAWING", "KOMPAS_BUILD" },
+                    capabilities = new[] { "AI_DRAWING", "CAD_BUILD" },
                     supported_cad_ir = new[] { WorkerCapabilities.CadIrVersion },
                     available_slots = 1,
                     // Declaring what this build can construct is what makes the
@@ -509,19 +391,17 @@ public static class ClaimLoop
                 {
                     File.Copy(drawing.CadIrPath!, Path.Combine(jobPath, "cad-ir.json"), overwrite: true);
                     await LocalCadJobHandler.RunAsync(
-                        jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger,
-                        documentEngine: selected.Document);
+                        jobPath, paths, selected.Engine, cancellation, ledger);
                 }
             }
             else
             {
                 await LocalCadJobHandler.RunAsync(
-                    jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger,
-                    documentEngine: selected.Document);
+                    jobPath, paths, selected.Engine, cancellation, ledger);
             }
             // What the engine says it produces, plus what the pipeline itself
             // writes. The engine half used to be a literal `M3D, STEP, STL` here,
-            // which put a KOMPAS-native format into the definition of a finished
+            // which put an engine-native format into the definition of a finished
             // job and left no way to express an engine that does not make one.
             var engine = await selected.DescribeAsync(FeatureFlags.Load(paths), cancellation);
             var uploaded = new List<UploadedArtifact>();
@@ -604,7 +484,7 @@ public static class ClaimLoop
                     job_id = jobId,
                     stage = "CAD_BUILDING",
                     progress = 0.5,
-                    message_code = "KOMPAS_BUILDING",
+                    message_code = "CAD_BUILDING",
                     safe_details = new { }
                 },
                 cancellation);

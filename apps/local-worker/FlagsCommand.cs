@@ -1,6 +1,4 @@
-using CadAi.CadEngine;
 using System.Text.Json;
-using CadAi.KompasAdapter;
 
 namespace CadAi.LocalWorker;
 
@@ -12,10 +10,20 @@ namespace CadAi.LocalWorker;
 /// one command and it has to say what it did. Editing the JSON by hand works
 /// too, and this exists because a typo in a filename at that moment is a
 /// rollback that silently did not happen.
+///
+/// The list of what there is to turn off comes from the engine (ENGINE-MIG-008),
+/// so an operator reading this output is reading what the worker will actually
+/// publish rather than a list compiled into it. A key in the file that the engine
+/// does not declare is named as unknown here instead of being discovered on the
+/// next job — which is the loud-typo property the old hard-coded list had, kept
+/// by asking the authority instead of duplicating it.
 /// </remarks>
 public static class FlagsCommand
 {
-    public static Task<int> RunAsync(string[] arguments, WorkerPaths paths)
+    public static async Task<int> RunAsync(
+        string[] arguments,
+        WorkerPaths paths,
+        WorkerConfigStore configs)
     {
         var flags = FeatureFlags.Load(paths);
         var changes = new List<string>();
@@ -34,24 +42,54 @@ public static class FlagsCommand
 
         if (changes.Count > 0) flags.Save(paths);
 
+        // Asked with nothing disabled, so the built-in status of each operation
+        // is visible beside the effective one. An operator deciding whether to
+        // turn something back on needs to see what it would go back to.
+        var declared = await Declared(configs);
         Console.WriteLine(JsonSerializer.Serialize(
             new
             {
                 status = "FLAGS",
                 file = FeatureFlags.PathFor(paths),
                 changes,
-                capabilities = WorkerCapabilities.Keys.Order(StringComparer.Ordinal).Select(key => new
+                capabilities = declared.Keys.Order(StringComparer.Ordinal).Select(key => new
                 {
                     capability = key,
-                    built_in = WorkerCapabilities.BuiltInStatus(key),
-                    effective = flags.EffectiveStatus(key, WorkerCapabilities.BuiltInStatus(key))
+                    built_in = declared[key],
+                    effective = flags.EffectiveStatus(key, declared[key])
                 }),
-                // Named so an operator can see what there is to turn off
-                // without reading the source.
-                unknown_to_this_build = Array.Empty<string>(),
-                all_capabilities = CadCapabilities.All.Order(StringComparer.Ordinal)
+                // Named so an operator sees a typo now rather than on the next
+                // job. The engine is the authority on what exists.
+                unknown_to_this_engine = flags.Disabled
+                    .Where(key => !declared.ContainsKey(key))
+                    .Order(StringComparer.Ordinal)
             },
             new JsonSerializerOptions { WriteIndented = true }));
-        return Task.FromResult(0);
+        return 0;
+    }
+
+    /// <summary>
+    /// What the engine declares, or nothing when it cannot be reached.
+    /// </summary>
+    /// <remarks>
+    /// A rollback must work on a machine where the engine is broken — that is
+    /// often exactly why someone is running this. So an engine that will not
+    /// start costs the listing, not the command: the flag is still written and
+    /// still reported.
+    /// </remarks>
+    private static async Task<IReadOnlyDictionary<string, string>> Declared(WorkerConfigStore configs)
+    {
+        try
+        {
+            var report = await WorkerEngine
+                .Select(configs.Load()?.CadEngine)
+                .DescribeAsync([], CancellationToken.None);
+            return report.Capabilities.ToDictionary(
+                entry => entry.Key, entry => entry.Value.Status, StringComparer.Ordinal);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
     }
 }

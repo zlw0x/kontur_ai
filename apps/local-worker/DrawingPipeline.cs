@@ -1,7 +1,6 @@
 using CadAi.CadEngine;
 using System.Text.Json;
 using CadAi.CodexRunner;
-using CadAi.KompasAdapter;
 
 namespace CadAi.LocalWorker;
 
@@ -20,19 +19,27 @@ public sealed class DrawingPipeline(
     CodexBudgetPolicy? policy = null,
     ResourceLedger? ledger = null,
     bool injectFirstCadIrFault = false,
-    CapabilityGate? capabilities = null)
+    ICadDocumentEngine? engine = null,
+    IReadOnlyCollection<string>? disabledCapabilities = null)
 {
     /// <summary>
-    /// The same gate the build will apply, checked here so the repair loop can
-    /// react to it.
+    /// The engine that will build the document, asked whether it would accept it.
     /// </summary>
     /// <remarks>
-    /// If generation used a wider gate than the build, the AI would be told its
-    /// document was fine and the build would then refuse it — a repair loop
-    /// caused by two halves of this worker disagreeing, which is the same
-    /// failure the schema pair was designed to avoid.
+    /// The repair loop used to run a parser compiled into this worker. That
+    /// parser is gone with KOMPAS (ENGINE-MIG-008), and asking the engine is
+    /// better than replacing it: if generation were checked by something other
+    /// than the thing that builds, the AI would be told its document was fine and
+    /// the build would then refuse it — a repair loop caused by two halves of this
+    /// worker disagreeing.
+    ///
+    /// Optional so a test can drive the AI stages without an engine at all. A
+    /// missing engine means the document is accepted as written, which is only
+    /// ever the case in a test: every real path passes one in.
     /// </remarks>
-    private readonly CapabilityGate capabilityGate = capabilities ?? CapabilityGate.AllEnabled;
+    private readonly ICadDocumentEngine? engine = engine;
+
+    private readonly IReadOnlyCollection<string> disabled = disabledCapabilities ?? [];
     /// <summary>
     /// Identifies the prompt text a run used. Token counts are only comparable
     /// between jobs that were asked the same question, so the version travels
@@ -215,8 +222,7 @@ public sealed class DrawingPipeline(
                 {
                     try
                     {
-                        await CadIrBuildPlanParser.ParseFileAsync(
-                            candidatePath, cancellationToken, capabilityGate);
+                        await ValidateAsync(candidatePath, cancellationToken);
                         gate?.Succeeded();
                     }
                     catch (CadAdapterException gateError)
@@ -375,6 +381,32 @@ public sealed class DrawingPipeline(
     /// The document stays schema-shaped, so it is the trusted semantic gate
     /// that rejects it — the same path a genuinely wrong CAD-IR would take.
     /// </summary>
+    /// <summary>
+    /// Ask the engine whether it would accept a candidate document.
+    /// </summary>
+    /// <remarks>
+    /// Staged into a directory of its own first. The engine's contract is a job
+    /// directory holding `cad-ir.json`, and a candidate is a repair attempt with a
+    /// numbered name sitting beside the real one — handing the engine the job
+    /// directory would have it check the previous candidate instead of this one.
+    /// </remarks>
+    private async Task ValidateAsync(string candidatePath, CancellationToken cancellationToken)
+    {
+        if (engine is null) return;
+        var staging = Directory.CreateTempSubdirectory("cad-ir-check-");
+        try
+        {
+            File.Copy(candidatePath, Path.Combine(staging.FullName, "cad-ir.json"), overwrite: true);
+            await engine.ValidateAsync(
+                new CadDocumentBuildRequest(staging.FullName, disabled), cancellationToken);
+        }
+        finally
+        {
+            try { staging.Delete(recursive: true); }
+            catch (IOException) { /* a leftover temp directory is not a failed job. */ }
+        }
+    }
+
     private static async Task CorruptCadIrAsync(string path, CancellationToken cancellationToken)
     {
         var text = await File.ReadAllTextAsync(path, cancellationToken);
@@ -432,7 +464,8 @@ public static class DrawingJobHandler
                 new LocalCodexRunner(),
                 ledger: ledger,
                 injectFirstCadIrFault: injectFirstCadIrFault,
-                capabilities: flags.Gate())
+                engine: WorkerEngine.Select(new WorkerConfigStore(WorkerPaths.CreateDefault()).Load()?.CadEngine),
+                disabledCapabilities: [.. flags.Disabled])
             .RunAsync(workspace, images, File.Exists(answers) ? answers : null, cancellationToken);
 
         // The local command has no API to ship to, so the measurements are

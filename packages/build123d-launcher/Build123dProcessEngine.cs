@@ -71,6 +71,27 @@ public sealed class Build123dProcessEngine(
         return report;
     }
 
+    public async Task<IReadOnlyCollection<string>> ValidateAsync(
+        CadDocumentBuildRequest request,
+        CancellationToken cancellationToken)
+    {
+        var invocation = EngineCommandLine.Validate(
+            options, request.JobDirectory, request.DisabledCapabilities);
+        // A validation is a parse, not a build, so it gets the shorter deadline.
+        var result = await RunAsync(invocation, options.DescribeTimeout, cancellationToken);
+        if (result.ExitCode != 0) throw Failure(result, "validate");
+
+        var checked_ = Parse<ValidatePayload>(result.StandardOutput, "validate");
+        if (checked_.status != "VALID")
+            throw new CadAdapterException(
+                "ENGINE_PROTOCOL_INVALID",
+                "engine",
+                $"The CAD engine exited successfully and reported status {checked_.status}.");
+        RequireFlagsWereApplied(
+            request.DisabledCapabilities, checked_.disabled_capabilities, "the document it checked");
+        return checked_.required_capabilities;
+    }
+
     public async Task<CadBuildResult> BuildAsync(
         CadDocumentBuildRequest request,
         CancellationToken cancellationToken)
@@ -310,6 +331,14 @@ public sealed class Build123dProcessEngine(
         IReadOnlyList<string> disabled_capabilities,
         bool verified,
         IReadOnlyList<BuiltArtifactPayload> artifacts);
+
+    private sealed record ValidatePayload(
+        string status,
+        string cad_ir_version,
+        [property: JsonPropertyName("disabled_capabilities")]
+        IReadOnlyList<string> disabled_capabilities,
+        [property: JsonPropertyName("required_capabilities")]
+        IReadOnlyList<string> required_capabilities);
 
     private sealed record FailurePayload(string status, string code, string stage, string message);
 #pragma warning restore IDE1006
