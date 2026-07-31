@@ -45,11 +45,21 @@ from .base import (  # re-exported: this is still the one place to read the docu
     SourceRegion,
     StrictModel,
 )
+from .blend import (  # re-exported alongside the document
+    ChamferFeature,
+    ChamferInputs,
+    FilletFeature,
+    FilletInputs,
+)
 from .constraints import (  # re-exported alongside the document
     ConstraintKind,
     DimensionKind,
     DrivingDimension,
     SketchConstraint,
+)
+from .selectors import (  # re-exported alongside the document
+    Measurement,
+    SurfaceType,
 )
 from .revolve import (  # re-exported alongside the document
     CutRevolveFeature,
@@ -63,11 +73,11 @@ from .revolve import (  # re-exported alongside the document
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.4"
+CAD_IR_VERSION = "1.5"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.4",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.5",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -75,7 +85,7 @@ SUPPORTED_VERSIONS: tuple[str, ...] = ("1.4",)
 #: adapter. A document declaring an old version while using a new entity would
 #: otherwise be accepted — and a document lying about its version is the start of
 #: a compatibility problem, not the end of one.
-MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3")
+MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3", "1.4")
 
 class ParameterType(StrEnum):
     LENGTH = "length"
@@ -214,6 +224,8 @@ Feature = Annotated[
         SolidRevolveFeature,
         CutRevolveFeature,
         DatumPlaneOffsetFeature,
+        FilletFeature,
+        ChamferFeature,
     ],
     Field(discriminator="type"),
 ]
@@ -244,8 +256,39 @@ class ThroughHoleCountExpectation(StrictModel):
     value: Annotated[int, Field(ge=0, le=1000)]
 
 
+class SurfaceFaceCountExpectation(StrictModel):
+    """How many faces of one surface kind the finished solid has.
+
+    The check a blend needs, and the reason it is worth adding a fourth
+    expectation type. A fillet is invisible to every other check in the document:
+    the bounding box of a plate with rounded corners is the bounding box of the
+    plate, the body count is one either way, and a hole count knows nothing about
+    corners. So a fillet that quietly did not happen — or happened at the wrong
+    radius — passes everything, and the only thing that distinguishes it is that
+    four cylindrical faces of that radius are missing from the solid.
+
+    Stated by the document and measured off the reopened STEP, like every other
+    expectation, and for the same reason (ADR-018): a count derived from the plan
+    that built the geometry would agree with it about anything they both got wrong.
+    """
+
+    id: Id
+    type: Literal["surface_face_count"]
+    surface: SurfaceType
+    #: The radius those faces must have, when it is a curved surface and the
+    #: document knows it. A fillet's radius is the one number the count alone
+    #: cannot check.
+    radius_mm: Measurement | None = None
+    value: Annotated[int, Field(ge=0, le=1000)]
+
+
 Expectation = Annotated[
-    Union[BodyCountExpectation, BoundingBoxExpectation, ThroughHoleCountExpectation],
+    Union[
+        BodyCountExpectation,
+        BoundingBoxExpectation,
+        ThroughHoleCountExpectation,
+        SurfaceFaceCountExpectation,
+    ],
     Field(discriminator="type"),
 ]
 

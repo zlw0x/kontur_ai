@@ -65,7 +65,7 @@ def test_a_document_declares_its_own_schema_and_version():
 
 def test_a_future_version_is_refused_rather_than_read_optimistically():
     with pytest.raises(ValidationError):
-        CadIrDocument(**document(schema_version="1.5"))
+        CadIrDocument(**document(schema_version="1.6"))
     with pytest.raises(ValidationError):
         CadIrDocument(**document(schema_version="0.1.0"))
     with pytest.raises(ValidationError):

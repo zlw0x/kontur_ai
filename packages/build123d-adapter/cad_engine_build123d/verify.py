@@ -87,6 +87,17 @@ class VerificationReport:
 
 
 @dataclass(frozen=True)
+class SurfaceFaceCount:
+    """How many faces of one surface kind the document says the solid has."""
+
+    id: str
+    surface: str
+    count: int
+    radius_mm: float | None = None
+    radius_tolerance_mm: float = 0.0
+
+
+@dataclass(frozen=True)
 class Expectations:
     """What the document said the finished solid must be."""
 
@@ -94,6 +105,7 @@ class Expectations:
     tolerance_mm: float = 0.05
     body_count: int | None = None
     through_hole_count: int | None = None
+    surface_face_counts: tuple[SurfaceFaceCount, ...] = field(default_factory=tuple)
 
     @classmethod
     def of(cls, document) -> "Expectations":
@@ -101,6 +113,7 @@ class Expectations:
         tolerance = 0.05
         bodies = None
         holes = None
+        surfaces: list[SurfaceFaceCount] = []
         for item in document.expectations:
             kind = str(getattr(item, "type", ""))
             if kind == "bounding_box":
@@ -110,7 +123,19 @@ class Expectations:
                 bodies = int(item.value)
             elif kind == "through_hole_count":
                 holes = int(item.value)
-        return cls(size, tolerance, bodies, holes)
+            elif kind == "surface_face_count":
+                surfaces.append(
+                    SurfaceFaceCount(
+                        id=str(item.id),
+                        surface=str(item.surface),
+                        count=int(item.value),
+                        radius_mm=None if item.radius_mm is None else float(item.radius_mm.value),
+                        radius_tolerance_mm=(
+                            0.0 if item.radius_mm is None else float(item.radius_mm.tolerance)
+                        ),
+                    )
+                )
+        return cls(size, tolerance, bodies, holes, tuple(surfaces))
 
 
 def verify(step_path: Path, stl_path: Path, expectations: Expectations) -> VerificationReport:
@@ -177,6 +202,9 @@ def _read_step(path: Path, expectations: Expectations, checks: list[Check]):
             )
         )
 
+    for wanted in expectations.surface_face_counts:
+        checks.append(_surface_face_check(shape, wanted))
+
     box = shape.bounding_box()
     bounds = (float(box.size.X), float(box.size.Y), float(box.size.Z))
     if expectations.size_mm is not None:
@@ -197,6 +225,58 @@ def _read_step(path: Path, expectations: Expectations, checks: list[Check]):
         )
 
     return shape, bounds
+
+
+def _surface_face_check(shape, wanted: SurfaceFaceCount) -> Check:
+    """Count the faces of one surface kind in the reopened solid.
+
+    The only check that can see a fillet. Nothing else in a document notices one:
+    the bounding box of a plate with rounded corners is the bounding box of the
+    plate, the body count is one either way, and a hole count knows nothing about
+    corners. So a fillet that silently did not happen, or happened at 2 mm where
+    the drawing said 3, passes everything — except that the cylindrical faces it
+    should have left behind are missing.
+
+    Read from the file rather than from the build, like every other expectation.
+    The surface kinds are the contract's own words (`SurfaceType`), mapped here from
+    the kernel's, so a document and a report use one vocabulary.
+    """
+    from build123d import GeomType
+
+    kinds = {
+        "planar": GeomType.PLANE,
+        "cylindrical": GeomType.CYLINDER,
+        "conical": GeomType.CONE,
+        "spherical": GeomType.SPHERE,
+        "toroidal": GeomType.TORUS,
+    }
+    geom = kinds.get(wanted.surface)
+    if geom is None:  # pragma: no cover - SurfaceType is closed
+        return Check(f"surface_face_count[{wanted.id}]", False, f"unknown surface {wanted.surface}.")
+
+    matching = [face for face in shape.faces() if face.geom_type == geom]
+    described = f"{wanted.surface} faces"
+    if wanted.radius_mm is not None:
+        matching = [
+            face
+            for face in matching
+            if _radius(face) is not None
+            and abs(_radius(face) - wanted.radius_mm) <= wanted.radius_tolerance_mm
+        ]
+        described += f" of radius {wanted.radius_mm}"
+    return Check(
+        f"surface_face_count[{wanted.id}]",
+        len(matching) == wanted.count,
+        f"expected {wanted.count} {described}, measured {len(matching)}.",
+    )
+
+
+def _radius(face) -> float | None:
+    try:
+        radius = face.radius
+    except Exception:  # noqa: BLE001 - not every surface has one
+        return None
+    return None if radius is None else float(radius)
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +510,7 @@ __all__ = [
     "Expectations",
     "MESH_CHORD_TOLERANCE_MM",
     "MeshFacts",
+    "SurfaceFaceCount",
     "VerificationReport",
     "verify",
 ]

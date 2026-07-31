@@ -127,7 +127,7 @@ def test_a_manifest_may_say_which_engine_it_builds_with():
             "kernel_id": "opencascade",
             "kernel_version": "7.9.3.1.1",
         },
-        cad_ir_versions=["1.4"],
+        cad_ir_versions=["1.5"],
         capabilities={"solid.rectangular_prism": CapabilityStatus.BETA},
     )
     assert manifest.engine.engine_id == "build123d"
@@ -142,7 +142,7 @@ def test_a_worker_that_cannot_say_which_engine_it_uses_is_still_a_worker():
     manifest = WorkerCapabilityManifest(
         worker_version="0.3.0",
         kompas_version="22.0",
-        cad_ir_versions=["1.4"],
+        cad_ir_versions=["1.5"],
         capabilities={"solid.rectangular_prism": CapabilityStatus.STABLE},
     )
     assert manifest.engine is None

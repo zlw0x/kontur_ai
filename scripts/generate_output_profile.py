@@ -35,6 +35,15 @@ dialect. The drawing agent reads a rectangle and round holes; a turned profile a
 the centre line it goes round are not something it can extract yet, so offering
 the operation would only invite a model to invent one. Widening what is read off a
 scan is a vision problem, and the operation waits for it.
+
+Fillet and chamfer (CAD-IR 1.5) are left out for **both** reasons at once, which
+is why they are worth naming separately. A blend's entire input is an edge
+selector, every one of whose predicates is optional — so rule 4 would force the
+model to emit all of them, and the canonical validator then rejects the result
+because a straight edge has no radius. And even with a dialect that could express
+it, a fillet is not something the reading stage can currently state: a shape claim
+has no word for a rounded corner, so there would be nothing to check the blend
+against.
 """
 
 from __future__ import annotations
@@ -47,8 +56,8 @@ from typing import Any
 ROOT = Path(__file__).parents[1]
 TARGET = ROOT / "schemas" / "cad-ir-mvp-output.schema.json"
 
-SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.4"
-CAD_IR_VERSION = "1.4"
+SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.5"
+CAD_IR_VERSION = "1.5"
 
 MAX_COORDINATE = 1_000_000
 

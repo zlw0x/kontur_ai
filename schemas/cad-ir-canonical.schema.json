@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.4",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.5",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -208,6 +208,131 @@
       ],
       "title": "Cardinality",
       "type": "string"
+    },
+    "ChamferFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 0,
+          "title": "Produces",
+          "type": "array"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "const": "feature.chamfer",
+          "title": "Type",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ChamferInputs"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "ChamferFeature",
+      "type": "object"
+    },
+    "ChamferInputs": {
+      "additionalProperties": false,
+      "description": "A chamfer, symmetric unless the document says otherwise.\n\n`distance` alone is the equal-distance chamfer. `second_distance` makes it\ntwo-distance and `angle_deg` makes it distance-and-angle; either of those needs\n`measured_from`, because until a face is named, \"the first distance\" is not a\nstatement about the part.",
+      "properties": {
+        "edges": {
+          "$ref": "#/$defs/EdgeSelector"
+        },
+        "distance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Distance"
+        },
+        "second_distance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Second Distance"
+        },
+        "angle_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle Deg"
+        },
+        "measured_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FaceSelector"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "edges",
+        "distance"
+      ],
+      "title": "ChamferInputs",
+      "type": "object"
     },
     "CircleContour": {
       "additionalProperties": false,
@@ -507,6 +632,26 @@
       ],
       "title": "ConstructionPoint",
       "type": "object"
+    },
+    "Convexity": {
+      "enum": [
+        "convex",
+        "concave",
+        "tangent"
+      ],
+      "title": "Convexity",
+      "type": "string"
+    },
+    "CurveType": {
+      "enum": [
+        "line",
+        "circle",
+        "arc",
+        "ellipse",
+        "spline"
+      ],
+      "title": "CurveType",
+      "type": "string"
     },
     "CutExtrudeFeature": {
       "additionalProperties": false,
@@ -922,6 +1067,146 @@
       "title": "DrivingDimension",
       "type": "object"
     },
+    "EdgePredicates": {
+      "additionalProperties": false,
+      "properties": {
+        "curve_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CurveType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "length_mm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Measurement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "radius_mm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Measurement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "direction_parallel_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Axis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PositionPredicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "adjacent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdjacencyPredicate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "convexity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Convexity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "produced_by": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Produced By"
+        }
+      },
+      "title": "EdgePredicates",
+      "type": "object"
+    },
+    "EdgeSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "edge",
+          "title": "Kind",
+          "type": "string"
+        },
+        "from_result": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "From Result",
+          "type": "string"
+        },
+        "where": {
+          "$ref": "#/$defs/EdgePredicates"
+        },
+        "cardinality": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cardinality"
+            },
+            {
+              "$ref": "#/$defs/ExactlyN"
+            }
+          ],
+          "title": "Cardinality"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "from_result",
+        "where",
+        "cardinality"
+      ],
+      "title": "EdgeSelector",
+      "type": "object"
+    },
     "ExactlyN": {
       "additionalProperties": false,
       "description": "A count the document states rather than discovers.\n\n`exactly_n` is how a pattern says \"these four mounting holes\". If the model\ngrows a fifth, the mismatch is the point: the document no longer describes\nthe part.",
@@ -1100,6 +1385,90 @@
         "kind"
       ],
       "title": "FeatureResult",
+      "type": "object"
+    },
+    "FilletFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 0,
+          "title": "Produces",
+          "type": "array"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "const": "feature.fillet",
+          "title": "Type",
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/FilletInputs"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "FilletFeature",
+      "type": "object"
+    },
+    "FilletInputs": {
+      "additionalProperties": false,
+      "description": "Constant-radius fillet on the edges a selector names.\n\nThere is no `source_body`: the selector's `from_result` already says which\nbody's edges these are, and a second way to say it is a second thing that can\ndisagree.",
+      "properties": {
+        "edges": {
+          "$ref": "#/$defs/EdgeSelector"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Radius"
+        }
+      },
+      "required": [
+        "edges",
+        "radius"
+      ],
+      "title": "FilletInputs",
       "type": "object"
     },
     "LineSegment": {
@@ -2391,6 +2760,50 @@
       "title": "SourceRegion",
       "type": "object"
     },
+    "SurfaceFaceCountExpectation": {
+      "additionalProperties": false,
+      "description": "How many faces of one surface kind the finished solid has.\n\nThe check a blend needs, and the reason it is worth adding a fourth\nexpectation type. A fillet is invisible to every other check in the document:\nthe bounding box of a plate with rounded corners is the bounding box of the\nplate, the body count is one either way, and a hole count knows nothing about\ncorners. So a fillet that quietly did not happen — or happened at the wrong\nradius — passes everything, and the only thing that distinguishes it is that\nfour cylindrical faces of that radius are missing from the solid.\n\nStated by the document and measured off the reopened STEP, like every other\nexpectation, and for the same reason (ADR-018): a count derived from the plan\nthat built the geometry would agree with it about anything they both got wrong.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "surface_face_count",
+          "title": "Type",
+          "type": "string"
+        },
+        "surface": {
+          "$ref": "#/$defs/SurfaceType"
+        },
+        "radius_mm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Measurement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "surface",
+        "value"
+      ],
+      "title": "SurfaceFaceCountExpectation",
+      "type": "object"
+    },
     "SurfaceType": {
       "enum": [
         "planar",
@@ -2469,8 +2882,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.4",
-      "default": "1.4",
+      "const": "1.5",
+      "default": "1.5",
       "title": "Schema Version",
       "type": "string"
     },
@@ -2501,6 +2914,8 @@
             "cut.extrude": "#/$defs/CutExtrudeFeature",
             "cut.revolve": "#/$defs/CutRevolveFeature",
             "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
+            "feature.chamfer": "#/$defs/ChamferFeature",
+            "feature.fillet": "#/$defs/FilletFeature",
             "solid.extrude": "#/$defs/SolidExtrudeFeature",
             "solid.revolve": "#/$defs/SolidRevolveFeature"
           },
@@ -2521,6 +2936,12 @@
           },
           {
             "$ref": "#/$defs/DatumPlaneOffsetFeature"
+          },
+          {
+            "$ref": "#/$defs/FilletFeature"
+          },
+          {
+            "$ref": "#/$defs/ChamferFeature"
           }
         ]
       },
@@ -2535,6 +2956,7 @@
           "mapping": {
             "body_count": "#/$defs/BodyCountExpectation",
             "bounding_box": "#/$defs/BoundingBoxExpectation",
+            "surface_face_count": "#/$defs/SurfaceFaceCountExpectation",
             "through_hole_count": "#/$defs/ThroughHoleCountExpectation"
           },
           "propertyName": "type"
@@ -2548,6 +2970,9 @@
           },
           {
             "$ref": "#/$defs/ThroughHoleCountExpectation"
+          },
+          {
+            "$ref": "#/$defs/SurfaceFaceCountExpectation"
           }
         ]
       },

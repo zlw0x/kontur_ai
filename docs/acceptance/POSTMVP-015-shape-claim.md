@@ -11,7 +11,7 @@ could say so.
 
 ### 1. The failure, through the real engine's real command line
 
-`tests/fixtures/cad-ir/lever-plate.v1_4.json` — a stadium outline, two Ø8 holes, a
+`tests/fixtures/cad-ir/lever-plate.v1_5.json` — a stadium outline, two Ø8 holes, a
 pin standing on it — with a claim that reads the outline as a rectangle. Everything
 else in the claim is right, and the document is valid, buildable and measures
 exactly what it declares.
@@ -40,7 +40,7 @@ both sides of the comparison rather than announcing a mismatch.
 ```
 
 ```text
-status VALID · cad_ir_version 1.4 · 15 required capabilities
+status VALID · 15 required capabilities
 ```
 
 Exit 0. The check that fires on a correct document is the one that costs a repair

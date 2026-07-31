@@ -21,10 +21,12 @@ from .canonical import (
     CadIrDocument,
     ParameterRef,
     ParameterStatus,
+    ResultKind,
     ResultRef,
     declared_version,
 )
 from .errors import CadIrValidationError, ValidationIssue
+from .selectors import EdgeSelector, FaceSelector
 
 #: Text that has no business in a document describing geometric intent.
 #: The closed schema is the first defence — a COM handle has no field to live
@@ -51,6 +53,7 @@ def validate_canonical(value: dict[str, Any]) -> CadIrDocument:
 
     issues = (
         _feature_graph_issues(document)
+        + _selector_issues(document)
         + _parameter_issues(document)
         + _expectation_issues(document)
         + _execution_detail_issues(value)
@@ -223,6 +226,77 @@ def _result_issues(document: CadIrDocument, position: dict[str, int]) -> list[Va
                     )
                 )
     return issues
+
+
+def _selector_issues(document: CadIrDocument) -> list[ValidationIssue]:
+    """A selector's `from_result` must name a body an earlier feature built.
+
+    `from_result` is a plain id rather than a `ResultRef`, so the reference walk
+    above does not see it, and until CAD-IR 1.5 nothing checked it at all: a
+    selector could name a body no feature produces and the engine would resolve
+    against whatever it had. That was survivable while the only selector in the
+    contract chose a sketch plane. A fillet is *entirely* a selector, and one
+    naming a body that does not exist would blend the wrong thing rather than fail.
+
+    Two ids are also required to be unique across the document, because a selector
+    id is what a resolution trace and a repair prompt name.
+    """
+    issues: list[ValidationIssue] = []
+    bodies: dict[str, int] = {}
+    for index, feature in enumerate(document.features):
+        for result in feature.produces:
+            if result.kind is ResultKind.SOLID_BODY:
+                bodies.setdefault(result.id, index)
+
+    seen: dict[str, str] = {}
+    for index, feature in enumerate(document.features):
+        for path, selector in _selectors(feature.inputs, f"$.features[{index}].inputs"):
+            if selector.id in seen:
+                issues.append(
+                    ValidationIssue(
+                        "DUPLICATE_ID",
+                        f"{path}.id",
+                        f"selector {selector.id} is declared more than once",
+                    )
+                )
+            seen.setdefault(selector.id, feature.id)
+
+            produced_at = bodies.get(selector.from_result)
+            if produced_at is None:
+                issues.append(
+                    ValidationIssue(
+                        "FEATURE_RESULT_UNAVAILABLE",
+                        f"{path}.from_result",
+                        f"selector {selector.id} names the body {selector.from_result}, "
+                        "which no feature produces",
+                    )
+                )
+            elif produced_at >= index:
+                issues.append(
+                    ValidationIssue(
+                        "FEATURE_RESULT_UNAVAILABLE",
+                        f"{path}.from_result",
+                        f"selector {selector.id} names {selector.from_result}, which is "
+                        "not built before the feature that selects on it",
+                    )
+                )
+    return issues
+
+
+def _selectors(value: Any, path: str):
+    """Every face or edge selector in a parsed inputs tree, with its path."""
+    if isinstance(value, (FaceSelector, EdgeSelector)):
+        yield path, value
+        return
+    if hasattr(value, "__pydantic_fields__"):
+        for name in type(value).model_fields:
+            yield from _selectors(getattr(value, name), f"{path}.{name}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _selectors(child, f"{path}[{index}]")
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            yield from _selectors(child, f"{path}.{key}")
 
 
 def _parameter_issues(document: CadIrDocument) -> list[ValidationIssue]:

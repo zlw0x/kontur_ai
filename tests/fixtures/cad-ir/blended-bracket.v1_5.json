@@ -1,0 +1,315 @@
+{
+  "document": {
+    "coordinate_system": "right_handed",
+    "name": "blended-bracket",
+    "part_type": "single_part",
+    "units": "mm"
+  },
+  "expectations": [
+    {
+      "id": "inv_bbox",
+      "size_mm": {
+        "x": 60.0,
+        "y": 40.0,
+        "z": 10.0
+      },
+      "tolerance_mm": 0.05,
+      "type": "bounding_box"
+    },
+    {
+      "id": "inv_bodies",
+      "type": "body_count",
+      "value": 1
+    },
+    {
+      "id": "inv_holes",
+      "type": "through_hole_count",
+      "value": 1
+    },
+    {
+      "id": "inv_corner_fillets",
+      "type": "surface_face_count",
+      "surface": "cylindrical",
+      "radius_mm": {
+        "value": 6.0,
+        "tolerance": 0.001
+      },
+      "value": 4
+    },
+    {
+      "id": "inv_bore_chamfers",
+      "type": "surface_face_count",
+      "surface": "conical",
+      "value": 2
+    }
+  ],
+  "features": [
+    {
+      "depends_on": [],
+      "enabled": true,
+      "id": "feature.plate",
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "plate_thickness"
+        },
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.plate",
+          "inner": [],
+          "outer": {
+            "center": [
+              0.0,
+              0.0
+            ],
+            "height": {
+              "parameter": "plate_depth"
+            },
+            "rotation_deg": 0.0,
+            "type": "rectangle",
+            "width": {
+              "parameter": "plate_width"
+            }
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        }
+      },
+      "produces": [
+        {
+          "id": "body.main",
+          "kind": "solid_body"
+        }
+      ],
+      "type": "solid.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.plate"
+      ],
+      "enabled": true,
+      "id": "feature.bore",
+      "inputs": {
+        "direction": "+Z",
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.bore",
+          "inner": [],
+          "outer": {
+            "center": [
+              0.0,
+              0.0
+            ],
+            "radius": {
+              "parameter": "bore_radius"
+            },
+            "type": "circle"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        },
+        "source_body": {
+          "result": "body.main"
+        },
+        "through_all": true
+      },
+      "produces": [],
+      "type": "cut.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.plate",
+        "feature.bore"
+      ],
+      "enabled": true,
+      "id": "feature.corners",
+      "inputs": {
+        "edges": {
+          "id": "selector.corner_edges",
+          "kind": "edge",
+          "from_result": "body.main",
+          "cardinality": {
+            "type": "exactly_n",
+            "value": 4
+          },
+          "where": {
+            "curve_type": "line",
+            "convexity": "convex",
+            "direction_parallel_to": "axis.z"
+          }
+        },
+        "radius": {
+          "parameter": "corner_radius"
+        }
+      },
+      "produces": [],
+      "type": "feature.fillet"
+    },
+    {
+      "depends_on": [
+        "feature.bore",
+        "feature.corners"
+      ],
+      "enabled": true,
+      "id": "feature.bore_deburr",
+      "inputs": {
+        "edges": {
+          "id": "selector.bore_bottom",
+          "kind": "edge",
+          "from_result": "body.main",
+          "cardinality": "exactly_one",
+          "where": {
+            "curve_type": "circle",
+            "convexity": "convex",
+            "radius_mm": {
+              "value": 5.0,
+              "tolerance": 0.001
+            },
+            "position": {
+              "extreme_along": "axis.z",
+              "extreme": "minimum"
+            }
+          }
+        },
+        "distance": {
+          "parameter": "edge_chamfer"
+        }
+      },
+      "produces": [],
+      "type": "feature.chamfer"
+    },
+    {
+      "depends_on": [
+        "feature.bore",
+        "feature.bore_deburr"
+      ],
+      "enabled": true,
+      "id": "feature.countersink",
+      "inputs": {
+        "edges": {
+          "id": "selector.bore_mouth",
+          "kind": "edge",
+          "from_result": "body.main",
+          "cardinality": "exactly_one",
+          "where": {
+            "curve_type": "circle",
+            "radius_mm": {
+              "value": 5.0,
+              "tolerance": 0.001
+            },
+            "position": {
+              "extreme_along": "axis.z",
+              "extreme": "maximum"
+            }
+          }
+        },
+        "distance": {
+          "parameter": "sink_across_face"
+        },
+        "second_distance": {
+          "parameter": "sink_down_bore"
+        },
+        "measured_from": {
+          "id": "selector.top_face",
+          "kind": "face",
+          "from_result": "body.main",
+          "cardinality": "exactly_one",
+          "where": {
+            "surface_type": "planar",
+            "normal": {
+              "parallel_to": "axis.z",
+              "direction": "positive"
+            },
+            "position": {
+              "extreme_along": "axis.z",
+              "extreme": "maximum"
+            }
+          }
+        }
+      },
+      "produces": [],
+      "type": "feature.chamfer"
+    }
+  ],
+  "metadata": {
+    "generator": "fixture",
+    "generator_version": "1.5"
+  },
+  "parameters": [
+    {
+      "id": "plate_width",
+      "name": "Plate width",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 60.0
+    },
+    {
+      "id": "plate_depth",
+      "name": "Plate depth",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 40.0
+    },
+    {
+      "id": "plate_thickness",
+      "name": "Plate thickness",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 10.0
+    },
+    {
+      "id": "bore_radius",
+      "name": "Bore radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 5.0
+    },
+    {
+      "id": "corner_radius",
+      "name": "Corner radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 6.0
+    },
+    {
+      "id": "edge_chamfer",
+      "name": "Top edge chamfer",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 2.0
+    },
+    {
+      "id": "sink_across_face",
+      "name": "Countersink across the top face",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 1.5
+    },
+    {
+      "id": "sink_down_bore",
+      "name": "Countersink down the bore",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 3.0
+    }
+  ],
+  "reference_geometry": [],
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.5"
+}

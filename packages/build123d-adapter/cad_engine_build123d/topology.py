@@ -82,10 +82,127 @@ def read_edges(part) -> list[EdgeDescriptor]:
                     sorted({_SURFACES.get(face.geom_type, "other") for face in touching})
                 ),
                 adjacent_face_count=len(touching),
+                convexity=_convexity_of(edge, touching),
                 handle=edge,
             )
         )
     return described
+
+
+# ---------------------------------------------------------------------------
+# Convexity
+# ---------------------------------------------------------------------------
+
+#: How far off the edge to step when deciding which way a face extends.
+#:
+#: Big enough that the kernel's own distance queries are not answering noise, small
+#: enough that a curved face's chord still sits nearer its own surface than the
+#: other candidate. A millimetre would fail on a 0.5 mm fillet; a nanometre would
+#: fail on arithmetic.
+_PROBE_MM = 1e-3
+
+#: Below this, the two faces meet smoothly and the edge is neither convex nor
+#: concave.
+_FLAT = 1e-6
+
+
+def _convexity_of(edge, touching: list) -> str | None:
+    """Convex, concave, tangent — or nothing where the question does not apply.
+
+    A fillet rounds a convex edge and a concave one is the root of a boss, so a
+    document that cannot tell them apart cannot say which of the two it means. The
+    predicate has been in the contract since ADR-019 and was, until now, silently
+    ignored by the resolver — which is worse than not having it: a selector stating
+    `convexity` matched on its other predicates alone and quietly took both.
+
+    The test is the dihedral angle measured through the material, and it is done
+    with directions rather than by classifying a probe point as inside or outside.
+    That was the first attempt and it cannot work: for both a convex and a concave
+    edge the outward normals sum to a direction pointing out of the solid, so a
+    point along that bisector is outside either way. What does distinguish them is
+    where each face *goes* from the edge — `u1 · n2` is negative when the faces fold
+    away from each other and positive when they fold towards each other.
+
+    Verified against known geometry rather than reasoned about alone: a box's twelve
+    edges are convex, the rim of a hole is convex (it is a sharp outside corner, and
+    the surprise is only in the word), the root where a boss meets a plate is
+    concave, and the seam of a cylinder has one face and no answer.
+    """
+    if len(touching) != 2:
+        # A seam has one face, and a non-manifold edge with three is not something
+        # to have an opinion about.
+        return None
+    point = edge.position_at(0.5)
+    tangent = _unit(edge.tangent_at(0.5))
+    if tangent is None:
+        return None
+
+    first = _away_from_edge(touching[0], point, tangent)
+    second = _away_from_edge(touching[1], point, tangent)
+    if first is None or second is None:
+        return None
+    (into_first, _) = first
+    (_, normal_second) = second
+
+    folded = _dot(into_first, normal_second)
+    if folded < -_FLAT:
+        return "convex"
+    if folded > _FLAT:
+        return "concave"
+    return "tangent"
+
+
+def _away_from_edge(face, point, tangent):
+    """Which way this face extends from the edge, and its outward normal there.
+
+    The direction is `normal × tangent` up to a sign, and the sign is settled by
+    asking the kernel: of the two candidate points a hair to either side, the one
+    lying on this face is the one in the direction the face extends. A face is
+    bounded, so the point on the far side of the edge is a probe-length away from it
+    even though it sits on the same underlying surface.
+    """
+    normal = _unit(face.normal_at(point))
+    if normal is None:
+        return None
+    across = _unit(_cross(normal, tangent))
+    if across is None:
+        return None
+    forward = _step(point, across, _PROBE_MM)
+    backward = _step(point, across, -_PROBE_MM)
+    try:
+        if face.distance_to(forward) <= face.distance_to(backward):
+            return across, normal
+    except Exception:  # noqa: BLE001 - the kernel's refusals are opaque
+        return None
+    return (-across[0], -across[1], -across[2]), normal
+
+
+def _step(point, direction, amount: float) -> tuple[float, float, float]:
+    return (
+        float(point.X) + amount * direction[0],
+        float(point.Y) + amount * direction[1],
+        float(point.Z) + amount * direction[2],
+    )
+
+
+def _unit(vector) -> tuple[float, float, float] | None:
+    values = vector if isinstance(vector, tuple) else (vector.X, vector.Y, vector.Z)
+    length = sum(float(value) ** 2 for value in values) ** 0.5
+    if length < _FLAT:
+        return None
+    return tuple(float(value) / length for value in values)
+
+
+def _cross(left, right) -> tuple[float, float, float]:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def _dot(left, right) -> float:
+    return sum(a * b for a, b in zip(left, right, strict=True))
 
 
 # ---------------------------------------------------------------------------

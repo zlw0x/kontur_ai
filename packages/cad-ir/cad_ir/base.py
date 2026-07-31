@@ -46,6 +46,8 @@ class FeatureType(StrEnum):
     SOLID_REVOLVE = "solid.revolve"
     CUT_REVOLVE = "cut.revolve"
     DATUM_PLANE_OFFSET = "datum.plane.offset"
+    FILLET = "feature.fillet"
+    CHAMFER = "feature.chamfer"
 
 
 class ResultKind(StrEnum):

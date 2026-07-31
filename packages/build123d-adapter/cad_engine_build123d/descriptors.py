@@ -63,7 +63,22 @@ class EdgeDescriptor:
     radius_mm: float | None = None
     adjacent_surface_types: tuple[str, ...] = field(default_factory=tuple)
     adjacent_face_count: int = 0
+    #: `convex`, `concave`, `tangent`, or nothing where the question does not
+    #: apply — an edge with one face is a seam, and a seam has no two sides for a
+    #: dihedral angle to be between.
+    convexity: str | None = None
     handle: object | None = None
+
+    @property
+    def is_seam(self) -> bool:
+        """A seam edge: the only edge of a solid that touches exactly one face.
+
+        OpenCascade carries one on every closed cylindrical face where KOMPAS did
+        not (ADR-023), so a plate with a hole has one more edge here than the same
+        plate had there. It is not an edge of the part in any sense a drawing would
+        recognise, and blending or chamfering one is meaningless.
+        """
+        return self.adjacent_face_count == 1
 
 
 __all__ = ["Box", "EdgeDescriptor", "FaceDescriptor"]

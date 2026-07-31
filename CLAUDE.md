@@ -31,10 +31,10 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.4** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.5** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
-  (`docs/adr/ADR-024-*`).
+  (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -51,13 +51,28 @@ customer opens is exact but not editable-by-dimension; the selector resolver had
 be written again against a different topology model; and OpenCascade carries a
 **seam edge** on every closed cylindrical face where KOMPAS did not, so edge counts
 differ by one per closed cylinder. A seam is the only edge of a solid that touches
-exactly one face, which is how an edge selector will exclude them.
+exactly one face, and that is how the edge resolver excludes them — traced, on every
+edge selector, as of ADR-026.
 
-**What is next is the operations the roadmap was always heading for**, now on a
-kernel that documents them: fillet and chamfer, patterns and mirror, hole families,
-boolean and multi-body, then the golden corpus and the reliability gate. Sweep,
-loft and shell come after the basics are stable. `docs/POST-MVP-ROADMAP.md` has the
-order.
+**Fillet and chamfer are in** (POSTMVP-009, ADR-026), and they are the first
+operations that build nothing: a blend modifies the edges a selector names, so its
+failure mode is a part of exactly the right size with the round in the wrong place.
+Three rules follow, and a new operation of the same kind inherits all three. A blend
+**may not declare a cardinality that permits zero matches** — `all` and
+`zero_or_one` make a blend that matched nothing a successful feature. An asymmetric
+chamfer **names the face its first distance is measured from**, because the kernel's
+answer to "which side?" is whichever face it visited first. And a blend is
+**invisible to a shape claim** — a fillet does not change what the part *is* — which
+is why `surface_face_count` exists: it is the only expectation that can see one.
+
+`convexity` is now measured rather than silently ignored, which it had been since
+ADR-019. A predicate this engine cannot evaluate (`produced_by`) is refused with
+`SELECTOR_UNSUPPORTED_PREDICATE`, because a clause that quietly does nothing leaves
+the selector matching on the others.
+
+**What is next**: patterns and mirror, hole families, boolean and multi-body, then
+the golden corpus and the reliability gate. Sweep, loft and shell come after the
+basics are stable. `docs/POST-MVP-ROADMAP.md` has the order.
 
 Two things left over from the migration, both named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,

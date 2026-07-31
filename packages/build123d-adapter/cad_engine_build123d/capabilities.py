@@ -30,12 +30,15 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from cad_ir.canonical import (
+    ChamferFeature,
     CutExtrudeFeature,
     CutRevolveFeature,
     DatumPlaneOffsetFeature,
+    FilletFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
 )
+from cad_ir.selectors import EdgeSelector, FaceSelector
 from cad_ir.sketch import (
     ArcSegment,
     PathContour,
@@ -70,11 +73,16 @@ SKETCH_CONSTRAINTS = "sketch.constraints"
 SKETCH_DIMENSIONS = "sketch.driving_dimensions"
 FEATURE_HOLE_SIMPLE_THROUGH = "feature.hole.simple_through"
 FEATURE_BOSS_ADDITIVE = "feature.boss.additive"
+FEATURE_FILLET_CONSTANT = "feature.fillet.constant_radius"
+FEATURE_CHAMFER_EQUAL = "feature.chamfer.equal_distance"
+FEATURE_CHAMFER_ASYMMETRIC = "feature.chamfer.asymmetric"
+SELECTOR_EDGE_CONVEXITY = "selector.edge.convexity"
 EXPORT_STEP = "export.step"
 EXPORT_STL = "export.stl"
 VALIDATE_MANIFOLD = "validate.manifold"
 VALIDATE_BOUNDING_BOX = "validate.bounding_box"
 VALIDATE_HOLE_COUNT = "validate.hole_count"
+VALIDATE_SURFACE_FACE_COUNT = "validate.surface_face_count"
 
 
 @dataclass(frozen=True)
@@ -104,6 +112,14 @@ class Declaration:
 #: profile does not offer the operation. Declaring it beta would advertise a
 #: readiness that has not been earned; declaring it here at all is what makes the
 #: promotion a one-line change with a fixture corpus behind it.
+#:
+#: **The blends are experimental for the same reason**, and one more of their own:
+#: a fillet is the first operation whose whole input is a selector, so its failure
+#: mode is a plausible part rather than a refusal. Convexity is listed beside them
+#: because it is a *predicate* rather than an operation, and it deserves its own
+#: switch: it is a measurement this engine makes with a dot product it wrote
+#: itself, and if that turns out to be wrong on some geometry, what has to stop is
+#: every selector that trusts it — not every fillet.
 DECLARED: Mapping[str, Declaration] = {
     SOLID_RECTANGULAR_PRISM: Declaration("beta"),
     SOLID_CONTOUR_PROFILE: Declaration("beta"),
@@ -121,11 +137,16 @@ DECLARED: Mapping[str, Declaration] = {
     SKETCH_DIMENSIONS: Declaration("beta"),
     FEATURE_HOLE_SIMPLE_THROUGH: Declaration("beta"),
     FEATURE_BOSS_ADDITIVE: Declaration("beta"),
+    FEATURE_FILLET_CONSTANT: Declaration("experimental"),
+    FEATURE_CHAMFER_EQUAL: Declaration("experimental"),
+    FEATURE_CHAMFER_ASYMMETRIC: Declaration("experimental"),
+    SELECTOR_EDGE_CONVEXITY: Declaration("experimental"),
     EXPORT_STEP: Declaration("beta"),
     EXPORT_STL: Declaration("beta"),
     VALIDATE_MANIFOLD: Declaration("beta"),
     VALIDATE_BOUNDING_BOX: Declaration("beta"),
     VALIDATE_HOLE_COUNT: Declaration("beta"),
+    VALIDATE_SURFACE_FACE_COUNT: Declaration("experimental"),
 }
 
 #: Every key this build knows about, so a flag naming something else is refused
@@ -225,6 +246,10 @@ def requirements(document) -> dict[str, str]:
     need(VALIDATE_BOUNDING_BOX, "every build")
     if any(str(getattr(item, "type", "")) == "through_hole_count" for item in document.expectations):
         need(VALIDATE_HOLE_COUNT, "the through-hole expectation")
+    if any(
+        str(getattr(item, "type", "")) == "surface_face_count" for item in document.expectations
+    ):
+        need(VALIDATE_SURFACE_FACE_COUNT, "the surface-face-count expectation")
 
     solids_so_far = 0
     for feature in document.features:
@@ -251,12 +276,47 @@ def requirements(document) -> dict[str, str]:
             solids_so_far += 1
         elif isinstance(feature, CutRevolveFeature):
             need(CUT_REVOLVE, f"the revolved cut {feature.id}")
+        elif isinstance(feature, FilletFeature):
+            need(FEATURE_FILLET_CONSTANT, f"the fillet {feature.id}")
+        elif isinstance(feature, ChamferFeature):
+            # Two keys, because the asymmetric form is a different question about
+            # the document: which face the first distance belongs to. An operator
+            # who has seen a chamfer come out the wrong way round wants to stop
+            # that one without stopping every chamfer.
+            asymmetric = (
+                feature.inputs.second_distance is not None or feature.inputs.angle_deg is not None
+            )
+            if asymmetric:
+                need(FEATURE_CHAMFER_ASYMMETRIC, f"the asymmetric chamfer {feature.id}")
+            else:
+                need(FEATURE_CHAMFER_EQUAL, f"the chamfer {feature.id}")
+
+        for selector in _selectors_of(feature.inputs):
+            if getattr(selector.where, "convexity", None) is not None:
+                need(SELECTOR_EDGE_CONVEXITY, f"the convexity predicate in {selector.id}")
 
         sketch = getattr(feature.inputs, "sketch", None)
         if sketch is not None:
             _sketch_requirements(sketch, need)
 
     return needed
+
+
+def _selectors_of(inputs):
+    """Every selector in a feature's inputs, however deeply it sits.
+
+    Walked rather than listed field by field: a selector reached by a path nobody
+    remembered to enumerate is a predicate whose flag silently does not apply.
+    """
+    if isinstance(inputs, (FaceSelector, EdgeSelector)):
+        yield inputs
+        return
+    if hasattr(inputs, "__pydantic_fields__"):
+        for name in type(inputs).model_fields:
+            yield from _selectors_of(getattr(inputs, name))
+    elif isinstance(inputs, (list, tuple)):
+        for item in inputs:
+            yield from _selectors_of(item)
 
 
 def _sketch_requirements(sketch, need) -> None:

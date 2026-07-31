@@ -19,15 +19,18 @@ from pathlib import Path
 from build123d import Plane, export_step, export_stl, extrude, revolve
 from cad_ir.canonical import (
     CadIrDocument,
+    ChamferFeature,
     CutExtrudeFeature,
     CutRevolveFeature,
     DatumPlaneOffsetFeature,
     Direction,
+    FilletFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
 )
 from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
+from .blends import blend
 from .capabilities import CapabilityGate, requirements
 from .constraints import DegreesOfFreedom, validate
 from .entities import named_entities
@@ -119,6 +122,14 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
 
         if isinstance(feature, (SolidRevolveFeature, CutRevolveFeature)):
             part = _revolve_feature(feature, part, planes, params)
+            continue
+
+        if isinstance(feature, (FilletFeature, ChamferFeature)):
+            # Resolved against the part as it is at this point in the sequence,
+            # like every other selector: an edge that a later cut will remove is
+            # still an edge now, and a blend applied to yesterday's topology is an
+            # index by another name.
+            part = blend(feature, part, params)
             continue
 
         raise unsupported(

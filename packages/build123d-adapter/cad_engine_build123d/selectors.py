@@ -57,7 +57,31 @@ class Resolution:
         return self.failure_code is None
 
 
+#: Predicates the contract offers that this engine cannot evaluate.
+#:
+#: `produced_by` needs to know which feature made a face, and OpenCascade hands
+#: back a topology with no memory of the operations that produced it. Naming the
+#: gap out loud is the whole point: a predicate silently skipped is worse than one
+#: refused, because the selector then matches on its *other* clauses and picks
+#: something the document did not ask for. That is what `convexity` did until 1.5.
+_UNEVALUABLE = ("produced_by",)
+
+
+def _refuse_unevaluable(selector) -> None:
+    stated = [name for name in _UNEVALUABLE if getattr(selector.where, name, None) is not None]
+    if not stated:
+        return
+    raise CadEngineError(
+        "SELECTOR_UNSUPPORTED_PREDICATE",
+        "selector",
+        f"Selector {selector.id} filters on {', '.join(stated)}, which this engine cannot "
+        "evaluate: the kernel's topology does not record which feature produced a face. "
+        "Name the geometry by what it is instead.",
+    )
+
+
 def resolve_faces(selector, faces: Sequence) -> Resolution:
+    _refuse_unevaluable(selector)
     where = selector.where
     steps: list[ResolutionStep] = []
     candidates = list(faces)
@@ -92,13 +116,27 @@ def resolve_faces(selector, faces: Sequence) -> Resolution:
 
 
 def resolve_edges(selector, edges: Sequence) -> Resolution:
+    _refuse_unevaluable(selector)
     where = selector.where
     steps: list[ResolutionStep] = []
-    candidates = list(edges)
+
+    # Seams first, and always, whatever the document said. A seam is where
+    # OpenCascade closes a cylindrical face on itself; KOMPAS had none, and no
+    # drawing has a word for one (ADR-023). Leaving them in the pool would make
+    # `exactly_n: 4` on the vertical edges of a plate with a hole in it a count of
+    # something the part does not have, and the answer would differ between
+    # kernels. Traced rather than filtered quietly, so the trace still adds up.
+    candidates = [edge for edge in edges if not getattr(edge, "is_seam", False)]
+    if len(candidates) != len(edges):
+        steps.append(ResolutionStep("not a seam", len(edges), len(candidates)))
 
     candidates = _filter(
         candidates, steps, "curve_type", where.curve_type,
         lambda edge, value: edge.curve_type == str(value),
+    )
+    candidates = _filter(
+        candidates, steps, "convexity", where.convexity,
+        lambda edge, value: edge.convexity == str(value),
     )
     candidates = _filter(
         candidates, steps, "length_mm", where.length_mm,
@@ -298,17 +336,22 @@ def require_one(resolution: Resolution, selector):
             "SELECTOR_AMBIGUOUS",
             "selector",
             f"Selector {selector.id} matched {len(resolution.matched)} things where one "
-            f"was needed. {_trace(resolution)}",
+            f"was needed. {narrowing(resolution)}",
         )
     raise CadEngineError(
         resolution.failure_code or "SELECTOR_NO_MATCH",
         "selector",
         f"Selector {selector.id} matched {len(resolution.matched)} things, which its "
-        f"declared cardinality does not allow. {_trace(resolution)}",
+        f"declared cardinality does not allow. {narrowing(resolution)}",
     )
 
 
-def _trace(resolution: Resolution) -> str:
+def narrowing(resolution: Resolution) -> str:
+    """The trace in one line: which predicate removed what.
+
+    Public because every caller that refuses a resolution needs it, and a second
+    formatting of the same trace would be a second thing to keep readable.
+    """
     if not resolution.trace:
         return "No predicate was stated, so nothing narrowed the candidates."
     return "Narrowing: " + "; ".join(
@@ -316,10 +359,12 @@ def _trace(resolution: Resolution) -> str:
     )
 
 
+
 __all__ = [
     "EXTREME_TOLERANCE_MM",
     "Resolution",
     "ResolutionStep",
+    "narrowing",
     "require_one",
     "resolve_edges",
     "resolve_faces",

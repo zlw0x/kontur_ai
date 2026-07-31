@@ -51,7 +51,7 @@ public sealed class Build123dProcessEngineTests
         engine_version = "0.11.1",
         kernel_id = "opencascade",
         kernel_version = "7.9.3.1.1",
-        cad_ir_version = "1.4",
+        cad_ir_version = "1.5",
         artifacts = new[]
         {
             new { kind = "STEP", file = "model.step", required = true },
@@ -65,7 +65,7 @@ public sealed class Build123dProcessEngineTests
         engine_version = "0.11.1",
         kernel_id = "opencascade",
         kernel_version = "7.9.3.1.1",
-        cad_ir_version = "1.4",
+        cad_ir_version = "1.5",
         artifacts = new[]
         {
             new { kind = "STEP", file = "model.step", required = true },
@@ -252,7 +252,7 @@ public sealed class Build123dProcessEngineTests
 
         Assert.Equal("build123d", report.Engine.EngineId);
         Assert.Equal("7.9.3.1.1", report.Engine.KernelVersion);
-        Assert.Equal("1.4", report.Engine.CadIrVersion);
+        Assert.Equal("1.5", report.Engine.CadIrVersion);
         Assert.Equal(["STEP", "STL"], report.Engine.Artifacts.Select(item => item.Kind));
         Assert.Equal("beta", report.Capabilities["sketch.arc"].Status);
     }
