@@ -78,6 +78,7 @@ public static class WorkerCapabilities
         return new WorkerCapabilityManifestPayload(
             "1.0",
             WorkerVersion,
+            null,
             kompasVersion,
             codexCliVersion,
             [CadIrVersion],
@@ -88,6 +89,40 @@ public static class WorkerCapabilities
                     entry.Value.Version),
                 StringComparer.Ordinal));
     }
+
+    /// <summary>
+    /// The manifest of a worker that builds with the document engine.
+    /// </summary>
+    /// <remarks>
+    /// Everything about what can be built comes from the engine's own answer,
+    /// including the flags, because the engine applied them to the same
+    /// declaration list the gate will use. This side adds only what the engine
+    /// does not know: which worker build this is, and which Codex CLI it found.
+    ///
+    /// `kompas_version` is left empty rather than filled with the kernel's
+    /// version. It names one engine, and putting an OpenCascade number in it
+    /// would make every reader of a manifest wrong about what produced a model.
+    /// The `engine` block says it properly, and both leave together in
+    /// ENGINE-MIG-008.
+    /// </remarks>
+    public static WorkerCapabilityManifestPayload ManifestFor(
+        CadEngineReport report,
+        string? codexCliVersion = null) =>
+        new(
+            "1.0",
+            WorkerVersion,
+            new WorkerEnginePayload(
+                report.Engine.EngineId,
+                report.Engine.EngineVersion,
+                report.Engine.KernelId,
+                report.Engine.KernelVersion),
+            null,
+            codexCliVersion,
+            [report.Engine.CadIrVersion],
+            report.Capabilities.ToDictionary(
+                entry => entry.Key,
+                entry => new CapabilityDeclarationPayload(entry.Value.Status, entry.Value.Version),
+                StringComparer.Ordinal));
 
     /// <summary>Every capability this build declares, whatever its status.</summary>
     public static IReadOnlyCollection<string> Keys => (IReadOnlyCollection<string>)Declared.Keys;
@@ -100,9 +135,17 @@ public sealed record CapabilityDeclarationPayload(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("version")] string Version);
 
+/// <summary>Which CAD engine this worker builds with (ENGINE-MIG-007).</summary>
+public sealed record WorkerEnginePayload(
+    [property: JsonPropertyName("engine_id")] string EngineId,
+    [property: JsonPropertyName("engine_version")] string EngineVersion,
+    [property: JsonPropertyName("kernel_id")] string KernelId,
+    [property: JsonPropertyName("kernel_version")] string? KernelVersion);
+
 public sealed record WorkerCapabilityManifestPayload(
     [property: JsonPropertyName("schema_version")] string SchemaVersion,
     [property: JsonPropertyName("worker_version")] string WorkerVersion,
+    [property: JsonPropertyName("engine")] WorkerEnginePayload? Engine,
     [property: JsonPropertyName("kompas_version")] string? KompasVersion,
     [property: JsonPropertyName("codex_cli_version")] string? CodexCliVersion,
     [property: JsonPropertyName("cad_ir_versions")] IReadOnlyList<string> CadIrVersions,

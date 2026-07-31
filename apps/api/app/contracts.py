@@ -792,9 +792,32 @@ class CapabilityRequirement(StrictModel):
         return capability_version_tuple(declared.version) >= capability_version_tuple(self.min_version)
 
 
+class WorkerEngineDeclaration(StrictModel):
+    """Which CAD engine a worker builds with, and on what kernel.
+
+    Added by ENGINE-MIG-007 rather than reusing `kompas_version`, which names one
+    engine and reports a version that only that engine has. Putting an
+    OpenCascade version in a field called `kompas_version` would make every
+    reader of a manifest wrong about what produced the model, and the field is
+    still the right one for the worker that does drive KOMPAS — until
+    ENGINE-MIG-008 removes both it and the engine.
+
+    Optional, because a worker older than this build does not send it and being
+    unable to say which engine it uses is not a reason to refuse its work.
+    """
+
+    engine_id: Annotated[str, Field(min_length=1, max_length=50)]
+    engine_version: Annotated[str, Field(min_length=1, max_length=50)]
+    kernel_id: Annotated[str, Field(min_length=1, max_length=50)]
+    #: Absent where the engine cannot read it. An unverified version string is
+    #: worse than none, because it reads as measured (ADR-023).
+    kernel_version: Annotated[str | None, Field(max_length=50)] = None
+
+
 class WorkerCapabilityManifest(StrictModel):
     schema_version: Literal["1.0"] = CAPABILITY_MANIFEST_SCHEMA_VERSION
     worker_version: Annotated[str, Field(min_length=1, max_length=50)]
+    engine: WorkerEngineDeclaration | None = None
     kompas_version: Annotated[str | None, Field(max_length=50)] = None
     codex_cli_version: Annotated[str | None, Field(max_length=50)] = None
     cad_ir_versions: list[Annotated[str, Field(max_length=20)]] = Field(min_length=1, max_length=20)

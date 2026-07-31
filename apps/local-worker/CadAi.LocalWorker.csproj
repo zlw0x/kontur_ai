@@ -11,6 +11,7 @@
     </AssemblyAttribute>
     <Compile Remove="tests\**\*.cs" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <ProjectReference Include="..\..\packages\build123d-launcher\CadAi.Build123dLauncher.csproj" />
     <ProjectReference Include="..\..\packages\codex-runner\CadAi.CodexRunner.csproj" />
     <ProjectReference Include="..\..\packages\geometry-validation\CadAi.GeometryValidation.csproj" />
     <ProjectReference Include="..\..\packages\kompas-adapter\CadAi.KompasAdapter.csproj" />

@@ -115,6 +115,39 @@ def test_manifest_reports_capabilities_it_cannot_serve():
     assert manifest.supports(["surface.loft"]) == ["surface.loft"]
 
 
+def test_a_manifest_may_say_which_engine_it_builds_with():
+    """ENGINE-MIG-007. Two engines publish manifests during the migration, and
+    when their models disagree the first question is which one built the file."""
+    manifest = WorkerCapabilityManifest(
+        worker_version="0.4.0",
+        engine={
+            "engine_id": "build123d",
+            "engine_version": "0.11.1",
+            "kernel_id": "opencascade",
+            "kernel_version": "7.9.3.1.1",
+        },
+        cad_ir_versions=["1.4"],
+        capabilities={"solid.rectangular_prism": CapabilityStatus.BETA},
+    )
+    assert manifest.engine.engine_id == "build123d"
+    # And `kompas_version` is left alone rather than filled with a number that
+    # belongs to a different engine.
+    assert manifest.kompas_version is None
+
+
+def test_a_worker_that_cannot_say_which_engine_it_uses_is_still_a_worker():
+    """Older workers do not send the field, and that is not a reason to refuse
+    their work."""
+    manifest = WorkerCapabilityManifest(
+        worker_version="0.3.0",
+        kompas_version="22.0",
+        cad_ir_versions=["1.4"],
+        capabilities={"solid.rectangular_prism": CapabilityStatus.STABLE},
+    )
+    assert manifest.engine is None
+    assert manifest.supports(["solid.rectangular_prism"]) == []
+
+
 def test_manifest_rejects_malformed_capability_keys():
     with pytest.raises(ValidationError):
         WorkerCapabilityManifest(

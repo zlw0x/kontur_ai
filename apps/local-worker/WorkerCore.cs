@@ -23,7 +23,40 @@ public sealed record WorkerPaths(string StateRoot, string WorkspaceRoot, string 
     }
 }
 
-public sealed record WorkerConfig(string ServerUrl, string WorkerId, string WorkerName, int PollSeconds = 5, int LeaseSeconds = 60);
+/// <summary>Which CAD engine this worker builds with, and how to reach it.</summary>
+/// <remarks>
+/// Configuration, unlike the engine's identity, is a deployment concern: the
+/// image tag, whether a developer machine runs the interpreter directly, which
+/// container runtime is installed. What it never says is what to <em>pass</em>
+/// the engine — the command line is built from a fixed vocabulary in the
+/// launcher, and the only variable in it is a job directory this worker chose.
+///
+/// `kompas` remains the default until ENGINE-MIG-008. Changing the engine a
+/// deployment uses should be a decision someone takes, not something that
+/// happens because a build was upgraded.
+/// </remarks>
+public sealed record CadEngineConfig(
+    string Engine = CadEngineConfig.Kompas,
+    string Runtime = "container",
+    string ContainerCommand = "docker",
+    string Image = "cad-ai/cad-worker:latest",
+    string PythonCommand = "python",
+    string? WorkingDirectory = null,
+    int BuildTimeoutMinutes = 15)
+{
+    public const string Kompas = "kompas";
+    public const string Build123d = "build123d";
+}
+
+public sealed record WorkerConfig(
+    string ServerUrl,
+    string WorkerId,
+    string WorkerName,
+    int PollSeconds = 5,
+    int LeaseSeconds = 60,
+    // Optional so a worker enrolled before this build keeps working: an absent
+    // section means KOMPAS, which is what such a worker was already doing.
+    CadEngineConfig? CadEngine = null);
 
 public sealed class WorkerConfigStore(WorkerPaths paths)
 {

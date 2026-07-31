@@ -9,3 +9,24 @@ retain_failed_jobs_days = 7
 retain_success_jobs_hours = 12
 kompas_executable = "C:/Program Files/ASCON/KOMPAS-3D/Bin/KOMPAS.Exe"
 codex_executable = "C:/Users/USER/AppData/Roaming/npm/codex.cmd"
+
+# Which CAD engine this deployment builds with (ENGINE-MIG-007).
+#
+# Absent means "kompas", which is what every worker did before this setting
+# existed. Changing the engine should be a decision someone takes, not something
+# that happens because a build was upgraded — the two produce the same geometry
+# from the same document and different files from it.
+#
+# The runtime says how the build123d engine is reached. "container" is the shape
+# ADR-023 describes and the one production uses: a read-only root, no network and
+# one bind mount for the job, all stated on every invocation. "process" runs the
+# same entry point through a local interpreter and is for a developer machine.
+[cad_engine]
+engine = "kompas"           # kompas | build123d
+runtime = "container"       # container | process
+container_command = "docker"
+image = "cad-ai/cad-worker:latest"
+# Only for runtime = "process".
+python_command = "python"
+working_directory = ""
+build_timeout_minutes = 15

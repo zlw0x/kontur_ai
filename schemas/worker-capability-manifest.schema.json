@@ -33,6 +33,50 @@
       ],
       "title": "CapabilityStatus",
       "type": "string"
+    },
+    "WorkerEngineDeclaration": {
+      "additionalProperties": false,
+      "description": "Which CAD engine a worker builds with, and on what kernel.\n\nAdded by ENGINE-MIG-007 rather than reusing `kompas_version`, which names one\nengine and reports a version that only that engine has. Putting an\nOpenCascade version in a field called `kompas_version` would make every\nreader of a manifest wrong about what produced the model, and the field is\nstill the right one for the worker that does drive KOMPAS — until\nENGINE-MIG-008 removes both it and the engine.\n\nOptional, because a worker older than this build does not send it and being\nunable to say which engine it uses is not a reason to refuse its work.",
+      "properties": {
+        "engine_id": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Engine Id",
+          "type": "string"
+        },
+        "engine_version": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "kernel_id": {
+          "maxLength": 50,
+          "minLength": 1,
+          "title": "Kernel Id",
+          "type": "string"
+        },
+        "kernel_version": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kernel Version"
+        }
+      },
+      "required": [
+        "engine_id",
+        "engine_version",
+        "kernel_id"
+      ],
+      "title": "WorkerEngineDeclaration",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -48,6 +92,17 @@
       "minLength": 1,
       "title": "Worker Version",
       "type": "string"
+    },
+    "engine": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkerEngineDeclaration"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "kompas_version": {
       "anyOf": [

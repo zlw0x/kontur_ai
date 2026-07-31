@@ -26,7 +26,12 @@ try
             return await LocalCadJobHandler.RunAsync(
                 args.Skip(1).FirstOrDefault(value => !value.StartsWith("--", StringComparison.Ordinal)),
                 paths,
-                args.Contains("--fake-cad", StringComparer.OrdinalIgnoreCase));
+                args.Contains("--fake-cad", StringComparer.OrdinalIgnoreCase),
+                // The same engine `run` would use, so a job reproduced by hand
+                // is built by the thing that built it in production. A worker
+                // that has not enrolled has no configuration and therefore no
+                // configured engine, which is the KOMPAS default.
+                documentEngine: WorkerEngine.SelectDocumentEngine(configStore.Load()?.CadEngine));
         case "analyze-drawing":
             // --inject-cad-ir-fault is an acceptance affordance and is offered
             // here only. `run` serves real orders and must never reach it.

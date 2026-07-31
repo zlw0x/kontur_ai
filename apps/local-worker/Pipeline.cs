@@ -41,7 +41,11 @@ public static class LocalCadJobHandler
         WorkerPaths paths,
         bool fakeCad,
         CancellationToken cancellationToken = default,
-        ResourceLedger? ledger = null)
+        ResourceLedger? ledger = null,
+        // Absent means KOMPAS, which is what every deployment does until one is
+        // configured otherwise (ENGINE-MIG-007). Passed in rather than resolved
+        // here so a test can hand in an engine without a config file.
+        ICadDocumentEngine? documentEngine = null)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new WorkerException("JOB_PATH_REQUIRED", "run-job requires a job directory.", 2);
@@ -54,7 +58,6 @@ public static class LocalCadJobHandler
             return await FakeJobHandler.RunAsync(fullPath, paths);
 
         var output = Path.Combine(fullPath, "output");
-        Directory.CreateDirectory(output);
         var state = Path.Combine(fullPath, "state.json");
         await FakeJobHandler.AtomicWriteAsync(
             state,
@@ -65,6 +68,14 @@ public static class LocalCadJobHandler
             // exists: a disabled operation must cost a typed error rather
             // than a half-built model.
             var flags = FeatureFlags.Load(paths);
+            // Branched before anything is created. The document engine writes
+            // its own `output/`, and creating an empty one here first would
+            // leave a directory behind after a refusal that reads like a build
+            // that ran.
+            if (!fakeCad && documentEngine is not null)
+                return await RunWithDocumentEngineAsync(
+                    documentEngine, fullPath, output, state, flags, cancellationToken, ledger);
+            Directory.CreateDirectory(output);
             var plan = await CadIrBuildPlanParser.ParseFileAsync(
                 cadIrPath, cancellationToken, flags.Gate());
             var adapter = WorkerEngine.Select(fakeCad);
@@ -186,6 +197,126 @@ public static class LocalCadJobHandler
     }
 
     /// <summary>
+    /// One job, built by the engine that reads the document itself.
+    /// </summary>
+    /// <remarks>
+    /// Shorter than the plan-based path, and the difference is where the work
+    /// moved rather than work that stopped happening. There is no parse here
+    /// because the engine parses with the same validator the API uses; there is
+    /// no geometry validation here because the engine reopened both files and
+    /// measured them before it answered (ENGINE-MIG-005); and there is no gate
+    /// here because the flags travelled with the request and the engine echoed
+    /// back which ones it applied.
+    ///
+    /// What this side still owns is what it always owned: the lease, the state
+    /// file, the ledger, and the envelope the rest of the service reads.
+    /// </remarks>
+    private static async Task<int> RunWithDocumentEngineAsync(
+        ICadDocumentEngine engine,
+        string jobPath,
+        string output,
+        string state,
+        FeatureFlags flags,
+        CancellationToken cancellationToken,
+        ResourceLedger? ledger)
+    {
+        CadBuildResult result;
+        using (var session = ledger?.Begin(
+            ledger.Key("cad", "session", "1"),
+            ResourceEventType.CAD_SESSION,
+            ResourceStage.KOMPAS_STARTUP))
+        {
+            try
+            {
+                result = await engine.BuildAsync(
+                    new CadDocumentBuildRequest(jobPath, [.. flags.Disabled]), cancellationToken);
+                session?.WithCad(new CadUsagePayload(
+                    "document_build",
+                    result.Operations?.Count,
+                    FailedFeatureCount: 0,
+                    SessionReuseCount: 0,
+                    ForcedTermination: false,
+                    ResultBytes: result.Artifacts.Sum(artifact => artifact.SizeBytes)));
+                session?.Succeeded();
+                RecordOperations(ledger, result.Operations);
+            }
+            catch (CadAdapterException error)
+            {
+                session?.Failed(error.Code);
+                RecordOperations(ledger, error.Operations);
+                throw;
+            }
+        }
+
+        await FakeJobHandler.AtomicWriteAsync(
+            Path.Combine(output, "validation-report.json"),
+            JsonSerializer.Serialize(new
+            {
+                valid = true,
+                adapter = result.Engine?.EngineId,
+                engine = result.Engine is { } identity
+                    ? new
+                    {
+                        engine_id = identity.EngineId,
+                        engine_version = identity.EngineVersion,
+                        kernel_id = identity.KernelId,
+                        kernel_version = identity.KernelVersion,
+                        cad_ir_version = identity.CadIrVersion
+                    }
+                    : null,
+                // The engine's own report, kept whole rather than summarised.
+                // It measured a reopened STEP and a parsed STL; restating that
+                // as a boolean here would throw away the only evidence anyone
+                // has that the model is right.
+                geometry = ReadEngineReport(output),
+                artifacts = result.Artifacts.Select(artifact => new
+                {
+                    artifact.Kind,
+                    file = Path.GetFileName(artifact.Path),
+                    artifact.SizeBytes,
+                    artifact.Sha256
+                })
+            }));
+
+        await FakeJobHandler.AtomicWriteAsync(
+            state,
+            JsonSerializer.Serialize(new { status = "COMPLETED", completed_at = DateTimeOffset.UtcNow }));
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            status = "COMPLETED",
+            adapter = result.Engine?.EngineId,
+            artifacts = result.Artifacts.Count,
+            path = jobPath
+        }));
+        return 0;
+    }
+
+    /// <summary>
+    /// The engine's validation report, as JSON, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// Read back rather than kept in memory because the engine writes it into
+    /// the job directory itself, and in container mode this side never saw the
+    /// object it came from. Nothing rather than a failure if it is unreadable:
+    /// the build already succeeded and the engine already refused to report
+    /// success without verifying, so an absent report is a worse envelope rather
+    /// than an unbuilt part.
+    /// </remarks>
+    private static JsonElement? ReadEngineReport(string output)
+    {
+        var path = Path.Combine(output, "validation-report.json");
+        if (!File.Exists(path)) return null;
+        try
+        {
+            return JsonDocument.Parse(File.ReadAllText(path)).RootElement.Clone();
+        }
+        catch (Exception error) when (error is JsonException or IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Turn adapter step timings into one ledger event each.
     /// </summary>
     /// <remarks>
@@ -259,6 +390,11 @@ public static class ClaimLoop
     {
         var config = configs.Load() ?? throw new WorkerException("AUTH_REQUIRED", "Worker enrollment is required.", 3);
         var credential = credentials.Load();
+        // Resolved once for the life of the loop. Which engine a worker builds
+        // with is a property of the deployment, not of a job: a worker that
+        // could change engine between two jobs would produce results nobody
+        // could compare.
+        var selected = WorkerEngine.EngineSelection.For(config.CadEngine);
         using var client = new HttpClient { BaseAddress = new Uri(config.ServerUrl), Timeout = TimeSpan.FromSeconds(35) };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         var failures = 0;
@@ -274,7 +410,8 @@ public static class ClaimLoop
                     available_slots = 1,
                     // Declaring what this build can construct is what makes the
                     // API willing to schedule those operations here.
-                    capability_manifest = WorkerCapabilities.Manifest(flags: FeatureFlags.Load(paths))
+                    capability_manifest = await selected.ManifestAsync(
+                        FeatureFlags.Load(paths), cancellationToken: cancellation)
                 }, cancellation);
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                     throw new WorkerException("AUTH_REQUIRED", "Worker credential was rejected.", 3);
@@ -283,7 +420,7 @@ public static class ClaimLoop
                 failures = 0;
                 if (claim?.job is not null)
                 {
-                    await ExecuteClaimedJobAsync(client, claim.job, paths, cancellation);
+                    await ExecuteClaimedJobAsync(client, claim.job, paths, selected, cancellation);
                     if (runOnce) return 0;
                 }
                 else if (runOnce) return 0;
@@ -305,6 +442,7 @@ public static class ClaimLoop
         HttpClient client,
         ClaimedJob job,
         WorkerPaths paths,
+        WorkerEngine.EngineSelection selected,
         CancellationToken cancellation)
     {
         var jobPath = Path.Combine(paths.WorkspaceRoot, job.job_id);
@@ -371,19 +509,21 @@ public static class ClaimLoop
                 {
                     File.Copy(drawing.CadIrPath!, Path.Combine(jobPath, "cad-ir.json"), overwrite: true);
                     await LocalCadJobHandler.RunAsync(
-                        jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger);
+                        jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger,
+                        documentEngine: selected.Document);
                 }
             }
             else
             {
                 await LocalCadJobHandler.RunAsync(
-                    jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger);
+                    jobPath, paths, fakeCad: false, cancellationToken: cancellation, ledger: ledger,
+                    documentEngine: selected.Document);
             }
             // What the engine says it produces, plus what the pipeline itself
             // writes. The engine half used to be a literal `M3D, STEP, STL` here,
             // which put a KOMPAS-native format into the definition of a finished
             // job and left no way to express an engine that does not make one.
-            var engine = WorkerEngine.Adapter.Describe();
+            var engine = await selected.DescribeAsync(FeatureFlags.Load(paths), cancellation);
             var uploaded = new List<UploadedArtifact>();
             foreach (var (type, fileName) in engine.Artifacts
                          .Select(artifact => (artifact.Kind, artifact.FileName))
