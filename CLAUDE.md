@@ -31,10 +31,11 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.5** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.6** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
-  (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`).
+  (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
+  and mirror (`docs/adr/ADR-027-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -70,9 +71,22 @@ ADR-019. A predicate this engine cannot evaluate (`produced_by`) is refused with
 `SELECTOR_UNSUPPORTED_PREDICATE`, because a clause that quietly does nothing leaves
 the selector matching on the others.
 
-**What is next**: patterns and mirror, hole families, boolean and multi-body, then
-the golden corpus and the reliability gate. Sweep, loft and shell come after the
-basics are stable. `docs/POST-MVP-ROADMAP.md` has the order.
+**Patterns and mirror are in** (POSTMVP-010, ADR-027), and what they add is not
+geometry — six holes were always expressible as six contours. What they add is that
+**the count is something the document states**, so a claim that read six holes off a
+drawing has something to disagree with. A pattern names a *feature*, instance zero is
+that feature's own position, the angular step is stated rather than divided out of a
+total, and a grid is a pattern of a pattern. The engine re-derives the source's solid
+through the same tool-maker the source used, so repeating an operation *is* that
+operation.
+
+The clearest illustration of why a shape claim exists lives here: twelve instances 60°
+apart is six holes drilled twice, the part is identical to the correct one, every
+measurement passes — and the claim catches it, because it compares stated counts.
+
+**What is next**: hole families, boolean and multi-body, then the golden corpus and the
+reliability gate. Sweep, loft and shell come after the basics are stable.
+`docs/POST-MVP-ROADMAP.md` has the order.
 
 Two things left over from the migration, both named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,

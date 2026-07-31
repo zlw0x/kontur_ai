@@ -1,0 +1,375 @@
+{
+  "document": {
+    "coordinate_system": "right_handed",
+    "name": "patterned-flange",
+    "part_type": "single_part",
+    "units": "mm"
+  },
+  "expectations": [
+    {
+      "id": "inv_bbox",
+      "size_mm": {
+        "x": 120.0,
+        "y": 80.0,
+        "z": 8.0
+      },
+      "tolerance_mm": 0.05,
+      "type": "bounding_box"
+    },
+    {
+      "id": "inv_bodies",
+      "type": "body_count",
+      "value": 1
+    },
+    {
+      "id": "inv_holes",
+      "type": "through_hole_count",
+      "value": 12
+    },
+    {
+      "id": "inv_mount_holes",
+      "radius_mm": {
+        "tolerance": 0.001,
+        "value": 4.0
+      },
+      "surface": "cylindrical",
+      "type": "surface_face_count",
+      "value": 4
+    },
+    {
+      "id": "inv_bolt_holes",
+      "radius_mm": {
+        "tolerance": 0.001,
+        "value": 3.0
+      },
+      "surface": "cylindrical",
+      "type": "surface_face_count",
+      "value": 6
+    },
+    {
+      "id": "inv_slot_ends",
+      "radius_mm": {
+        "tolerance": 0.001,
+        "value": 5.0
+      },
+      "surface": "cylindrical",
+      "type": "surface_face_count",
+      "value": 4
+    }
+  ],
+  "features": [
+    {
+      "depends_on": [],
+      "enabled": true,
+      "id": "feature.plate",
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "plate_thickness"
+        },
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.plate",
+          "inner": [],
+          "outer": {
+            "center": [
+              0.0,
+              0.0
+            ],
+            "height": {
+              "parameter": "plate_depth"
+            },
+            "rotation_deg": 0.0,
+            "type": "rectangle",
+            "width": {
+              "parameter": "plate_width"
+            }
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        }
+      },
+      "produces": [
+        {
+          "id": "body.main",
+          "kind": "solid_body"
+        }
+      ],
+      "type": "solid.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.plate"
+      ],
+      "enabled": true,
+      "id": "feature.mount_hole",
+      "inputs": {
+        "direction": "+Z",
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.mount_hole",
+          "inner": [],
+          "outer": {
+            "center": [
+              -50.0,
+              -30.0
+            ],
+            "radius": {
+              "parameter": "mount_radius"
+            },
+            "type": "circle"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        },
+        "source_body": {
+          "result": "body.main"
+        },
+        "through_all": true
+      },
+      "produces": [],
+      "type": "cut.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.mount_hole"
+      ],
+      "enabled": true,
+      "id": "feature.mount_row",
+      "inputs": {
+        "of": "feature.mount_hole",
+        "pattern": {
+          "count": 2,
+          "direction": "+X",
+          "kind": "linear",
+          "spacing_mm": {
+            "parameter": "mount_pitch_x"
+          }
+        },
+        "skip": []
+      },
+      "produces": [],
+      "type": "feature.pattern"
+    },
+    {
+      "depends_on": [
+        "feature.mount_row"
+      ],
+      "enabled": true,
+      "id": "feature.mount_grid",
+      "inputs": {
+        "of": "feature.mount_row",
+        "pattern": {
+          "count": 2,
+          "direction": "+Y",
+          "kind": "linear",
+          "spacing_mm": {
+            "parameter": "mount_pitch_y"
+          }
+        },
+        "skip": []
+      },
+      "produces": [],
+      "type": "feature.pattern"
+    },
+    {
+      "depends_on": [
+        "feature.plate"
+      ],
+      "enabled": true,
+      "id": "feature.bolt_hole",
+      "inputs": {
+        "direction": "+Z",
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.bolt_hole",
+          "inner": [],
+          "outer": {
+            "center": [
+              25.0,
+              0.0
+            ],
+            "radius": {
+              "parameter": "bolt_radius"
+            },
+            "type": "circle"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        },
+        "source_body": {
+          "result": "body.main"
+        },
+        "through_all": true
+      },
+      "produces": [],
+      "type": "cut.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.bolt_hole"
+      ],
+      "enabled": true,
+      "id": "feature.bolt_circle",
+      "inputs": {
+        "of": "feature.bolt_hole",
+        "pattern": {
+          "axis": "axis.z",
+          "count": 6,
+          "kind": "circular",
+          "step_deg": 60.0,
+          "through": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "skip": []
+      },
+      "produces": [],
+      "type": "feature.pattern"
+    },
+    {
+      "depends_on": [
+        "feature.plate"
+      ],
+      "enabled": true,
+      "id": "feature.slot",
+      "inputs": {
+        "direction": "+Z",
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.slot",
+          "inner": [],
+          "outer": {
+            "end": [
+              45.0,
+              10.0
+            ],
+            "radius": {
+              "parameter": "slot_radius"
+            },
+            "start": [
+              45.0,
+              -10.0
+            ],
+            "type": "slot"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        },
+        "source_body": {
+          "result": "body.main"
+        },
+        "through_all": true
+      },
+      "produces": [],
+      "type": "cut.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.slot"
+      ],
+      "enabled": true,
+      "id": "feature.slot_mirror",
+      "inputs": {
+        "of": "feature.slot",
+        "pattern": {
+          "kind": "mirror",
+          "plane": "YZ"
+        },
+        "skip": []
+      },
+      "produces": [],
+      "type": "feature.pattern"
+    }
+  ],
+  "metadata": {
+    "generator": "fixture",
+    "generator_version": "1.6"
+  },
+  "parameters": [
+    {
+      "id": "plate_width",
+      "name": "Plate width",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 120.0
+    },
+    {
+      "id": "plate_depth",
+      "name": "Plate depth",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 80.0
+    },
+    {
+      "id": "plate_thickness",
+      "name": "Plate thickness",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 8.0
+    },
+    {
+      "id": "mount_radius",
+      "name": "Mounting hole radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 4.0
+    },
+    {
+      "id": "mount_pitch_x",
+      "name": "Mounting pitch across",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 100.0
+    },
+    {
+      "id": "mount_pitch_y",
+      "name": "Mounting pitch along",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 60.0
+    },
+    {
+      "id": "bolt_radius",
+      "name": "Bolt hole radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 3.0
+    },
+    {
+      "id": "slot_radius",
+      "name": "Slot end radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 5.0
+    }
+  ],
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.6"
+}

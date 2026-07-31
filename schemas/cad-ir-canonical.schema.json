@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.5",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.6",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -389,6 +389,62 @@
         "radius"
       ],
       "title": "CircleContour",
+      "type": "object"
+    },
+    "CircularPattern": {
+      "additionalProperties": false,
+      "description": "Instances turned about an axis through a point the document states.\n\n`step_deg` is the angle between consecutive instances. Six holes on a bolt\ncircle is six at 60°, and the arithmetic that produced 60 belongs to whoever read\nthe drawing rather than to this contract.",
+      "properties": {
+        "kind": {
+          "const": "circular",
+          "title": "Kind",
+          "type": "string"
+        },
+        "axis": {
+          "$ref": "#/$defs/Axis"
+        },
+        "through": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Through",
+          "type": "array"
+        },
+        "step_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Step Deg"
+        },
+        "count": {
+          "maximum": 1000,
+          "minimum": 2,
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "axis",
+        "through",
+        "step_deg",
+        "count"
+      ],
+      "title": "CircularPattern",
       "type": "object"
     },
     "ConstraintKind": {
@@ -1533,6 +1589,44 @@
       "title": "LineSegment",
       "type": "object"
     },
+    "LinearPattern": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "linear",
+          "title": "Kind",
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "#/$defs/PatternDirection"
+        },
+        "spacing_mm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Spacing Mm"
+        },
+        "count": {
+          "maximum": 1000,
+          "minimum": 2,
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "direction",
+        "spacing_mm",
+        "count"
+      ],
+      "title": "LinearPattern",
+      "type": "object"
+    },
     "Measurement": {
       "additionalProperties": false,
       "description": "A measured quantity with the tolerance it must be matched within.\n\nThe tolerance is required. Comparing floating-point geometry for equality\nis a bug waiting for a rebuild, and letting it default hides the choice\nfrom whoever later wonders why a face stopped matching.",
@@ -1553,6 +1647,34 @@
         "tolerance"
       ],
       "title": "Measurement",
+      "type": "object"
+    },
+    "MirrorPattern": {
+      "additionalProperties": false,
+      "description": "One reflection about a plane. Not a count, so nothing to skip.",
+      "properties": {
+        "kind": {
+          "const": "mirror",
+          "title": "Kind",
+          "type": "string"
+        },
+        "plane": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BasePlaneName"
+            },
+            {
+              "$ref": "#/$defs/ResultRef"
+            }
+          ],
+          "title": "Plane"
+        }
+      },
+      "required": [
+        "kind",
+        "plane"
+      ],
+      "title": "MirrorPattern",
       "type": "object"
     },
     "NormalPredicate": {
@@ -1756,6 +1878,126 @@
         "segments"
       ],
       "title": "PathContour",
+      "type": "object"
+    },
+    "PatternDirection": {
+      "description": "The world axis a linear pattern runs along.\n\nThe same six spellings an extrusion uses for its direction, and deliberately\nnot an arbitrary vector: a drawing repeats holes along an edge of the part, and\nan arbitrary direction is a thing to get subtly wrong for no gain a drawing asks\nfor.",
+      "enum": [
+        "+X",
+        "-X",
+        "+Y",
+        "-Y",
+        "+Z",
+        "-Z"
+      ],
+      "title": "PatternDirection",
+      "type": "string"
+    },
+    "PatternFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "feature.pattern",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 0,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/PatternInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "PatternFeature",
+      "type": "object"
+    },
+    "PatternInputs": {
+      "additionalProperties": false,
+      "description": "Which feature repeats, and where.\n\n`of` is a feature id rather than a result id: what repeats is the *operation* —\na cut stays a cut and an added boss stays added — and a result id would name the\nbody it happened to leave behind.",
+      "properties": {
+        "of": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Of",
+          "type": "string"
+        },
+        "pattern": {
+          "discriminator": {
+            "mapping": {
+              "circular": "#/$defs/CircularPattern",
+              "linear": "#/$defs/LinearPattern",
+              "mirror": "#/$defs/MirrorPattern"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LinearPattern"
+            },
+            {
+              "$ref": "#/$defs/CircularPattern"
+            },
+            {
+              "$ref": "#/$defs/MirrorPattern"
+            }
+          ],
+          "title": "Pattern"
+        },
+        "skip": {
+          "items": {
+            "maximum": 999,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 999,
+          "title": "Skip",
+          "type": "array"
+        }
+      },
+      "required": [
+        "of",
+        "pattern"
+      ],
+      "title": "PatternInputs",
       "type": "object"
     },
     "PositionPredicate": {
@@ -2882,8 +3124,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.5",
-      "default": "1.5",
+      "const": "1.6",
+      "default": "1.6",
       "title": "Schema Version",
       "type": "string"
     },
@@ -2916,6 +3158,7 @@
             "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
             "feature.chamfer": "#/$defs/ChamferFeature",
             "feature.fillet": "#/$defs/FilletFeature",
+            "feature.pattern": "#/$defs/PatternFeature",
             "solid.extrude": "#/$defs/SolidExtrudeFeature",
             "solid.revolve": "#/$defs/SolidRevolveFeature"
           },
@@ -2942,6 +3185,9 @@
           },
           {
             "$ref": "#/$defs/ChamferFeature"
+          },
+          {
+            "$ref": "#/$defs/PatternFeature"
           }
         ]
       },

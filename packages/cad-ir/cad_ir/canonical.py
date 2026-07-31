@@ -57,6 +57,14 @@ from .constraints import (  # re-exported alongside the document
     DrivingDimension,
     SketchConstraint,
 )
+from .pattern import (  # re-exported alongside the document
+    CircularPattern,
+    LinearPattern,
+    MirrorPattern,
+    PatternFeature,
+    PatternInputs,
+    instance_count,
+)
 from .selectors import (  # re-exported alongside the document
     Measurement,
     SurfaceType,
@@ -73,11 +81,11 @@ from .revolve import (  # re-exported alongside the document
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.5"
+CAD_IR_VERSION = "1.6"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.5",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.6",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -85,7 +93,7 @@ SUPPORTED_VERSIONS: tuple[str, ...] = ("1.5",)
 #: adapter. A document declaring an old version while using a new entity would
 #: otherwise be accepted — and a document lying about its version is the start of
 #: a compatibility problem, not the end of one.
-MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3", "1.4")
+MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3", "1.4", "1.5")
 
 class ParameterType(StrEnum):
     LENGTH = "length"
@@ -226,6 +234,7 @@ Feature = Annotated[
         DatumPlaneOffsetFeature,
         FilletFeature,
         ChamferFeature,
+        PatternFeature,
     ],
     Field(discriminator="type"),
 ]

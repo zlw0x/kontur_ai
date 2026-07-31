@@ -56,8 +56,8 @@ from typing import Any
 ROOT = Path(__file__).parents[1]
 TARGET = ROOT / "schemas" / "cad-ir-mvp-output.schema.json"
 
-SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.5"
-CAD_IR_VERSION = "1.5"
+SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.6"
+CAD_IR_VERSION = "1.6"
 
 MAX_COORDINATE = 1_000_000
 

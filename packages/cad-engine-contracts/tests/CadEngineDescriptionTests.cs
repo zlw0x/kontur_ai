@@ -22,10 +22,10 @@ public sealed class CadEngineDescriptionTests
     [Fact]
     public async Task TheFakeEngineDescribesItselfWithoutBuildingAnything()
     {
-        var report = await new FakeDocumentEngine("1.5").DescribeAsync([], CancellationToken.None);
+        var report = await new FakeDocumentEngine("1.6").DescribeAsync([], CancellationToken.None);
 
         Assert.Equal("fake", report.Engine.EngineId);
-        Assert.Equal("1.5", report.Engine.CadIrVersion);
+        Assert.Equal("1.6", report.Engine.CadIrVersion);
         Assert.Equal("FAKE_CAD", Assert.Single(report.Engine.Artifacts).Kind);
         // Nothing declared, so the API will not schedule real work to a worker
         // running it. A fake that advertised operations would be a fake that gets
@@ -44,14 +44,14 @@ public sealed class CadEngineDescriptionTests
         try
         {
             File.WriteAllText(Path.Combine(job.FullName, "cad-ir.json"), "{}");
-            var result = await new FakeDocumentEngine("1.5").BuildAsync(
+            var result = await new FakeDocumentEngine("1.6").BuildAsync(
                 new CadDocumentBuildRequest(job.FullName, []), CancellationToken.None);
 
             Assert.NotNull(result.Engine);
             // Field by field rather than record equality: the description holds a
             // list, and a record compares that by reference, so two equal
             // descriptions built separately would compare unequal.
-            var expected = FakeDocumentEngine.Identity("1.5");
+            var expected = FakeDocumentEngine.Identity("1.6");
             Assert.Equal(expected.EngineId, result.Engine!.EngineId);
             Assert.Equal(expected.EngineVersion, result.Engine.EngineVersion);
             Assert.Equal(expected.KernelId, result.Engine.KernelId);
@@ -74,7 +74,7 @@ public sealed class CadEngineDescriptionTests
         try
         {
             var refused = await Assert.ThrowsAsync<CadAdapterException>(() =>
-                new FakeDocumentEngine("1.5").BuildAsync(
+                new FakeDocumentEngine("1.6").BuildAsync(
                     new CadDocumentBuildRequest(job.FullName, []), CancellationToken.None));
             Assert.Equal("CAD_IR_MISSING", refused.Code);
         }
@@ -88,7 +88,7 @@ public sealed class CadEngineDescriptionTests
     public void OnlyTheArtifactsAnEngineCallsRequiredAreRequired()
     {
         var engine = new CadEngineDescription(
-            "example", "1", "kernel", "9", "1.5",
+            "example", "1", "kernel", "9", "1.6",
             [
                 new CadArtifactKind("STEP", "model.step"),
                 new CadArtifactKind("STL", "model.stl"),
@@ -109,7 +109,7 @@ public sealed class CadEngineDescriptionTests
     [Fact]
     public void AnUnknownKernelVersionIsExpressible()
     {
-        var engine = new CadEngineDescription("example", "1", "kernel", null, "1.5", []);
+        var engine = new CadEngineDescription("example", "1", "kernel", null, "1.6", []);
 
         Assert.Null(engine.KernelVersion);
     }

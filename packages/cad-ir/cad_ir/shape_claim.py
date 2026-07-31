@@ -42,8 +42,10 @@ from .canonical import (
     CadIrDocument,
     CutExtrudeFeature,
     CutRevolveFeature,
+    PatternFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
+    instance_count,
 )
 from .sketch import (
     CircleContour,
@@ -179,6 +181,7 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
     stage does not know coordinates and the document does, so anything measured
     would be the document checking itself.
     """
+    repeats = _repeats(document)
     solids = [
         feature
         for feature in document.features
@@ -196,10 +199,50 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
 
     found: list[Disagreement] = []
     found.extend(_profile_disagreement(solids[0], claim))
-    found.extend(_solid_count_disagreement(solids, claim))
-    found.extend(_opening_disagreements(document, claim))
+    found.extend(_solid_count_disagreement(solids, claim, repeats))
+    found.extend(_opening_disagreements(document, claim, repeats))
     found.extend(_thickness_disagreement(solids[0], claim))
     return found
+
+
+def _repeats(document: CadIrDocument) -> dict[str, int]:
+    """How many times each feature's own contribution ends up in the part.
+
+    One for a feature nothing repeats. A pattern of six makes its source happen six
+    times, and a pattern of a pattern multiplies — which is how a grid is written
+    (ADR-027). This is the whole reason a pattern is worth having in a contract that
+    could already spell out six coordinates: the count becomes something the document
+    *states*, and a claim that read six holes off the drawing can disagree with it.
+
+    Walked in the document's own order, the same way the engine builds it, rather
+    than derived from a formula. Two patterns of one source each add their instances
+    to what is already there, and an outer pattern multiplies everything the inner one
+    produced; a closed form for that is a second model of the build to get wrong.
+    """
+    counts: dict[str, int] = {}
+    #: What one instance of a feature *contributes*, as leaf features and how many of
+    #: each. For anything but a pattern that is itself, once.
+    contents: dict[str, dict[str, int]] = {}
+
+    for feature in document.features:
+        name = str(feature.id)
+        if not feature.enabled:
+            continue
+        if not isinstance(feature, PatternFeature):
+            counts[name] = counts.get(name, 0) + 1
+            contents[name] = {name: 1}
+            continue
+
+        source = contents.get(str(feature.inputs.of))
+        if source is None:
+            # A pattern of something disabled or undeclared. The canonical validator
+            # refuses both; counting nothing here keeps this a pure function.
+            continue
+        instances = instance_count(feature.inputs)
+        for leaf, each in source.items():
+            counts[leaf] = counts.get(leaf, 0) + (instances - 1) * each
+        contents[name] = {leaf: instances * each for leaf, each in source.items()}
+    return counts
 
 
 def _profile_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:
@@ -237,28 +280,43 @@ def _profile_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:
     ]
 
 
-def _solid_count_disagreement(solids: list, claim: ShapeClaim) -> list[Disagreement]:
-    if len(solids) == claim.solids:
+def _solid_count_disagreement(
+    solids: list, claim: ShapeClaim, repeats: dict[str, int]
+) -> list[Disagreement]:
+    """Lumps of material, patterns counted.
+
+    Four bosses made by patterning one are four bosses on the drawing, so a reader
+    who counted five lumps and a document that writes one boss and a pattern of four
+    agree — and a document that patterned three would not.
+    """
+    built = sum(repeats.get(str(feature.id), 1) for feature in solids)
+    if built == claim.solids:
         return []
     return [
         Disagreement(
             code="SOLID_COUNT",
             claimed=str(claim.solids),
-            built=str(len(solids)),
+            built=str(built),
             detail=(
                 f"the drawing was read as {claim.solids} solid feature(s) and the "
-                f"document has {len(solids)}"
+                f"document builds {built}"
             ),
         )
     ]
 
 
-def _opening_disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreement]:
+def _opening_disagreements(
+    document: CadIrDocument, claim: ShapeClaim, repeats: dict[str, int]
+) -> list[Disagreement]:
     """Openings, counted by kind wherever they are built.
 
     An island in a base sketch and a separate cut are the same hole on a drawing,
     so both are counted. Counting only one of them would make a claim about the
     part into a claim about how the document was written.
+
+    A patterned cut counts once per instance, for the same reason: six holes on a
+    bolt circle are six holes to whoever read the drawing, whether the document spells
+    out six circles or one and a pattern of six.
     """
     built: dict[type, int] = {}
     for feature in document.features:
@@ -267,11 +325,12 @@ def _opening_disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[D
         sketch = getattr(feature.inputs, "sketch", None)
         if sketch is None:
             continue
+        instances = repeats.get(str(feature.id), 1)
         contours = list(sketch.inner)
         if isinstance(feature, (CutExtrudeFeature, CutRevolveFeature)):
             contours.append(sketch.outer)
         for contour in contours:
-            built[type(contour)] = built.get(type(contour), 0) + 1
+            built[type(contour)] = built.get(type(contour), 0) + instances
 
     found: list[Disagreement] = []
     claimed_total = sum(item.count for item in claim.openings)

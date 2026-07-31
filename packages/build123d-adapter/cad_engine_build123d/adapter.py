@@ -25,11 +25,13 @@ from cad_ir.canonical import (
     DatumPlaneOffsetFeature,
     Direction,
     FilletFeature,
+    PatternFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
 )
 from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
+from . import patterns
 from .blends import blend
 from .capabilities import CapabilityGate, requirements
 from .constraints import DegreesOfFreedom, validate
@@ -104,6 +106,10 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
     # Resolved once, up front. A parameter that does not exist should fail before
     # a single face is made rather than halfway through a part.
     params = Parameters.of(document)
+    #: Every feature by id, so a pattern can ask for the one it repeats. By name,
+    #: never by position: a pattern that meant "the previous feature" would stop
+    #: meaning it the moment a feature was inserted.
+    sources = {str(feature.id): feature for feature in document.features}
 
     for feature in document.features:
         if not feature.enabled:
@@ -122,6 +128,10 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
 
         if isinstance(feature, (SolidRevolveFeature, CutRevolveFeature)):
             part = _revolve_feature(feature, part, planes, params)
+            continue
+
+        if isinstance(feature, PatternFeature):
+            part = patterns.apply(feature, part, planes, params, sources, _tool_of)
             continue
 
         if isinstance(feature, (FilletFeature, ChamferFeature)):
@@ -148,7 +158,37 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
 # ---------------------------------------------------------------------------
 
 
+def _tool_of(feature, part, planes: dict[str, Plane], params):
+    """The solid a feature contributes, and whether it is removed.
+
+    The one place a pattern is allowed to ask "what does this feature build?", so
+    that repeating an operation is that operation. A feature this cannot make a tool
+    for cannot be patterned, and says so rather than being repeated as nothing.
+    """
+    if isinstance(feature, (SolidExtrudeFeature, CutExtrudeFeature)):
+        return _extrude_tool(feature, part, planes, params)
+    if isinstance(feature, (SolidRevolveFeature, CutRevolveFeature)):
+        return _revolve_tool(feature, part, planes, params)
+    raise unsupported(
+        f"A {feature.type} feature cannot be repeated: this engine can only make a "
+        "tool for an operation that extrudes or revolves a profile.",
+        "feature",
+    )
+
+
 def _extrude_feature(feature, part, planes: dict[str, Plane], params):
+    solid, is_cut = _extrude_tool(feature, part, planes, params)
+    return _combine(part, solid, is_cut)
+
+
+def _extrude_tool(feature, part, planes: dict[str, Plane], params):
+    """The solid this extrusion contributes, and whether it is removed.
+
+    Split from applying it so a pattern can ask for the same solid again and place
+    copies of it (ADR-027). The alternative — a pattern that re-ran the whole
+    feature and then undid the first instance — would make "what a feature builds"
+    exist in two versions.
+    """
     sketch = feature.inputs.sketch
     _check_assertions(sketch, params)
 
@@ -192,10 +232,15 @@ def _extrude_feature(feature, part, planes: dict[str, Plane], params):
             placed, amount=distance * _sense(feature, plane), dir=plane.z_dir
         )
 
-    return _combine(part, solid, is_cut)
+    return solid, is_cut
 
 
 def _revolve_feature(feature, part, planes: dict[str, Plane], params):
+    solid, is_cut = _revolve_tool(feature, part, planes, params)
+    return _combine(part, solid, is_cut)
+
+
+def _revolve_tool(feature, part, planes: dict[str, Plane], params):
     """A profile turned about a line in its own sketch plane.
 
     The first operation this service gained after the engine changed, and the
@@ -239,7 +284,7 @@ def _revolve_feature(feature, part, planes: dict[str, Plane], params):
         # meet twice; rotating one sweep is the same solid with no seam to remove.
         solid = solid.rotate(axis, -angle / 2)
 
-    return _combine(part, solid, is_cut)
+    return solid, is_cut
 
 
 def _combine(part, solid, is_cut: bool):

@@ -13,7 +13,7 @@ the thing ADR-019 exists to stop anyone depending on.
 
 from __future__ import annotations
 
-from build123d import GeomType
+from build123d import CenterOf, GeomType
 
 from .descriptors import Box, EdgeDescriptor, FaceDescriptor
 
@@ -52,7 +52,7 @@ def read_faces(part) -> list[FaceDescriptor]:
                 id=f"face.{index}",
                 surface_type=_SURFACES.get(face.geom_type, "other"),
                 area_mm2=float(face.area),
-                centroid=_xyz(face.center()),
+                centroid=_centre(face),
                 bounds=_box(face),
                 normal=_normal_of(face),
                 radius_mm=_radius_of(face),
@@ -74,7 +74,7 @@ def read_edges(part) -> list[EdgeDescriptor]:
                 id=f"edge.{index}",
                 curve_type=_CURVES.get(edge.geom_type, "other"),
                 length_mm=float(edge.length),
-                centroid=_xyz(edge.center()),
+                centroid=_centre(edge),
                 bounds=_box(edge),
                 direction=_direction_of(edge),
                 radius_mm=_radius_of(edge),
@@ -212,6 +212,26 @@ def _dot(left, right) -> float:
 
 def _xyz(vector) -> tuple[float, float, float]:
     return (float(vector.X), float(vector.Y), float(vector.Z))
+
+
+def _centre(shape) -> tuple[float, float, float]:
+    """The centre a document means, which is not the one `center()` returns.
+
+    build123d's default is `CenterOf.GEOMETRY`: the point at the middle of the
+    surface's own parameter domain. For a planar face that is the centroid, and for
+    anything curved it is a point *on* the surface — the centre of a Ø6 hole at
+    x = 10 came back as x = 7, and the circular edge round its mouth as x = 7 too.
+
+    A document saying "the face centred on x = 10" means the axis of that hole. So the
+    centre of mass is what a `position.center_along` predicate is resolved against.
+    Measured rather than assumed, and the reason this has a name of its own: with
+    `GEOMETRY` every centre predicate on a curved face is off by a radius, which is
+    not a failure — it is a selector matching something else.
+    """
+    try:
+        return _xyz(shape.center(CenterOf.MASS))
+    except Exception:  # noqa: BLE001 - a degenerate shape has no centre of mass
+        return _xyz(shape.center())
 
 
 def _box(shape) -> Box:

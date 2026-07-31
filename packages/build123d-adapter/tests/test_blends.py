@@ -43,7 +43,7 @@ BORE_RADIUS = 5.0
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "blended-bracket.v1_5.json").read_text("utf-8"))
+    return json.loads((FIXTURES / "blended-bracket.v1_6.json").read_text("utf-8"))
 
 
 def built(value: dict):
@@ -165,7 +165,7 @@ def test_convexity_tells_a_corner_from_the_root_of_a_boss():
       ask the kernel to round something already round.
     - **nothing at all**: the three seams.
     """
-    part = built(json.loads((FIXTURES / "lever-plate.v1_5.json").read_text("utf-8")))
+    part = built(json.loads((FIXTURES / "lever-plate.v1_6.json").read_text("utf-8")))
     edges = read_edges(part)
     found = collections.Counter(edge.convexity for edge in edges)
     assert found["concave"] == 7

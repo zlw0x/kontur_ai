@@ -48,6 +48,7 @@ class FeatureType(StrEnum):
     DATUM_PLANE_OFFSET = "datum.plane.offset"
     FILLET = "feature.fillet"
     CHAMFER = "feature.chamfer"
+    PATTERN = "feature.pattern"
 
 
 class ResultKind(StrEnum):

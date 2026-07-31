@@ -254,3 +254,35 @@ def test_exactly_n_separates_too_few_from_too_many():
 
     assert too_few.failure_code == "SELECTOR_NO_MATCH"
     assert too_many.failure_code == "SELECTOR_AMBIGUOUS"
+
+
+# --- what a centre is ------------------------------------------------------
+
+
+def test_a_hole_is_centred_on_its_axis_and_not_on_its_own_surface():
+    """The defect POSTMVP-010 found in the layer POSTMVP-005 built.
+
+    `topology.py` filled `centroid` from build123d's `center()`, which defaults to
+    `CenterOf.GEOMETRY` — the middle of the surface's parameter domain. For a planar
+    face that is the centroid; for a cylinder it is a point *on* the surface, so the
+    centre of a Ø8 hole at x = -50 came back as x = -54.
+
+    Nothing failed, which is what made it worth a test: a document selecting "the face
+    centred on x = -50" simply did not match it, and a document selecting x = -54
+    matched something no drawing describes. Needs the CAD library, so it sits with the
+    reading half rather than the matching half.
+    """
+    build123d = pytest.importorskip("build123d", reason="the CAD engine is not installed")
+    from cad_engine_build123d.topology import read_edges, read_faces
+
+    plate = build123d.Box(60, 40, 10)
+    bore = build123d.Pos(-20, 5, 0) * build123d.Cylinder(radius=4, height=20)
+    part = (plate - bore).clean()
+
+    wall = next(
+        face for face in read_faces(part) if face.surface_type == "cylindrical"
+    )
+    assert (round(wall.centroid[0], 6), round(wall.centroid[1], 6)) == (-20.0, 5.0)
+
+    rim = next(edge for edge in read_edges(part) if edge.curve_type == "circle")
+    assert (round(rim.centroid[0], 6), round(rim.centroid[1], 6)) == (-20.0, 5.0)

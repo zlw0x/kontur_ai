@@ -19,6 +19,8 @@ from .canonical import (
     MIGRATABLE_VERSIONS,
     SUPPORTED_VERSIONS,
     CadIrDocument,
+    DatumPlaneOffsetFeature,
+    PatternFeature,
     ParameterRef,
     ParameterStatus,
     ResultKind,
@@ -153,6 +155,75 @@ def _feature_graph_issues(document: CadIrDocument) -> list[ValidationIssue]:
                 )
     issues.extend(_cycle_issues(document))
     issues.extend(_result_issues(document, position))
+    issues.extend(_pattern_issues(document, position))
+    return issues
+
+
+def _pattern_issues(document: CadIrDocument, position: dict[str, int]) -> list[ValidationIssue]:
+    """A pattern repeats a feature that exists, runs first, and is switched on.
+
+    The last of those is the one worth having. A pattern of six adds five instances
+    to what the source feature already built, so a document that disables the source
+    and leaves the pattern enabled asks for five holes around a hole that is not
+    there — five instances at offsets from a position nothing occupies. It builds, and
+    it is not the part anyone drew.
+    """
+    issues: list[ValidationIssue] = []
+    by_id = {feature.id: feature for feature in document.features}
+    for index, feature in enumerate(document.features):
+        if not isinstance(feature, PatternFeature):
+            continue
+        path = f"$.features[{index}].inputs.of"
+        source = by_id.get(feature.inputs.of)
+        if source is None:
+            issues.append(
+                ValidationIssue(
+                    "FEATURE_DEPENDENCY_MISSING",
+                    path,
+                    f"{feature.id} repeats {feature.inputs.of}, which no feature declares",
+                )
+            )
+            continue
+        if position.get(source.id, index) >= index:
+            issues.append(
+                ValidationIssue(
+                    "FEATURE_ORDER_INVALID",
+                    path,
+                    f"{feature.id} repeats {source.id}, which is not built before it",
+                )
+            )
+        if source.id not in feature.depends_on:
+            # The graph is what the build order comes from, so a pattern that used a
+            # feature without depending on it would be correct only by accident.
+            issues.append(
+                ValidationIssue(
+                    "FEATURE_DEPENDENCY_MISSING",
+                    path,
+                    f"{feature.id} repeats {source.id} but does not depend on it",
+                )
+            )
+        if feature.enabled and not source.enabled:
+            issues.append(
+                ValidationIssue(
+                    "FEATURE_DISABLED_SOURCE",
+                    path,
+                    f"{feature.id} repeats {source.id}, which the document has disabled; "
+                    "a pattern adds instances to the one the source built",
+                )
+            )
+        if isinstance(source, DatumPlaneOffsetFeature):
+            issues.append(
+                ValidationIssue(
+                    "UNSUPPORTED_FEATURE_SET",
+                    path,
+                    f"{feature.id} repeats {source.id}, which builds a plane rather "
+                    "than material",
+                )
+            )
+        if source.id == feature.id:  # pragma: no cover - the cycle check has it too
+            issues.append(
+                ValidationIssue("FEATURE_SELF_REFERENCE", path, f"{feature.id} repeats itself")
+            )
     return issues
 
 

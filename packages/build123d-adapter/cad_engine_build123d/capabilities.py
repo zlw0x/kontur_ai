@@ -31,10 +31,14 @@ from typing import Iterable, Mapping
 
 from cad_ir.canonical import (
     ChamferFeature,
+    CircularPattern,
     CutExtrudeFeature,
     CutRevolveFeature,
     DatumPlaneOffsetFeature,
     FilletFeature,
+    LinearPattern,
+    MirrorPattern,
+    PatternFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
 )
@@ -73,6 +77,9 @@ SKETCH_CONSTRAINTS = "sketch.constraints"
 SKETCH_DIMENSIONS = "sketch.driving_dimensions"
 FEATURE_HOLE_SIMPLE_THROUGH = "feature.hole.simple_through"
 FEATURE_BOSS_ADDITIVE = "feature.boss.additive"
+FEATURE_PATTERN_LINEAR = "feature.pattern.linear"
+FEATURE_PATTERN_CIRCULAR = "feature.pattern.circular"
+FEATURE_MIRROR = "feature.mirror"
 FEATURE_FILLET_CONSTANT = "feature.fillet.constant_radius"
 FEATURE_CHAMFER_EQUAL = "feature.chamfer.equal_distance"
 FEATURE_CHAMFER_ASYMMETRIC = "feature.chamfer.asymmetric"
@@ -137,6 +144,9 @@ DECLARED: Mapping[str, Declaration] = {
     SKETCH_DIMENSIONS: Declaration("beta"),
     FEATURE_HOLE_SIMPLE_THROUGH: Declaration("beta"),
     FEATURE_BOSS_ADDITIVE: Declaration("beta"),
+    FEATURE_PATTERN_LINEAR: Declaration("experimental"),
+    FEATURE_PATTERN_CIRCULAR: Declaration("experimental"),
+    FEATURE_MIRROR: Declaration("experimental"),
     FEATURE_FILLET_CONSTANT: Declaration("experimental"),
     FEATURE_CHAMFER_EQUAL: Declaration("experimental"),
     FEATURE_CHAMFER_ASYMMETRIC: Declaration("experimental"),
@@ -276,6 +286,14 @@ def requirements(document) -> dict[str, str]:
             solids_so_far += 1
         elif isinstance(feature, CutRevolveFeature):
             need(CUT_REVOLVE, f"the revolved cut {feature.id}")
+        elif isinstance(feature, PatternFeature):
+            spec = feature.inputs.pattern
+            key = {
+                LinearPattern: FEATURE_PATTERN_LINEAR,
+                CircularPattern: FEATURE_PATTERN_CIRCULAR,
+                MirrorPattern: FEATURE_MIRROR,
+            }[type(spec)]
+            need(key, f"the pattern {feature.id}")
         elif isinstance(feature, FilletFeature):
             need(FEATURE_FILLET_CONSTANT, f"the fillet {feature.id}")
         elif isinstance(feature, ChamferFeature):
