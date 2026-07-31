@@ -251,42 +251,32 @@ def test_nothing_is_off_by_default():
 # --- honesty about maturity ------------------------------------------------
 
 
-def test_revolve_is_experimental_and_therefore_not_leasable():
-    """One fixture and one day.
+def test_the_corpus_is_what_promoted_the_operations_to_beta():
+    """Every operation arrived `experimental` on one fixture; the corpus is the evidence.
 
-    The API refuses an experimental capability on an ordinary claim, which is the
-    correct answer while nothing in the service can produce a revolve document:
-    the drawing agent cannot read a turned profile and the output profile does
-    not offer the operation.
+    `experimental` means the API will not lease a job needing it. That was the right
+    answer while an operation had one fixture and one day behind it, and the promotion
+    was always meant to be a one-line change with a corpus behind it (POSTMVP-013/014):
+    several sizes, closed-form arithmetic, named refusals, byte-identical repeats.
     """
-    assert caps.DECLARED[caps.SOLID_REVOLVE].status == "experimental"
-    assert caps.DECLARED[caps.CUT_REVOLVE].status == "experimental"
+    for key in (caps.SOLID_REVOLVE, caps.CUT_REVOLVE, caps.FEATURE_FILLET_CONSTANT,
+                caps.FEATURE_CHAMFER_EQUAL, caps.FEATURE_PATTERN_LINEAR,
+                caps.FEATURE_PATTERN_CIRCULAR, caps.FEATURE_MIRROR,
+                caps.FEATURE_BODY_NEW, caps.BOOLEAN_UNION, caps.BOOLEAN_SUBTRACT,
+                caps.BOOLEAN_INTERSECT, caps.SELECTOR_EDGE_CONVEXITY,
+                caps.VALIDATE_SURFACE_FACE_COUNT):
+        assert caps.DECLARED[key].status == "beta", key
 
 
-def test_the_blends_are_experimental_for_a_reason_of_their_own():
-    """A fillet's failure mode is a plausible part, not a refusal.
+def test_the_one_operation_the_corpus_does_not_vary_stays_experimental():
+    """An asymmetric chamfer's distinguishing question has no corpus case.
 
-    Every operation before it built geometry from a profile, so getting it wrong
-    produced something measurably wrong. A blend names existing geometry, so getting
-    it wrong produces a part of the right size with the round in the wrong place —
-    and the only thing that can see it is a face count the reading stage cannot yet
-    state.
+    Which face the first distance is measured from is the whole content of the
+    operation, and the blended-bracket fixture exercises it once without varying it. An
+    operation does not earn a promotion because its neighbours did.
     """
-    for key in (
-        caps.FEATURE_BODY_NEW,
-        caps.BOOLEAN_UNION,
-        caps.BOOLEAN_SUBTRACT,
-        caps.BOOLEAN_INTERSECT,
-        caps.FEATURE_PATTERN_LINEAR,
-        caps.FEATURE_PATTERN_CIRCULAR,
-        caps.FEATURE_MIRROR,
-        caps.FEATURE_FILLET_CONSTANT,
-        caps.FEATURE_CHAMFER_EQUAL,
-        caps.FEATURE_CHAMFER_ASYMMETRIC,
-        caps.SELECTOR_EDGE_CONVEXITY,
-        caps.VALIDATE_SURFACE_FACE_COUNT,
-    ):
-        assert caps.DECLARED[key].status == "experimental"
+    assert caps.DECLARED[caps.FEATURE_CHAMFER_ASYMMETRIC].status == "experimental"
+    assert {declared.status for declared in caps.DECLARED.values()} == {"beta", "experimental"}
 
 
 def test_nothing_on_a_two_milestone_old_engine_claims_to_be_stable():

@@ -113,31 +113,33 @@ class Declaration:
 
 #: Everything this build declares, and how far anyone should trust it.
 #:
-#: **Beta, not stable, across the board.** Each of these has a real acceptance run
-#: and a fixture that builds real geometry in CI, and none of them has the ten
-#: positive and ten negative fixtures the roadmap asks for before an operation is
-#: stable. The KOMPAS worker declared its newest operations beta on exactly that
-#: argument; an engine two milestones old does not get to declare more.
+#: **Nothing here is stable, and everything the golden corpus covers is beta as of
+#: POSTMVP-013/014.** Revolve, the
+#: blends, the patterns, named bodies and the booleans each arrived `experimental` — on
+#: one fixture and one day — and the promotion was always meant to be a one-line change
+#: with a corpus behind it. That corpus now exists: every one of these is built at several
+#: sizes against closed-form arithmetic, refuses a named list of malformed documents with
+#: named codes, and produces byte-identical results twice in a row
+#: (`tests/golden_corpus.py`, `tests/test_corpus.py`).
 #:
-#: **Revolve is experimental**, which the API treats as not leasable at all. One
-#: fixture, one day, and nothing in the service can currently produce a document
-#: that uses it — the drawing agent cannot read a turned profile and the output
-#: profile does not offer the operation. Declaring it beta would advertise a
-#: readiness that has not been earned; declaring it here at all is what makes the
-#: promotion a one-line change with a fixture corpus behind it.
+#: Not stable, and the bar for that is the roadmap's own: Gate P2 asks for 100 golden
+#: models across 30 part types and 99% deterministic build success on a synthetic corpus.
+#: Forty-two cases across fifteen part shapes is a body of evidence; it is not that gate.
 #:
-#: **The blends are experimental for the same reason**, and one more of their own:
-#: a fillet is the first operation whose whole input is a selector, so its failure
-#: mode is a plausible part rather than a refusal. Convexity is listed beside them
-#: because it is a *predicate* rather than an operation, and it deserves its own
-#: switch: it is a measurement this engine makes with a dot product it wrote
-#: itself, and if that turns out to be wrong on some geometry, what has to stop is
-#: every selector that trusts it — not every fillet.
+#: **`feature.chamfer.asymmetric` stays experimental**, alone among the operations. It is
+#: the one whose distinguishing question — which face the first distance is measured from —
+#: has no corpus case: the blended-bracket fixture exercises it and nothing varies it. An
+#: operation has not earned a promotion just because its neighbours did.
+#:
+#: Convexity is listed among the operations because it is a *predicate* rather than one,
+#: and it keeps its own switch: it is a measurement this engine makes with a dot product it
+#: wrote itself, and if that is wrong on some geometry what has to stop is every selector
+#: that trusts it — not every fillet.
 DECLARED: Mapping[str, Declaration] = {
     SOLID_RECTANGULAR_PRISM: Declaration("beta"),
     SOLID_CONTOUR_PROFILE: Declaration("beta"),
-    SOLID_REVOLVE: Declaration("experimental"),
-    CUT_REVOLVE: Declaration("experimental"),
+    SOLID_REVOLVE: Declaration("beta"),
+    CUT_REVOLVE: Declaration("beta"),
     SKETCH_ARC: Declaration("beta"),
     SKETCH_SLOT: Declaration("beta"),
     SKETCH_REGULAR_POLYGON: Declaration("beta"),
@@ -150,23 +152,23 @@ DECLARED: Mapping[str, Declaration] = {
     SKETCH_DIMENSIONS: Declaration("beta"),
     FEATURE_HOLE_SIMPLE_THROUGH: Declaration("beta"),
     FEATURE_BOSS_ADDITIVE: Declaration("beta"),
-    FEATURE_BODY_NEW: Declaration("experimental"),
-    BOOLEAN_UNION: Declaration("experimental"),
-    BOOLEAN_SUBTRACT: Declaration("experimental"),
-    BOOLEAN_INTERSECT: Declaration("experimental"),
-    FEATURE_PATTERN_LINEAR: Declaration("experimental"),
-    FEATURE_PATTERN_CIRCULAR: Declaration("experimental"),
-    FEATURE_MIRROR: Declaration("experimental"),
-    FEATURE_FILLET_CONSTANT: Declaration("experimental"),
-    FEATURE_CHAMFER_EQUAL: Declaration("experimental"),
+    FEATURE_BODY_NEW: Declaration("beta"),
+    BOOLEAN_UNION: Declaration("beta"),
+    BOOLEAN_SUBTRACT: Declaration("beta"),
+    BOOLEAN_INTERSECT: Declaration("beta"),
+    FEATURE_PATTERN_LINEAR: Declaration("beta"),
+    FEATURE_PATTERN_CIRCULAR: Declaration("beta"),
+    FEATURE_MIRROR: Declaration("beta"),
+    FEATURE_FILLET_CONSTANT: Declaration("beta"),
+    FEATURE_CHAMFER_EQUAL: Declaration("beta"),
     FEATURE_CHAMFER_ASYMMETRIC: Declaration("experimental"),
-    SELECTOR_EDGE_CONVEXITY: Declaration("experimental"),
+    SELECTOR_EDGE_CONVEXITY: Declaration("beta"),
     EXPORT_STEP: Declaration("beta"),
     EXPORT_STL: Declaration("beta"),
     VALIDATE_MANIFOLD: Declaration("beta"),
     VALIDATE_BOUNDING_BOX: Declaration("beta"),
     VALIDATE_HOLE_COUNT: Declaration("beta"),
-    VALIDATE_SURFACE_FACE_COUNT: Declaration("experimental"),
+    VALIDATE_SURFACE_FACE_COUNT: Declaration("beta"),
 }
 
 #: Every key this build knows about, so a flag naming something else is refused

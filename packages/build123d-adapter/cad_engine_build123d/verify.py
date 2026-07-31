@@ -514,6 +514,26 @@ def _extent(points: list) -> tuple[float, float, float]:
     return (max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
 
 
+#: One unit in the last place of a single-precision float, relative.
+#:
+#: An STL stores coordinates as 32-bit floats, so an extent read back from one can sit a
+#: rounding step *above* the solid's — which is the one way a mesh may legitimately
+#: overshoot. Found by the golden corpus: a triangular plate's height is 20√3 =
+#: 34.641016151377546 mm, which binary32 keeps as 34.64101791381836, and a flat 1e-6
+#: allowance called that a mesh describing a bigger part than the model.
+FLOAT32_ULP = 2.0**-23
+
+
+def _storage_slack(bounds) -> float:
+    """How far above the solid an honest mesh may measure.
+
+    Two units in the last place of the largest extent: one for each end of it, since a
+    bounding box is the difference of two stored coordinates. Never below a micron, so a
+    small part keeps the absolute floor the check started with.
+    """
+    return max(1e-6, 2 * FLOAT32_ULP * max(abs(value) for value in bounds))
+
+
 def _compare_bounds(step_bounds, mesh_bounds, checks: list[Check]) -> None:
     """The mesh must describe the same part as the solid, allowing for chords.
 
@@ -524,13 +544,14 @@ def _compare_bounds(step_bounds, mesh_bounds, checks: list[Check]) -> None:
     """
     worst = max(step - mesh for step, mesh in zip(step_bounds, mesh_bounds, strict=True))
     overshoot = max(mesh - step for step, mesh in zip(step_bounds, mesh_bounds, strict=True))
-    within = worst <= MESH_CHORD_TOLERANCE_MM and overshoot <= 1e-6
+    within = worst <= MESH_CHORD_TOLERANCE_MM and overshoot <= _storage_slack(step_bounds)
     checks.append(
         Check(
             "mesh_matches_solid",
             within,
             f"STEP {_round(step_bounds)} against STL {_round(mesh_bounds)}; the mesh sits "
-            f"{worst:.4f} mm inside and {overshoot:.4f} mm outside.",
+            f"{worst:.4f} mm inside and {overshoot:.6f} mm outside, against "
+            f"{_storage_slack(step_bounds):.6f} mm of single-precision storage slack.",
         )
     )
 
@@ -541,6 +562,7 @@ def _round(values) -> list:
 
 __all__ = [
     "Check",
+    "FLOAT32_ULP",
     "Expectations",
     "MESH_CHORD_TOLERANCE_MM",
     "MeshFacts",

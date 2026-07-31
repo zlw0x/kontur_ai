@@ -76,6 +76,13 @@ def contour_wire(contour, params) -> Wire:
     raise unsupported(f"This engine cannot draw a {type(contour).__name__}.")
 
 
+#: How much area an island has to remove to count as being inside the profile.
+#:
+#: A square micron. Small enough that a genuine hole always clears it, large enough that
+#: the kernel's arithmetic on a boolean cannot fake it.
+ISLAND_AREA_TOLERANCE_MM2 = 1e-6
+
+
 def sketch_face(outer, inner: list, params) -> Face:
     """The outer contour with its islands removed.
 
@@ -94,8 +101,23 @@ def sketch_face(outer, inner: list, params) -> Face:
             raise CadEngineError(
                 "SKETCH_INVALID", "sketch", "An island does not bound a valid face."
             )
+        before = float(face.area)
         remaining = face - hole
         faces = remaining.faces()
+        if len(faces) == 1 and float(faces[0].area) >= before - ISLAND_AREA_TOLERANCE_MM2:
+            # The island removed nothing, which means it is not in the profile at all —
+            # it sits beside the part. Found by the golden corpus (POSTMVP-013): the
+            # region count below catches an island that swallows the profile or cuts it
+            # in two, and one that misses entirely leaves exactly one region of exactly
+            # the same size. So the engine built a plate with no hole in it and reported
+            # success, and the only thing that would have noticed is a through-hole
+            # expectation the document might not carry.
+            raise CadEngineError(
+                "SKETCH_ISLAND_OUTSIDE_PROFILE",
+                "sketch",
+                "An island removes no area from the profile, so it lies outside it. A "
+                "hole beside the part is a document that means something else.",
+            )
         if len(faces) != 1:
             # Zero means the island swallowed the profile; more than one means it
             # cut it in two. Either way the document did not describe a plate with
