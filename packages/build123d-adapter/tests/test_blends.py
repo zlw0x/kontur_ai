@@ -43,7 +43,7 @@ BORE_RADIUS = 5.0
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "blended-bracket.v1_6.json").read_text("utf-8"))
+    return json.loads((FIXTURES / "blended-bracket.v1_7.json").read_text("utf-8"))
 
 
 def built(value: dict):
@@ -165,7 +165,7 @@ def test_convexity_tells_a_corner_from_the_root_of_a_boss():
       ask the kernel to round something already round.
     - **nothing at all**: the three seams.
     """
-    part = built(json.loads((FIXTURES / "lever-plate.v1_6.json").read_text("utf-8")))
+    part = built(json.loads((FIXTURES / "lever-plate.v1_7.json").read_text("utf-8")))
     edges = read_edges(part)
     found = collections.Counter(edge.convexity for edge in edges)
     assert found["concave"] == 7
@@ -279,13 +279,16 @@ def test_a_negative_radius_is_refused_before_the_kernel_is_asked():
     assert raised.value.code == "DIMENSION_OUT_OF_RANGE"
 
 
-def test_a_blend_with_nothing_built_yet_says_so():
+def test_a_blend_of_a_body_nothing_built_names_the_body():
     """The base extrusion turned off and the fillet left on.
 
     A valid document — a disabled feature is a document saying "not this one"
-    (ADR-021) — and one no earlier operation could produce, because everything
-    before a blend built its own geometry. The refusal has to name the situation
-    rather than fail somewhere inside the selector on a part that is `None`.
+    (ADR-021) — and one no earlier operation could produce, because everything before
+    a blend built its own geometry.
+
+    Since CAD-IR 1.7 the refusal is more precise than it was: with bodies named, the
+    problem is not "nothing exists" but "the body this selector names does not", and
+    the message lists what was built instead.
     """
     value = bracket()
     value["features"] = [
@@ -296,8 +299,9 @@ def test_a_blend_with_nothing_built_yet_says_so():
     value["features"][1]["depends_on"] = ["feature.plate"]
     with pytest.raises(CadEngineError) as raised:
         built(value)
-    assert raised.value.code == "UNSUPPORTED_FEATURE_SET"
-    assert "nothing has been built" in raised.value.safe_message
+    assert raised.value.code == "FEATURE_RESULT_UNAVAILABLE"
+    assert "body.main" in raised.value.safe_message
+    assert "No body has been built yet" in raised.value.safe_message
 
 
 # --- the asymmetric chamfer -----------------------------------------------

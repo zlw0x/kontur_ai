@@ -360,13 +360,18 @@ def _read_stl(path: Path, checks: list[Check], expectations: Expectations) -> Me
 def _genus(triangles: list[tuple], vertices: int) -> int:
     """How many holes go all the way through, by Euler's formula on the mesh.
 
-    V - E + F = 2 - 2g for a closed orientable surface, so the genus counts the
-    handles — which for a plate is exactly the number of through holes. Counted
-    on the triangulation rather than on the B-rep on purpose: a B-rep counts a
-    full circle as one edge with one vertex and adds a seam to the cylinder, so
-    Euler's formula over faces and edges gives 0 for a plate that plainly has a
+    V - E + F = 2c - 2g for a closed orientable surface of `c` components, so the
+    genus counts the handles — which for a plate is exactly the number of through
+    holes. Counted on the triangulation rather than on the B-rep on purpose: a B-rep
+    counts a full circle as one edge with one vertex and adds a seam to the cylinder,
+    so Euler's formula over faces and edges gives 0 for a plate that plainly has a
     hole in it. That was measured here, not assumed — the first version of this
     check read genus 0 for a one-hole plate and -1 for a two-hole one.
+
+    The component count is not decoration either. Multi-body parts arrived with
+    CAD-IR 1.7, and with `c` assumed to be 1 two solid lumps with no holes in them
+    came out as genus −1: a part the document said had no through holes reported a
+    negative number of them.
 
     Derived rather than counted from cylindrical faces, because a blind hole and
     a through hole both have one cylinder and only one of them is a handle.
@@ -376,7 +381,36 @@ def _genus(triangles: list[tuple], vertices: int) -> int:
         for triangle in triangles
         for index in range(3)
     }
-    return (2 - (vertices - len(edges) + len(triangles))) // 2
+    characteristic = vertices - len(edges) + len(triangles)
+    return (2 * _components(triangles) - characteristic) // 2
+
+
+def _components(triangles: list[tuple]) -> int:
+    """How many separate closed surfaces the mesh describes.
+
+    Union-find over the triangles' vertices: two triangles sharing a vertex are on the
+    same surface. A part of two disjoint bodies is two components, and Euler's formula
+    needs to know.
+    """
+    parent: dict[tuple, tuple] = {}
+
+    def find(key: tuple) -> tuple:
+        parent.setdefault(key, key)
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    def union(left: tuple, right: tuple) -> None:
+        left, right = find(left), find(right)
+        if left != right:
+            parent[left] = right
+
+    for triangle in triangles:
+        keys = [_vertex_key(point) for point in triangle]
+        union(keys[0], keys[1])
+        union(keys[1], keys[2])
+    return len({find(key) for key in parent}) or 1
 
 
 def _parse_stl(payload: bytes) -> list[tuple]:

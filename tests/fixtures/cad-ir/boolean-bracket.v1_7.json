@@ -1,0 +1,282 @@
+{
+  "document": {
+    "coordinate_system": "right_handed",
+    "name": "boolean-bracket",
+    "part_type": "single_part",
+    "units": "mm"
+  },
+  "expectations": [
+    {
+      "id": "inv_bbox",
+      "size_mm": {
+        "x": 80.0,
+        "y": 138.0,
+        "z": 24.0
+      },
+      "tolerance_mm": 0.05,
+      "type": "bounding_box"
+    },
+    {
+      "id": "inv_bodies",
+      "type": "body_count",
+      "value": 2
+    },
+    {
+      "id": "inv_holes",
+      "type": "through_hole_count",
+      "value": 1
+    }
+  ],
+  "features": [
+    {
+      "depends_on": [],
+      "enabled": true,
+      "id": "feature.plate",
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "plate_thickness"
+        },
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.plate",
+          "inner": [],
+          "outer": {
+            "center": [
+              0.0,
+              0.0
+            ],
+            "height": 40.0,
+            "rotation_deg": 0.0,
+            "type": "rectangle",
+            "width": 80.0
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        }
+      },
+      "produces": [
+        {
+          "id": "body.main",
+          "kind": "solid_body"
+        }
+      ],
+      "type": "solid.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.plate"
+      ],
+      "enabled": true,
+      "id": "feature.rib",
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "rib_thickness"
+        },
+        "new_body": true,
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.rib",
+          "inner": [],
+          "outer": {
+            "center": [
+              30.0,
+              0.0
+            ],
+            "height": 60.0,
+            "rotation_deg": 0.0,
+            "type": "rectangle",
+            "width": 20.0
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        }
+      },
+      "produces": [
+        {
+          "id": "body.rib",
+          "kind": "solid_body"
+        }
+      ],
+      "type": "solid.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.plate",
+        "feature.rib"
+      ],
+      "enabled": true,
+      "id": "feature.weld_rib",
+      "inputs": {
+        "keep_tools": false,
+        "op": "union",
+        "target": {
+          "result": "body.main"
+        },
+        "tools": [
+          {
+            "result": "body.rib"
+          }
+        ]
+      },
+      "produces": [],
+      "type": "feature.boolean"
+    },
+    {
+      "depends_on": [
+        "feature.plate"
+      ],
+      "enabled": true,
+      "id": "feature.punch",
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "stud_height"
+        },
+        "new_body": true,
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.punch",
+          "inner": [],
+          "outer": {
+            "center": [
+              -25.0,
+              0.0
+            ],
+            "radius": {
+              "parameter": "stud_radius"
+            },
+            "type": "circle"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        }
+      },
+      "produces": [
+        {
+          "id": "body.punch",
+          "kind": "solid_body"
+        }
+      ],
+      "type": "solid.extrude"
+    },
+    {
+      "depends_on": [
+        "feature.plate",
+        "feature.punch",
+        "feature.weld_rib"
+      ],
+      "enabled": true,
+      "id": "feature.bore",
+      "inputs": {
+        "keep_tools": false,
+        "op": "subtract",
+        "target": {
+          "result": "body.main"
+        },
+        "tools": [
+          {
+            "result": "body.punch"
+          }
+        ]
+      },
+      "produces": [],
+      "type": "feature.boolean"
+    },
+    {
+      "depends_on": [
+        "feature.plate"
+      ],
+      "enabled": true,
+      "id": "feature.stud",
+      "inputs": {
+        "direction": "+Z",
+        "distance": {
+          "parameter": "stud_height"
+        },
+        "new_body": true,
+        "sketch": {
+          "constraints": [],
+          "construction": [],
+          "dimensions": [],
+          "id": "sketch.stud",
+          "inner": [],
+          "outer": {
+            "center": [
+              0.0,
+              100.0
+            ],
+            "radius": {
+              "parameter": "stud_radius"
+            },
+            "type": "circle"
+          },
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          }
+        }
+      },
+      "produces": [
+        {
+          "id": "body.stud",
+          "kind": "solid_body"
+        }
+      ],
+      "type": "solid.extrude"
+    }
+  ],
+  "metadata": {
+    "generator": "fixture",
+    "generator_version": "1.7"
+  },
+  "parameters": [
+    {
+      "id": "plate_thickness",
+      "name": "Plate thickness",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 10.0
+    },
+    {
+      "id": "rib_thickness",
+      "name": "Rib thickness",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 10.0
+    },
+    {
+      "id": "stud_radius",
+      "name": "Stud radius",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 8.0
+    },
+    {
+      "id": "stud_height",
+      "name": "Stud height",
+      "status": "confirmed",
+      "type": "length",
+      "unit": "mm",
+      "value": 24.0
+    }
+  ],
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.7"
+}

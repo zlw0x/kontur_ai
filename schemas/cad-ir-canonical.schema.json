@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.6",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.7",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -166,6 +166,107 @@
       ],
       "title": "BodyCountExpectation",
       "type": "object"
+    },
+    "BooleanFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "feature.boolean",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 0,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/BooleanInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "BooleanFeature",
+      "type": "object"
+    },
+    "BooleanInputs": {
+      "additionalProperties": false,
+      "description": "One boolean: a target body, one or more tool bodies, and what to do.\n\n`keep_tools` decides whether the tools survive as bodies of their own. The default\nis that they do not, because a tool that stays behind is a second lump in the\ndelivered STEP and a document should have to ask for that.",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/BooleanOp"
+        },
+        "target": {
+          "$ref": "#/$defs/ResultRef"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ResultRef"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Tools",
+          "type": "array"
+        },
+        "keep_tools": {
+          "default": false,
+          "title": "Keep Tools",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "target",
+        "tools"
+      ],
+      "title": "BooleanInputs",
+      "type": "object"
+    },
+    "BooleanOp": {
+      "description": "What to do with the tools, in the words the roadmap uses (P2.6).",
+      "enum": [
+        "union",
+        "subtract",
+        "intersect"
+      ],
+      "title": "BooleanOp",
+      "type": "string"
     },
     "BoundingBoxExpectation": {
       "additionalProperties": false,
@@ -2416,6 +2517,11 @@
             }
           ],
           "default": null
+        },
+        "new_body": {
+          "default": false,
+          "title": "New Body",
+          "type": "boolean"
         }
       },
       "required": [
@@ -2893,6 +2999,11 @@
             }
           ],
           "default": null
+        },
+        "new_body": {
+          "default": false,
+          "title": "New Body",
+          "type": "boolean"
         }
       },
       "required": [
@@ -3124,8 +3235,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.6",
-      "default": "1.6",
+      "const": "1.7",
+      "default": "1.7",
       "title": "Schema Version",
       "type": "string"
     },
@@ -3156,6 +3267,7 @@
             "cut.extrude": "#/$defs/CutExtrudeFeature",
             "cut.revolve": "#/$defs/CutRevolveFeature",
             "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
+            "feature.boolean": "#/$defs/BooleanFeature",
             "feature.chamfer": "#/$defs/ChamferFeature",
             "feature.fillet": "#/$defs/FilletFeature",
             "feature.pattern": "#/$defs/PatternFeature",
@@ -3188,6 +3300,9 @@
           },
           {
             "$ref": "#/$defs/PatternFeature"
+          },
+          {
+            "$ref": "#/$defs/BooleanFeature"
           }
         ]
       },

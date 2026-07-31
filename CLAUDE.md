@@ -31,11 +31,12 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.6** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.7** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
-  and mirror (`docs/adr/ADR-027-*`).
+  and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
+  (`docs/adr/ADR-028-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -84,8 +85,31 @@ The clearest illustration of why a shape claim exists lives here: twelve instanc
 apart is six holes drilled twice, the part is identical to the correct one, every
 measurement passes — and the claim catches it, because it compares stated counts.
 
-**What is next**: hole families, boolean and multi-body, then the golden corpus and the
-reliability gate. Sweep, loft and shell come after the basics are stable.
+**A body is a thing the document names** (POSTMVP-012, ADR-028). `source_body` had been
+in the contract since 1.1 and the engine ignored it, because there was only ever one
+body; now a body is created by name (`new_body`, which must name its `produces` entry),
+targeted by name, and combined by name through `feature.boolean`. A feature that says
+neither still targets **the active body** — the last one created or modified — which is
+what every document written before 1.7 means and why the change is invisible to them.
+`from_result` on a selector finally decides something, `body_count` can finally be
+anything but 1, and several bodies export as a compound rather than being fused.
+
+The claim decision that came with it is the biggest so far: **a subtracted tool body is
+an opening, not a lump of material.** With booleans, what the part *is* can no longer be
+read off feature types alone. `solids` (what a reader counts on a drawing) and
+`body_count` (what the delivered file contains) stay different questions — the bracket
+fixture declares two bodies and satisfies a claim of three solids.
+
+**POSTMVP-011 (hole families) is deliberately not a new operation.** Everything P2.3
+lists is already expressible by composition: a through hole is a `cut.extrude` with
+`through_all`, a blind one carries a distance, a countersink is a chamfer of the rim, a
+series is a pattern, a hole on a face is a sketch on a face selector. A `feature.hole`
+would be a second way to say what CAD-IR already says, and every extra type in the
+contract is another thing to validate. What is genuinely missing is a thread callout,
+which is a manufacturing note rather than geometry.
+
+**What is next**: the golden corpus and the reliability gate (POSTMVP-013/014), which is
+what promotes any of this out of `experimental`. Sweep, loft and shell come after.
 `docs/POST-MVP-ROADMAP.md` has the order.
 
 Two things left over from the migration, both named in

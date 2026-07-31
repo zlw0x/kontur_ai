@@ -55,6 +55,7 @@ def validate_canonical(value: dict[str, Any]) -> CadIrDocument:
 
     issues = (
         _feature_graph_issues(document)
+        + _body_issues(document)
         + _selector_issues(document)
         + _parameter_issues(document)
         + _expectation_issues(document)
@@ -296,6 +297,33 @@ def _result_issues(document: CadIrDocument, position: dict[str, int]) -> list[Va
                         f"{feature.id} uses {reference.result} but does not depend on {producer}",
                     )
                 )
+    return issues
+
+
+def _body_issues(document: CadIrDocument) -> list[ValidationIssue]:
+    """A feature that starts a body must name it, and a boolean must have one to work on.
+
+    A body nothing can name is a body no selector and no boolean can reach, so it could
+    never be cut, blended or combined — it would arrive in the delivered STEP as a lump
+    with no history. The name is the `produces` entry, which every other operation
+    already uses to say what it made.
+    """
+    issues: list[ValidationIssue] = []
+    for index, feature in enumerate(document.features):
+        if not getattr(feature.inputs, "new_body", False):
+            continue
+        bodies = [
+            result for result in feature.produces if result.kind is ResultKind.SOLID_BODY
+        ]
+        if len(bodies) != 1:
+            issues.append(
+                ValidationIssue(
+                    "CAD_IR_INVALID",
+                    f"$.features[{index}].produces",
+                    f"{feature.id} starts a body of its own and must name exactly one "
+                    f"solid_body result; it names {len(bodies)}",
+                )
+            )
     return issues
 
 

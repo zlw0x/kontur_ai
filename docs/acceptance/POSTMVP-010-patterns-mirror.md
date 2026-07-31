@@ -6,7 +6,7 @@ Design decisions in `docs/adr/ADR-027-*`. What follows is what was run.
 
 ## What was run
 
-`tests/fixtures/cad-ir/patterned-flange.v1_6.json`, through the real engine's real
+`tests/fixtures/cad-ir/patterned-flange.v1_7.json`, through the real engine's real
 command line. A 120 × 80 × 8 plate carrying **twelve openings written as three cuts and
 four patterns**:
 

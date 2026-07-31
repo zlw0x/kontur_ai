@@ -11,7 +11,7 @@ could say so.
 
 ### 1. The failure, through the real engine's real command line
 
-`tests/fixtures/cad-ir/lever-plate.v1_6.json` — a stadium outline, two Ø8 holes, a
+`tests/fixtures/cad-ir/lever-plate.v1_7.json` — a stadium outline, two Ø8 holes, a
 pin standing on it — with a claim that reads the outline as a rectangle. Everything
 else in the claim is right, and the document is valid, buildable and measures
 exactly what it declares.

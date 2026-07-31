@@ -18,6 +18,7 @@ from pathlib import Path
 
 from build123d import Plane, export_step, export_stl, extrude, revolve
 from cad_ir.canonical import (
+    BooleanFeature,
     CadIrDocument,
     ChamferFeature,
     CutExtrudeFeature,
@@ -33,6 +34,8 @@ from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
 from . import patterns
 from .blends import blend
+from .bodies import Bodies
+from .booleans import combine as combine_bodies
 from .capabilities import CapabilityGate, requirements
 from .constraints import DegreesOfFreedom, validate
 from .entities import named_entities
@@ -98,7 +101,9 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
     # to prevent.
     (gate or CapabilityGate.all_enabled()).require_all(requirements(document))
 
-    part = None
+    #: Every lump of material, by the name the document gave it (ADR-028). One body
+    #: is the ordinary case and behaves exactly as the single running solid did.
+    bodies = Bodies()
     #: Datum planes, by the id of the result they produce, so a later sketch can
     #: name one. Named, never indexed — the rule ADR-019 sets for faces holds
     #: one level down for planes.
@@ -122,35 +127,120 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
             planes[_plane_result_id(feature)] = _offset_plane(feature, planes, params)
             continue
 
-        if isinstance(feature, (SolidExtrudeFeature, CutExtrudeFeature)):
-            part = _extrude_feature(feature, part, planes, params)
-            continue
-
-        if isinstance(feature, (SolidRevolveFeature, CutRevolveFeature)):
-            part = _revolve_feature(feature, part, planes, params)
+        if isinstance(
+            feature,
+            (SolidExtrudeFeature, CutExtrudeFeature, SolidRevolveFeature, CutRevolveFeature),
+        ):
+            _apply_solid_feature(feature, bodies, planes, params)
             continue
 
         if isinstance(feature, PatternFeature):
-            part = patterns.apply(feature, part, planes, params, sources, _tool_of)
+            # The instances go where the source's own contribution went, so the
+            # pattern targets the body the feature it repeats targeted.
+            target = _pattern_target(feature, sources, bodies)
+            bodies.replace(
+                target,
+                patterns.apply(
+                    feature, bodies.solid_at(target), planes, params, sources, _tool_of
+                ),
+            )
             continue
 
         if isinstance(feature, (FilletFeature, ChamferFeature)):
             # Resolved against the part as it is at this point in the sequence,
             # like every other selector: an edge that a later cut will remove is
             # still an edge now, and a blend applied to yesterday's topology is an
-            # index by another name.
-            part = blend(feature, part, params)
+            # index by another name. Which body, now that there can be several, is
+            # what the selector's `from_result` says.
+            target = bodies.locate(str(feature.inputs.edges.from_result), str(feature.id))
+            bodies.replace(target, blend(feature, bodies.solid_at(target), params))
+            continue
+
+        if isinstance(feature, BooleanFeature):
+            combine_bodies(feature, bodies)
             continue
 
         raise unsupported(
             f"This engine cannot build a {feature.type} feature yet.", "feature"
         )
 
-    if part is None:
+    return bodies.result()
+
+
+def _apply_solid_feature(feature, bodies: Bodies, planes: dict[str, Plane], params) -> None:
+    """One extrusion or revolve, into the body the document says.
+
+    Which body is decided *before* the tool is made, because a through-all cut is
+    measured from the body it cuts and a sketch on a face is resolved against the body
+    that carries it.
+    """
+    inputs = feature.inputs
+    is_cut = isinstance(feature, (CutExtrudeFeature, CutRevolveFeature))
+    starts_body = bool(getattr(inputs, "new_body", False))
+    named = getattr(inputs, "source_body", None)
+
+    target = None if starts_body else bodies.locate(
+        None if named is None else str(named.result), str(feature.id)
+    )
+    base = bodies.solid_at(target)
+    solid, is_cut = _tool_of(feature, base, planes, params, bodies)
+
+    if is_cut:
+        if target is None:  # pragma: no cover - the tool-maker refuses first
+            raise CadEngineError(
+                "UNSUPPORTED_FEATURE_SET",
+                "feature",
+                f"{feature.id} cuts, but nothing has been built for it to cut.",
+            )
+        bodies.replace(target, _combine(base, solid, True))
+        return
+
+    if target is None:
+        bodies.create(solid, _body_names(feature))
+        return
+    bodies.replace(target, _combine(base, solid, False))
+    # A feature that adds to a body may name a result of its own, and that name
+    # refers to the body it added to rather than to something new.
+    bodies.alias(target, _body_names(feature))
+
+
+def _body_names(feature) -> set[str]:
+    """Every solid-body result this feature declares."""
+    return {
+        str(result.id)
+        for result in feature.produces
+        if str(result.kind) == "solid_body"
+    }
+
+
+def _pattern_target(feature, sources, bodies: Bodies) -> int:
+    """The body a pattern's instances belong to.
+
+    Followed down the chain of `of` references to the feature that actually builds
+    something, because a pattern of a pattern of a cut is still about the body that cut
+    was made in.
+    """
+    seen: set[str] = set()
+    current = feature
+    while isinstance(current, PatternFeature):
+        name = str(current.inputs.of)
+        if name in seen:  # pragma: no cover - the validator refuses cycles
+            break
+        seen.add(name)
+        current = sources.get(name)
+        if current is None:  # pragma: no cover - the validator refuses this
+            break
+    named = getattr(getattr(current, "inputs", None), "source_body", None)
+    target = bodies.locate(
+        None if named is None else str(named.result), str(feature.id)
+    )
+    if target is None:
         raise CadEngineError(
-            "UNSUPPORTED_FEATURE_SET", "prepare", "The document builds no solid."
+            "UNSUPPORTED_FEATURE_SET",
+            "feature",
+            f"{feature.id} repeats a feature, but nothing has been built.",
         )
-    return part
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +248,7 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
 # ---------------------------------------------------------------------------
 
 
-def _tool_of(feature, part, planes: dict[str, Plane], params):
+def _tool_of(feature, part, planes: dict[str, Plane], params, bodies=None):
     """The solid a feature contributes, and whether it is removed.
 
     The one place a pattern is allowed to ask "what does this feature build?", so
@@ -166,9 +256,9 @@ def _tool_of(feature, part, planes: dict[str, Plane], params):
     for cannot be patterned, and says so rather than being repeated as nothing.
     """
     if isinstance(feature, (SolidExtrudeFeature, CutExtrudeFeature)):
-        return _extrude_tool(feature, part, planes, params)
+        return _extrude_tool(feature, part, planes, params, bodies)
     if isinstance(feature, (SolidRevolveFeature, CutRevolveFeature)):
-        return _revolve_tool(feature, part, planes, params)
+        return _revolve_tool(feature, part, planes, params, bodies)
     raise unsupported(
         f"A {feature.type} feature cannot be repeated: this engine can only make a "
         "tool for an operation that extrudes or revolves a profile.",
@@ -176,12 +266,7 @@ def _tool_of(feature, part, planes: dict[str, Plane], params):
     )
 
 
-def _extrude_feature(feature, part, planes: dict[str, Plane], params):
-    solid, is_cut = _extrude_tool(feature, part, planes, params)
-    return _combine(part, solid, is_cut)
-
-
-def _extrude_tool(feature, part, planes: dict[str, Plane], params):
+def _extrude_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
     """The solid this extrusion contributes, and whether it is removed.
 
     Split from applying it so a pattern can ask for the same solid again and place
@@ -192,7 +277,7 @@ def _extrude_tool(feature, part, planes: dict[str, Plane], params):
     sketch = feature.inputs.sketch
     _check_assertions(sketch, params)
 
-    plane = _sketch_plane(sketch.plane, planes, part)
+    plane = _sketch_plane(sketch.plane, planes, part, bodies)
     face = sketch_face(sketch.outer, list(sketch.inner), params)
 
     is_cut = isinstance(feature, CutExtrudeFeature)
@@ -235,12 +320,7 @@ def _extrude_tool(feature, part, planes: dict[str, Plane], params):
     return solid, is_cut
 
 
-def _revolve_feature(feature, part, planes: dict[str, Plane], params):
-    solid, is_cut = _revolve_tool(feature, part, planes, params)
-    return _combine(part, solid, is_cut)
-
-
-def _revolve_tool(feature, part, planes: dict[str, Plane], params):
+def _revolve_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
     """A profile turned about a line in its own sketch plane.
 
     The first operation this service gained after the engine changed, and the
@@ -253,7 +333,7 @@ def _revolve_tool(feature, part, planes: dict[str, Plane], params):
     sketch = inputs.sketch
     _check_assertions(sketch, params)
 
-    plane = _sketch_plane(sketch.plane, planes, part)
+    plane = _sketch_plane(sketch.plane, planes, part, bodies)
     face = sketch_face(sketch.outer, list(sketch.inner), params)
 
     points = axis_points(inputs, sketch, params)
@@ -370,7 +450,7 @@ def _check_assertions(sketch, params) -> DegreesOfFreedom | None:
     return validate(entities, list(sketch.constraints), list(sketch.dimensions), params)
 
 
-def _sketch_plane(spec, planes: dict[str, Plane], part) -> Plane:
+def _sketch_plane(spec, planes: dict[str, Plane], part, bodies=None) -> Plane:
     if isinstance(spec, SketchOnBasePlane):
         plane = BASE_PLANES.get(str(spec.plane))
         if plane is None:
@@ -389,6 +469,11 @@ def _sketch_plane(spec, planes: dict[str, Plane], part) -> Plane:
             )
         return plane
     if isinstance(spec, SketchOnFace):
+        # The body the selector names, when there is more than one to choose from.
+        # With a single body this is the same object the feature targets, which is why
+        # nothing before 1.7 had to say which body it meant.
+        named = None if bodies is None else bodies.find(str(spec.face.from_result))
+        part = named if named is not None else part
         if part is None:
             raise CadEngineError(
                 "FEATURE_RESULT_UNAVAILABLE",

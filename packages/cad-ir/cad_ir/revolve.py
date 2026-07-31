@@ -86,6 +86,8 @@ class RevolveInputs(StrictModel):
     angle_deg: Scalar = 360.0
     both_directions: bool = False
     source_body: ResultRef | None = None
+    #: A body of its own rather than an addition to the one being built (1.7).
+    new_body: bool = False
 
     @model_validator(mode="after")
     def validate_angle(self) -> "RevolveInputs":

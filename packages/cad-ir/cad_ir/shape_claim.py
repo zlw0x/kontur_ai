@@ -39,10 +39,12 @@ from pydantic import Field
 
 from .base import Id, ParameterRef, StrictModel
 from .canonical import (
+    BooleanFeature,
     CadIrDocument,
     CutExtrudeFeature,
     CutRevolveFeature,
     PatternFeature,
+    ResultKind,
     SolidExtrudeFeature,
     SolidRevolveFeature,
     instance_count,
@@ -182,10 +184,13 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
     would be the document checking itself.
     """
     repeats = _repeats(document)
+    subtracted, consumed = _boolean_roles(document)
     solids = [
         feature
         for feature in document.features
-        if feature.enabled and isinstance(feature, (SolidExtrudeFeature, SolidRevolveFeature))
+        if feature.enabled
+        and isinstance(feature, (SolidExtrudeFeature, SolidRevolveFeature))
+        and str(feature.id) not in consumed
     ]
     if not solids:
         return [
@@ -200,9 +205,54 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
     found: list[Disagreement] = []
     found.extend(_profile_disagreement(solids[0], claim))
     found.extend(_solid_count_disagreement(solids, claim, repeats))
-    found.extend(_opening_disagreements(document, claim, repeats))
+    found.extend(_opening_disagreements(document, claim, repeats, subtracted))
     found.extend(_thickness_disagreement(solids[0], claim))
     return found
+
+
+def _boolean_roles(document: CadIrDocument) -> tuple[set[str], set[str]]:
+    """What the booleans do to the features that built their tool bodies.
+
+    CAD-IR 1.7 makes this the claim's problem, because with booleans "what the part is"
+    can no longer be read off feature types alone. A block extruded and then *subtracted*
+    from the plate is a hole on the drawing, not a lump of metal — and before this it was
+    counted as a solid and its opening was counted not at all.
+
+    Returns the feature ids whose body ends up as an opening, and the ids that are no
+    longer lumps of material. A tool the document keeps is both: it cuts the target and
+    survives as a body of its own.
+
+    A `union` is deliberately absent from both sets. A rib welded on by a boolean is the
+    same thing to a reader as a boss fused implicitly, and the claim has counted the
+    latter as its own lump since ADR-025.
+    """
+    creators: dict[str, str] = {}
+    for feature in document.features:
+        if not feature.enabled:
+            continue
+        for result in feature.produces:
+            if result.kind is ResultKind.SOLID_BODY:
+                creators[str(result.id)] = str(feature.id)
+
+    subtracted: set[str] = set()
+    consumed: set[str] = set()
+    for feature in document.features:
+        if not feature.enabled or not isinstance(feature, BooleanFeature):
+            continue
+        operation = str(feature.inputs.op)
+        for tool in feature.inputs.tools:
+            creator = creators.get(str(tool.result))
+            if creator is None:
+                continue
+            if operation == "subtract":
+                subtracted.add(creator)
+            if operation in ("subtract", "intersect") and not feature.inputs.keep_tools:
+                consumed.add(creator)
+            elif operation == "union" and not feature.inputs.keep_tools:
+                # Fused in, so it is not a body any more — but it is still a lump of
+                # material a reader counts, exactly like a boss.
+                pass
+    return subtracted, consumed
 
 
 def _repeats(document: CadIrDocument) -> dict[str, int]:
@@ -306,7 +356,10 @@ def _solid_count_disagreement(
 
 
 def _opening_disagreements(
-    document: CadIrDocument, claim: ShapeClaim, repeats: dict[str, int]
+    document: CadIrDocument,
+    claim: ShapeClaim,
+    repeats: dict[str, int],
+    subtracted: frozenset[str] | set[str] = frozenset(),
 ) -> list[Disagreement]:
     """Openings, counted by kind wherever they are built.
 
@@ -328,6 +381,10 @@ def _opening_disagreements(
         instances = repeats.get(str(feature.id), 1)
         contours = list(sketch.inner)
         if isinstance(feature, (CutExtrudeFeature, CutRevolveFeature)):
+            contours.append(sketch.outer)
+        elif str(feature.id) in subtracted:
+            # A body extruded and then subtracted is a hole on the drawing. The shape
+            # of the opening is the shape of the tool's own outline (ADR-028).
             contours.append(sketch.outer)
         for contour in contours:
             built[type(contour)] = built.get(type(contour), 0) + instances

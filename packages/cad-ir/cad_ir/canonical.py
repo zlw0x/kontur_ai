@@ -51,6 +51,11 @@ from .blend import (  # re-exported alongside the document
     FilletFeature,
     FilletInputs,
 )
+from .boolean import (  # re-exported alongside the document
+    BooleanFeature,
+    BooleanInputs,
+    BooleanOp,
+)
 from .constraints import (  # re-exported alongside the document
     ConstraintKind,
     DimensionKind,
@@ -81,11 +86,11 @@ from .revolve import (  # re-exported alongside the document
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.6"
+CAD_IR_VERSION = "1.7"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.6",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.7",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -93,7 +98,7 @@ SUPPORTED_VERSIONS: tuple[str, ...] = ("1.6",)
 #: adapter. A document declaring an old version while using a new entity would
 #: otherwise be accepted — and a document lying about its version is the start of
 #: a compatibility problem, not the end of one.
-MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3", "1.4", "1.5")
+MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6")
 
 class ParameterType(StrEnum):
     LENGTH = "length"
@@ -163,7 +168,21 @@ class SolidExtrudeInputs(StrictModel):
     sketch: Sketch
     direction: Direction
     distance: Scalar
+    #: Which body this joins. Nothing means the one being built — the behaviour every
+    #: document before 1.7 relies on and the one a boss on a plate wants.
     source_body: ResultRef | None = None
+    #: A separate lump of material rather than an addition to one. The feature must
+    #: then name the body it makes, because a body nothing can name is a body no
+    #: selector and no boolean can reach.
+    new_body: bool = False
+
+    @model_validator(mode="after")
+    def validate_body(self) -> "SolidExtrudeInputs":
+        if self.new_body and self.source_body is not None:
+            raise ValueError(
+                "a feature either starts a new body or adds to an existing one, not both"
+            )
+        return self
 
 
 class CutExtrudeInputs(StrictModel):
@@ -235,6 +254,7 @@ Feature = Annotated[
         FilletFeature,
         ChamferFeature,
         PatternFeature,
+        BooleanFeature,
     ],
     Field(discriminator="type"),
 ]

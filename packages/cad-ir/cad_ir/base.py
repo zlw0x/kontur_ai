@@ -49,6 +49,7 @@ class FeatureType(StrEnum):
     FILLET = "feature.fillet"
     CHAMFER = "feature.chamfer"
     PATTERN = "feature.pattern"
+    BOOLEAN = "feature.boolean"
 
 
 class ResultKind(StrEnum):

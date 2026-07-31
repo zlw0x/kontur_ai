@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from cad_ir.canonical import (
+    BooleanFeature,
+    BooleanOp,
     ChamferFeature,
     CircularPattern,
     CutExtrudeFeature,
@@ -77,6 +79,10 @@ SKETCH_CONSTRAINTS = "sketch.constraints"
 SKETCH_DIMENSIONS = "sketch.driving_dimensions"
 FEATURE_HOLE_SIMPLE_THROUGH = "feature.hole.simple_through"
 FEATURE_BOSS_ADDITIVE = "feature.boss.additive"
+FEATURE_BODY_NEW = "feature.body.new"
+BOOLEAN_UNION = "boolean.union"
+BOOLEAN_SUBTRACT = "boolean.subtract"
+BOOLEAN_INTERSECT = "boolean.intersect"
 FEATURE_PATTERN_LINEAR = "feature.pattern.linear"
 FEATURE_PATTERN_CIRCULAR = "feature.pattern.circular"
 FEATURE_MIRROR = "feature.mirror"
@@ -144,6 +150,10 @@ DECLARED: Mapping[str, Declaration] = {
     SKETCH_DIMENSIONS: Declaration("beta"),
     FEATURE_HOLE_SIMPLE_THROUGH: Declaration("beta"),
     FEATURE_BOSS_ADDITIVE: Declaration("beta"),
+    FEATURE_BODY_NEW: Declaration("experimental"),
+    BOOLEAN_UNION: Declaration("experimental"),
+    BOOLEAN_SUBTRACT: Declaration("experimental"),
+    BOOLEAN_INTERSECT: Declaration("experimental"),
     FEATURE_PATTERN_LINEAR: Declaration("experimental"),
     FEATURE_PATTERN_CIRCULAR: Declaration("experimental"),
     FEATURE_MIRROR: Declaration("experimental"),
@@ -271,12 +281,30 @@ def requirements(document) -> dict[str, str]:
             need(SKETCH_PLANE_DATUM, where)
             continue
 
+        if isinstance(feature, BooleanFeature):
+            need(
+                {
+                    BooleanOp.UNION: BOOLEAN_UNION,
+                    BooleanOp.SUBTRACT: BOOLEAN_SUBTRACT,
+                    BooleanOp.INTERSECT: BOOLEAN_INTERSECT,
+                }[feature.inputs.op],
+                f"the boolean {feature.id}",
+            )
+            continue
+
+        if getattr(feature.inputs, "new_body", False):
+            # A separate lump of material is its own capability: a part delivered as
+            # two bodies where one was meant is a different kind of wrong from a
+            # misplaced boss, and an operator may want to stop only that.
+            need(FEATURE_BODY_NEW, f"the separate body {feature.id} builds")
+
         if isinstance(feature, SolidExtrudeFeature):
             need(SOLID_RECTANGULAR_PRISM, f"the solid extrusion {feature.id}")
-            if solids_so_far:
+            if solids_so_far and not feature.inputs.new_body:
                 # A second additive feature lands on a body that already exists,
                 # which is a different operation from making the first one and
-                # was the source of the multi-body defect POSTMVP-006 found.
+                # was the source of the multi-body defect POSTMVP-006 found. A
+                # feature starting a *new* body is not that: it fuses with nothing.
                 need(FEATURE_BOSS_ADDITIVE, f"the boss {feature.id}")
             solids_so_far += 1
         elif isinstance(feature, CutExtrudeFeature):

@@ -8,7 +8,7 @@ The first operations that build nothing. The design decisions are
 
 ## What was run
 
-`tests/fixtures/cad-ir/blended-bracket.v1_6.json`, through the real engine's real
+`tests/fixtures/cad-ir/blended-bracket.v1_7.json`, through the real engine's real
 command line:
 
 ```bash
