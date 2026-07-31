@@ -4,7 +4,7 @@
 
 Build a secure web-to-local CAD service that converts dimensioned technical drawings into validated 3D models. The public web stack runs on a VPS. AI is invoked only through locally authenticated Codex CLI on a trusted local PC, not through a direct OpenAI API integration.
 
-CAD is being moved from KOMPAS-3D to **build123d on OpenCascade**, running in a Linux container (ADR-023). Both engines exist in the repository during the migration; build123d is the target, KOMPAS is what still builds today and is removed only once the replacement reaches parity.
+CAD runs on **build123d on OpenCascade**, in a Linux container (ADR-023). KOMPAS-3D, COM, M3D and CAD licensing were removed in ENGINE-MIG-008; there is one engine.
 
 ## Mandatory architecture rules
 
@@ -18,7 +18,7 @@ CAD is being moved from KOMPAS-3D to **build123d on OpenCascade**, running in a 
 8. Build and test the deterministic CAD pipeline before drawing vision automation.
 9. Do not invent CAD API members. Inspect the installed SDK, type libraries or the library's own documented API, and add a probe or cite the evidence.
 10. Do not silently change confirmed user dimensions.
-11. The two user-facing results are `model.step` and `model.stl`. The manifest, validation report and audit events are internal. `model.m3d` is leaving the product with KOMPAS.
+11. The two user-facing results are `model.step` and `model.stl`. The manifest, validation report and audit events are internal. There is no `model.m3d`.
 
 ## Development workflow
 
@@ -43,31 +43,29 @@ packages/cad-ir
 packages/cad-engine-contracts
 packages/build123d-adapter
 packages/build123d-launcher
-packages/kompas-adapter
-packages/geometry-validation
 infra
 docs
 tests/fixtures
 ```
 
-`apps/cad-worker` and `packages/build123d-adapter` are the migration target (ADR-023). `packages/kompas-adapter` is removed at the end of it, not before.
+`apps/cad-worker` and `packages/build123d-adapter` are the engine (ADR-023): the worker process and the trusted CAD-IR-to-build123d mapping.
 
 `packages/build123d-launcher` is the .NET side of the new engine: it starts the CAD worker as a child process, hands it one job directory and the feature flags of the run, and turns what it prints into the typed results the rest of the worker already understands. It targets plain `net8.0` for the same reason the contracts do — the engine it launches is a Linux container, so nothing on the path to it may need Windows. Nothing from a document reaches an argument, an environment variable or a file name: the command line is built from a fixed vocabulary and the only variable in it is a job directory the worker itself chose.
 
-`packages/cad-engine-contracts` already exists and holds the engine-neutral half: the build plan, the sketch vocabulary, the CAD-IR parser, the selectors, the validators, `ICadAdapter`, the typed errors and the fake adapter. It targets plain `net8.0` and its tests do too — that is the check that keeps it neutral, because the day something there needs COM it stops compiling instead of quietly making CI need Windows again. An engine declares what it is and what it produces through `CadEngineDescription`; nothing else may assume a format.
+`packages/cad-engine-contracts` holds what describes a *result*: the artifacts, the timings, the engine's identity, the typed failure, `ICadDocumentEngine` and a fake engine for CI. The build plan, the CAD-IR parser, the sketch and constraint validators and the selector resolver were ported to Python and deleted here in ENGINE-MIG-008 — a .NET copy would be a second opinion about what a valid document is. An engine declares what it is and what it produces through `CadEngineDescription`; nothing else may assume a format.
 
 ## Technology defaults
 
 - Next.js + TypeScript for web.
 - FastAPI + SQLAlchemy + PostgreSQL for backend.
 - Python + build123d/OpenCascade for the CAD worker, in a Linux container.
-- .NET/C# for the local Codex worker; and, until ENGINE-MIG-008, the KOMPAS COM adapter.
+- .NET/C# for the local Codex worker, on plain `net8.0`.
 - Docker Compose for VPS development/deployment.
 - OpenAPI and JSON Schema as contract sources.
 
 ## Testing
 
-CI must not require real Codex or a CAD licence. Provide fake adapters. Once the CAD engine is build123d, CI runs real geometry in a container; while KOMPAS is still the engine, its real integration suites run on the trusted Windows machine and no release is accepted until the relevant real KOMPAS probes pass.
+CI must not require real Codex. Provide a fake engine. CI runs real geometry — on a Linux runner from a checkout, and in the shipped container image.
 
 ## Safety
 

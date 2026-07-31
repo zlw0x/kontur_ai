@@ -1,7 +1,13 @@
 # ADR-023: build123d replaces KOMPAS, and M3D leaves the product
 
-**Status:** accepted, 2026-07-30 · **Supersedes in part:** ADR-018 through ADR-022
-remain correct about CAD-IR; what changes is what executes it.
+**Status:** accepted 2026-07-30, **carried out 2026-07-31** · **Supersedes in part:**
+ADR-018 through ADR-022 remain correct about CAD-IR; what changed is what executes
+it.
+
+Done in ENGINE-MIG-001 through 008, each with an acceptance record under
+`docs/acceptance/`. KOMPAS, COM, M3D, the Windows requirement and CAD licensing are
+removed; the engine is build123d in a Linux container and CI builds the image.
+Everything below is the decision as it was taken, kept as the record of why.
 
 ## Context
 
@@ -140,10 +146,11 @@ overtaken rather than done: the auxiliary plane types `Planes3D.Add(15)` and
 `Add(16)`, which are COM constants that mean nothing to another kernel; and
 POSTMVP-009 onwards as originally scoped against KOMPAS.
 
-The KOMPAS implementation is **not deleted yet**. It stays until build123d
-reaches parity on the existing fixtures, because deleting the only working engine
-before the replacement is proven is how a migration becomes an outage. Removal is
-ENGINE-MIG-008, and it happens after the acceptance of everything before it.
+The KOMPAS implementation was **not deleted until last**, and only after
+build123d reached parity on the existing fixtures
+(`docs/acceptance/ENGINE-MIG-006-fixture-parity.md`) — deleting the only working
+engine before the replacement is proven is how a migration becomes an outage. The
+removal is `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`.
 
 ## Alternatives rejected
 

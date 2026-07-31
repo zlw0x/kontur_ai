@@ -37,22 +37,36 @@ migration declare the operations they require. Update and restart the worker
 before expecting it to pick anything up — see
 [`docs/TASK-POSTMVP-002-COST-ENGINE.md`](TASK-POSTMVP-002-COST-ENGINE.md).
 
-## Trusted Windows worker
+## Trusted worker
 
-```powershell
-dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj -- doctor
-dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj -- probe-codex
-dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj -- probe-kompas
-dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj -- enroll `
-  --server https://cad.example.com `
-  --token <one-time-enrollment-token>
-dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj -- run
+Linux or Windows since ENGINE-MIG-008: the worker is plain `net8.0` and the CAD
+engine is a container. Windows is still supported because that is where an
+operator's Codex login often is; it is no longer required by anything.
+
+```bash
+W="dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj --"
+$W doctor
+$W probe-codex
+$W describe-engine          # starts the CAD engine and prints what it is
+$W enroll --server https://cad.example.com --token <one-time-enrollment-token>
+$W run
 ```
 
-Only loopback HTTP is allowed. Remote enrollment must use HTTPS. To remove the
-local worker credential:
+`describe-engine` replaces `probe-kompas`. It is the check that matters now: a
+container runtime that is not installed, an image that is not pulled or a mount
+that is not permitted are what an operator needs to find out before a customer
+does.
 
-```powershell
+The engine is configured in `worker.json` under `cad_engine` — see
+[`examples/local-worker.config.example.toml`](../examples/local-worker.config.example.toml).
+`container` is the default and the mode with the isolation; `process` runs the
+engine through a local interpreter and is for a developer machine.
+
+The worker's credential is protected by DPAPI on Windows and by file permissions
+elsewhere; which one is used is decided by the platform, not configured. To remove
+it:
+
+```bash
 dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj -- logout
 ```
 

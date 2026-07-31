@@ -678,13 +678,18 @@ Calibrated pricing, payments, quotas, support workflow, manual review, monitorin
 7. **ENGINE-MIG-007** — интеграция сервиса с новым worker. Сделано:
    `docs/acceptance/ENGINE-MIG-007-service-integration.md`. Долг шестого шага
    закрыт — у движка есть свои capability и per-operation флаги (ADR-021).
-8. **ENGINE-MIG-008** — переключение и удаление КОМПАС. Следующий.
+8. **ENGINE-MIG-008** — переключение и удаление КОМПАС. Сделано:
+   `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`.
 
-Что именно входит в восьмой шаг, по итогам седьмого: переименовать
-`WorkerCapability.KOMPAS_BUILD`, убрать `kompas_version` из манифеста, снять с
-`apps/local-worker` таргет `net8.0-windows`, удалить `packages/kompas-adapter` и
-план-ориентированный `ICadAdapter` рядом с `ICadDocumentEngine`, собирать образ
-контейнера в CI. Не начинать, пока реальный деплой не отработает на build123d.
+Миграция завершена. Дальше — операции, к которым дорожная карта и шла, уже на ядре,
+которое их документирует: fillet/chamfer, patterns/mirror, hole families,
+boolean/multi-body, golden corpus, reliability gate; sweep/loft/shell — после
+стабилизации базовых операций.
+
+Два хвоста от миграции, оба названы в приёмочном документе: `KOMPAS_BUILD`,
+`KOMPAS_STARTUP` и `kompas_version` живы, потому что их пишут уже сохранённые
+строки, и уходят, когда таких строк не останется; и ни один деплой ещё не работал
+на образе контейнера.
 
 Реализация КОМПАС удаляется только на последнем шаге и только после приёмки
 предыдущих: удалять единственный работающий движок до того, как замена
