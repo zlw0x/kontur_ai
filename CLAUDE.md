@@ -56,11 +56,19 @@ will exclude them.
 The order of work is ENGINE-MIG-001 through 008. Do not start the old
 POSTMVP-009.
 
-Done so far: 001–005, and 006 (`docs/acceptance/ENGINE-MIG-006-fixture-parity.md`
-and `-revolve.md`). **Next is ENGINE-MIG-007**, the service integration — and it
-owes one debt from 006: the build123d worker has no feature-flag surface, so
-revolve is the first operation in this repository that is not behind a
-per-operation flag. ADR-021 is not waived; 007 pays it.
+Done so far: 001–007, each with an acceptance record under `docs/acceptance/`. The
+debt 006 left — no feature-flag surface on the new engine — is paid: capabilities
+and flags live in `cad_engine_build123d/capabilities.py`, the engine declares them
+through `cad_worker describe`, and the worker publishes what the engine says
+rather than a list of its own.
+
+**Next is ENGINE-MIG-008**, the switch-over and the removal. What it owns, named in
+`docs/acceptance/ENGINE-MIG-007-service-integration.md`: renaming
+`WorkerCapability.KOMPAS_BUILD`, dropping `kompas_version` from the manifest,
+taking `apps/local-worker` off `net8.0-windows`, deleting `packages/kompas-adapter`
+and the plan-shaped `ICadAdapter` beside `ICadDocumentEngine`, and building the
+container image in CI. Do not start it until a real deployment has run on
+build123d.
 
 ## What was landed on KOMPAS
 

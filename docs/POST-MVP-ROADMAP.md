@@ -675,12 +675,16 @@ Calibrated pricing, payments, quotas, support workflow, manual review, monitorin
 6. **ENGINE-MIG-006** — паритет на существующих фикстурах, плюс revolve. Сделано:
    `docs/acceptance/ENGINE-MIG-006-fixture-parity.md` и `-revolve.md`, CAD-IR 1.4,
    `docs/adr/ADR-024-*`.
-7. **ENGINE-MIG-007** — интеграция сервиса с новым worker. Следующий.
-8. **ENGINE-MIG-008** — переключение и удаление КОМПАС.
+7. **ENGINE-MIG-007** — интеграция сервиса с новым worker. Сделано:
+   `docs/acceptance/ENGINE-MIG-007-service-integration.md`. Долг шестого шага
+   закрыт — у движка есть свои capability и per-operation флаги (ADR-021).
+8. **ENGINE-MIG-008** — переключение и удаление КОМПАС. Следующий.
 
-Долг, оставленный шестым шагом и который платит седьмой: у build123d-worker нет
-поверхности feature-флагов, поэтому revolve — первая операция в репозитории не за
-per-operation флагом. ADR-021 не отменён.
+Что именно входит в восьмой шаг, по итогам седьмого: переименовать
+`WorkerCapability.KOMPAS_BUILD`, убрать `kompas_version` из манифеста, снять с
+`apps/local-worker` таргет `net8.0-windows`, удалить `packages/kompas-adapter` и
+план-ориентированный `ICadAdapter` рядом с `ICadDocumentEngine`, собирать образ
+контейнера в CI. Не начинать, пока реальный деплой не отработает на build123d.
 
 Реализация КОМПАС удаляется только на последнем шаге и только после приёмки
 предыдущих: удалять единственный работающий движок до того, как замена
