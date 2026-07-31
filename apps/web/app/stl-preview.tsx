@@ -5,13 +5,14 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
-type MaterialName = "aluminum" | "steel" | "polymer";
+type MaterialName = "aluminum" | "steel" | "polymer" | "cad";
 type Dimensions = { length: number; width: number; height: number };
 
 const materialPalette: Record<MaterialName, { color: number; metalness: number; roughness: number }> = {
   aluminum: { color: 0xe0e7e8, metalness: 0.42, roughness: 0.28 },
   steel: { color: 0xb9c4cd, metalness: 0.58, roughness: 0.22 },
   polymer: { color: 0xb6ec58, metalness: 0.08, roughness: 0.32 },
+  cad: { color: 0xc4c8c7, metalness: 0.02, roughness: 0.68 },
 };
 
 export default function StlPreview({
@@ -21,6 +22,7 @@ export default function StlPreview({
   material = "aluminum",
   dimensions,
   ready = false,
+  transparent = false,
 }: {
   url?: string;
   token?: string;
@@ -28,6 +30,7 @@ export default function StlPreview({
   material?: MaterialName;
   dimensions: Dimensions | null;
   ready?: boolean;
+  transparent?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");
@@ -53,7 +56,7 @@ export default function StlPreview({
     let disposed = false;
     let frame = 0;
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x111418, 0.0055);
+    if (!transparent) scene.fog = new THREE.FogExp2(0x111418, 0.0055);
 
     const camera = new THREE.PerspectiveCamera(31, 1, 0.1, 10_000);
     camera.position.set(105, 80, 112);
@@ -62,7 +65,8 @@ export default function StlPreview({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.28;
+    renderer.toneMappingExposure = material === "cad" ? 1.02 : 1.28;
+    renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     container.replaceChildren(renderer.domElement);
@@ -114,7 +118,7 @@ export default function StlPreview({
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -layoutHeight / 2 - 1.2;
     floor.receiveShadow = true;
-    scene.add(floor);
+    if (!transparent) scene.add(floor);
 
     const grid = new THREE.GridHelper(260, 26, 0x46515c, 0x252b31);
     grid.position.y = floor.position.y + 0.04;
@@ -123,7 +127,7 @@ export default function StlPreview({
       gridMaterial.transparent = true;
       gridMaterial.opacity = 0.28;
     });
-    scene.add(grid);
+    if (!transparent) scene.add(grid);
 
     const halo = new THREE.Mesh(
       new THREE.RingGeometry(62, 100, 96),
@@ -136,7 +140,7 @@ export default function StlPreview({
     );
     halo.rotation.x = -Math.PI / 2;
     halo.position.y = floor.position.y + 0.08;
-    scene.add(halo);
+    if (!transparent) scene.add(halo);
 
     const root = new THREE.Group();
     scene.add(root);
@@ -152,7 +156,7 @@ export default function StlPreview({
       color: palette.color,
       metalness: palette.metalness,
       roughness: palette.roughness,
-      clearcoat: material === "polymer" ? 0.55 : 0.18,
+      clearcoat: material === "polymer" ? 0.55 : material === "cad" ? 0.02 : 0.18,
       clearcoatRoughness: 0.23,
       wireframe,
       transparent: !ready,
@@ -171,7 +175,7 @@ export default function StlPreview({
       if (!wireframe) {
         const edgeGeometry = new THREE.EdgesGeometry(geometry, 24);
         const edgeMaterial = new THREE.LineBasicMaterial({
-          color: material === "polymer" ? 0x28321c : 0x263139,
+          color: material === "polymer" ? 0x28321c : material === "cad" ? 0x596160 : 0x263139,
           transparent: true,
           opacity: edgeOpacity,
         });
@@ -203,9 +207,9 @@ export default function StlPreview({
       const height = clamp(layoutHeight, 7, 28);
       const cornerRadius = Math.min(width * 0.16, 8);
       const plate = roundedRectangle(length, width, cornerRadius);
-      const holeRadius = Math.max(Math.min(width * 0.075, 3.8), 2.3);
-      const holeX = length / 2 - Math.max(cornerRadius + 5, 11);
-      const holeY = width / 2 - Math.max(cornerRadius + 4, 9);
+      const holeRadius = 4;
+      const holeX = length / 2 - 10;
+      const holeY = width / 2 - 8;
 
       for (const x of [-holeX, holeX]) {
         for (const y of [-holeY, holeY]) {
@@ -214,16 +218,6 @@ export default function StlPreview({
           plate.holes.push(hole);
         }
       }
-
-      const slot = new THREE.Path();
-      const slotLength = Math.min(length * 0.19, 15);
-      const slotRadius = Math.max(width * 0.055, 2.2);
-      slot.moveTo(-slotLength / 2, -slotRadius);
-      slot.lineTo(slotLength / 2, -slotRadius);
-      slot.absarc(slotLength / 2, 0, slotRadius, -Math.PI / 2, Math.PI / 2, false);
-      slot.lineTo(-slotLength / 2, slotRadius);
-      slot.absarc(-slotLength / 2, 0, slotRadius, Math.PI / 2, -Math.PI / 2, false);
-      plate.holes.push(slot);
 
       const baseGeometry = new THREE.ExtrudeGeometry(plate, {
         depth: height,
@@ -236,8 +230,8 @@ export default function StlPreview({
       baseGeometry.translate(0, 0, -height / 2);
       addMesh(baseGeometry);
 
-      const bossOuter = Math.min(width * 0.225, 12.5);
-      const bossInner = Math.max(bossOuter * 0.38, 3.2);
+      const bossOuter = Math.min(width * 0.29, 11.6);
+      const bossInner = 4;
       const boss = new THREE.Shape();
       boss.absarc(0, 0, bossOuter, 0, Math.PI * 2, false);
       const bossHole = new THREE.Path();
@@ -286,7 +280,7 @@ export default function StlPreview({
 
     const resize = () => {
       const width = Math.max(container.clientWidth, 320);
-      const height = Math.max(container.clientHeight, 420);
+      const height = Math.max(container.clientHeight, transparent ? 170 : 420);
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
@@ -313,7 +307,7 @@ export default function StlPreview({
       renderer.dispose();
       container.replaceChildren();
     };
-  }, [layoutHeight, layoutLength, layoutWidth, local, material, ready, resetKey, token, url, wireframe]);
+  }, [layoutHeight, layoutLength, layoutWidth, local, material, ready, resetKey, token, transparent, url, wireframe]);
 
   function toggleFullscreen() {
     const element = host.current?.parentElement;
@@ -326,7 +320,7 @@ export default function StlPreview({
   }
 
   return (
-    <div className="preview">
+    <div className={`preview${transparent ? " preview-transparent" : ""}`}>
       <div ref={host} className="preview-canvas" />
       <div className="preview-tools" aria-label="Управление видом">
         <button type="button" onClick={() => setResetKey((value) => value + 1)} title="Исходный вид">
