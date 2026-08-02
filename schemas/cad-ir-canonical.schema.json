@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.9",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.10",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -907,6 +907,23 @@
             }
           ],
           "default": null
+        },
+        "both_directions": {
+          "default": false,
+          "title": "Both Directions",
+          "type": "boolean"
+        },
+        "taper_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "default": 0.0,
+          "title": "Taper Deg"
         }
       },
       "required": [
@@ -3308,6 +3325,23 @@
           ],
           "title": "Distance"
         },
+        "both_directions": {
+          "default": false,
+          "title": "Both Directions",
+          "type": "boolean"
+        },
+        "taper_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "default": 0.0,
+          "title": "Taper Deg"
+        },
         "source_body": {
           "anyOf": [
             {
@@ -3748,8 +3782,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.9",
-      "default": "1.9",
+      "const": "1.10",
+      "default": "1.10",
       "title": "Schema Version",
       "type": "string"
     },

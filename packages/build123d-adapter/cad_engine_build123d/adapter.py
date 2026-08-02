@@ -348,17 +348,67 @@ def _extrude_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
                 "feature",
                 "An extrusion distance must be positive.",
             )
+        both = bool(getattr(feature.inputs, "both_directions", False))
+        taper = params.resolve(
+            getattr(feature.inputs, "taper_deg", 0.0), f"{feature.id} taper"
+        )
         # Along the *plane's* normal, stated outright. Left to itself `extrude`
         # travels along the face's own normal, and which way that points depends
         # on how the contour happened to be wound — so the same document built a
         # stadium plate downwards and a hexagon hub upwards, leaving two solids
         # 8 mm apart that should have been one. The document says which way; the
         # winding of a wire is not the document.
+        #
+        # A symmetric extrusion is half the distance each way, because CAD-IR states
+        # the *total* (ADR-033) — the same reading a revolve's `both_directions` has
+        # had since 1.4. Handing the kernel the whole distance with `both` would build
+        # a part twice as thick as the one the document describes.
         solid = extrude(
-            placed, amount=distance * _sense(feature, plane), dir=plane.z_dir
+            placed,
+            amount=(distance / 2 if both else distance) * _sense(feature, plane),
+            dir=plane.z_dir,
+            both=both,
+            taper=taper,
         )
+        if taper:
+            _require_the_draft_left_a_section(solid, plane, distance, feature)
 
     return solid, is_cut
+
+
+#: How far the built height may differ from the stated distance, in mm. Loose enough
+#: for the kernel's arithmetic on a slanted face, tight enough that a section closing
+#: early is never inside it.
+DRAFT_HEIGHT_TOLERANCE_MM = 1e-6
+
+
+def _require_the_draft_left_a_section(solid, plane, distance: float, feature) -> None:
+    """A draft steep enough to close the profile is refused, not silently shortened.
+
+    Measured rather than assumed: a 20 x 20 pad drafted 45 degrees over 40 mm comes
+    back as a **pyramid 10 mm tall** — the section closes at 10 and OpenCascade stops
+    there, reports the result valid, and says nothing. One solid, five faces, a
+    plausible volume, and a part a quarter the height the document asked for. The only
+    thing in a document that would notice is a bounding box somebody remembered to
+    state.
+
+    Compared along the plane's own normal rather than by bounding box, because an
+    extrusion off a datum or a face plane does not travel along a world axis.
+    """
+    axis = plane.z_dir.normalized()
+    along = [
+        vertex.X * axis.X + vertex.Y * axis.Y + vertex.Z * axis.Z
+        for vertex in solid.vertices()
+    ]
+    built = max(along) - min(along) if along else 0.0
+    if built < distance - DRAFT_HEIGHT_TOLERANCE_MM:
+        raise CadEngineError(
+            "EXTRUDE_DRAFT_TOO_STEEP",
+            "feature",
+            f"{feature.id} asks for {distance} mm at its stated draft and the section "
+            f"closes after {built:.4f} mm. The kernel builds what is left and calls it "
+            "valid, so the part would be shorter than the document says.",
+        )
 
 
 def _revolve_tool(feature, part, planes: dict[str, Plane], params, bodies=None):

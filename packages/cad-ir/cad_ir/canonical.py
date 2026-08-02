@@ -100,11 +100,11 @@ from .sweep import (  # re-exported alongside the document
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.9"
+CAD_IR_VERSION = "1.10"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.9",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.10",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -122,6 +122,7 @@ MIGRATABLE_VERSIONS: tuple[str, ...] = (
     "1.6",
     "1.7",
     "1.8",
+    "1.9",
 )
 
 class ParameterType(StrEnum):
@@ -188,10 +189,34 @@ class Parameter(StrictModel):
         return self
 
 
+#: How far from flat a taper may lean. 0 is no taper; 90 would be a cut parallel to
+#: the face it starts from, and everything past it turns the solid inside out.
+TAPER_LIMIT_DEG = 89.0
+
+
+def _validate_taper(value: Scalar | None) -> None:
+    if value is None or isinstance(value, ParameterRef):
+        return
+    if not -TAPER_LIMIT_DEG <= float(value) <= TAPER_LIMIT_DEG:
+        raise ValueError(
+            f"a taper is between -{TAPER_LIMIT_DEG:g} and {TAPER_LIMIT_DEG:g} degrees"
+        )
+
+
 class SolidExtrudeInputs(StrictModel):
     sketch: Sketch
     direction: Direction
     distance: Scalar
+    #: The distance is the **total**, split half each way — the same reading a revolve's
+    #: `both_directions` has had since 1.4. The alternative, extruding the full distance
+    #: twice, would make a claimed thickness parameter name half the part.
+    both_directions: bool = False
+    #: How much the extrusion narrows as it travels along `direction`, in degrees.
+    #: Positive narrows, negative widens, and that is the only rule: a pocket with a
+    #: moulding draft states a negative one, because "draft" means opposite things on a
+    #: boss and in a cavity and one geometric meaning is worth more than a helpful
+    #: translation nobody can see (ADR-033).
+    taper_deg: Scalar = 0.0
     #: Which body this joins. Nothing means the one being built — the behaviour every
     #: document before 1.7 relies on and the one a boss on a plate wants.
     source_body: ResultRef | None = None
@@ -206,6 +231,7 @@ class SolidExtrudeInputs(StrictModel):
             raise ValueError(
                 "a feature either starts a new body or adds to an existing one, not both"
             )
+        _validate_taper(self.taper_deg)
         return self
 
 
@@ -215,6 +241,8 @@ class CutExtrudeInputs(StrictModel):
     through_all: bool = False
     distance: Scalar | None = None
     source_body: ResultRef | None = None
+    both_directions: bool = False
+    taper_deg: Scalar = 0.0
 
     @model_validator(mode="after")
     def validate_depth(self) -> "CutExtrudeInputs":
@@ -222,6 +250,18 @@ class CutExtrudeInputs(StrictModel):
             raise ValueError("a through-all cut must not also declare a distance")
         if not self.through_all and self.distance is None:
             raise ValueError("a cut must declare either through_all or a distance")
+        _validate_taper(self.taper_deg)
+        if self.through_all and self.both_directions:
+            # A cut that already reaches through everything has nothing on the other
+            # side to reach, and a second tool would be a second thing to get wrong.
+            raise ValueError("a through-all cut already goes through; it has no second side")
+        if self.through_all and self.taper_deg not in (0.0, None):
+            # The engine measures a through-all tool against the body it cuts, so the
+            # far end of a tapered one would be a size the document never stated.
+            raise ValueError(
+                "a tapered cut states its distance; a through-all one would be tapered "
+                "over a length the engine chose"
+            )
         return self
 
 

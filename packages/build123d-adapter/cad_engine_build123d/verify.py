@@ -60,10 +60,30 @@ class MeshFacts:
 
 
 @dataclass(frozen=True)
+class BrepFacts:
+    """The reopened solid's topology, counted rather than assumed.
+
+    Kernel-specific on purpose. OpenCascade puts a **seam** on every closed
+    cylindrical face where KOMPAS did not, so a round through hole adds one face,
+    three edges — two circles and the seam — and two vertices. Those numbers are the
+    migration's recorded cost (ADR-023) turned into something a check can read.
+    """
+
+    solids: int
+    shells: int
+    faces: int
+    wires: int
+    edges: int
+    vertices: int
+    genus: int
+
+
+@dataclass(frozen=True)
 class VerificationReport:
     valid: bool
     checks: tuple[Check, ...] = field(default_factory=tuple)
     mesh: MeshFacts | None = None
+    brep: BrepFacts | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -82,6 +102,17 @@ class VerificationReport:
                 "inconsistent_normal_count": self.mesh.inconsistent_normals,
                 "bounding_box": list(self.mesh.bounds),
                 "genus": self.mesh.genus,
+            },
+            "topology": None
+            if self.brep is None
+            else {
+                "solid_count": self.brep.solids,
+                "shell_count": self.brep.shells,
+                "face_count": self.brep.faces,
+                "wire_count": self.brep.wires,
+                "edge_count": self.brep.edges,
+                "vertex_count": self.brep.vertices,
+                "genus": self.brep.genus,
             },
         }
 
@@ -145,8 +176,78 @@ def verify(step_path: Path, stl_path: Path, expectations: Expectations) -> Verif
     mesh = _read_stl(stl_path, checks, expectations)
     if mesh is not None and step_bounds is not None:
         _compare_bounds(step_bounds, mesh.bounds, checks)
+    brep = None if solid is None else topology_of(solid)
+    if brep is not None and mesh is not None:
+        _compare_topology(brep, mesh, checks)
     return VerificationReport(
-        valid=all(item.passed for item in checks), checks=tuple(checks), mesh=mesh
+        valid=all(item.passed for item in checks),
+        checks=tuple(checks),
+        mesh=mesh,
+        brep=brep,
+    )
+
+
+def topology_of(shape) -> BrepFacts:
+    """What the reopened solid is made of, and how many handles it has.
+
+    The genus comes from the Euler-Poincare formula, which is the general one:
+
+        V - E + F = 2(S - G) + (L - F)
+
+    `L` is the number of loops — wires — over all faces, and it is the term that makes
+    this work on a real part. The naive `V - E + F = 2 - 2G` is what a previous
+    attempt used, and it reported genus 0 for a plate that plainly had a hole in it:
+    a B-rep counts a full circle as one edge with one vertex, and the face carrying
+    the hole has two loops rather than one. Counting the loops puts it right, and the
+    numbers below were measured before this was written — a box is 0, one hole is 1,
+    three holes are 3, a tube is 1.
+    """
+    solids = shape.solids()
+    shells = shape.shells()
+    faces = shape.faces()
+    wires = shape.wires()
+    edges = shape.edges()
+    vertices = shape.vertices()
+    characteristic = len(vertices) - len(edges) + 2 * len(faces) - len(wires)
+    return BrepFacts(
+        solids=len(solids),
+        shells=len(shells),
+        faces=len(faces),
+        wires=len(wires),
+        edges=len(edges),
+        vertices=len(vertices),
+        genus=int(len(shells) - characteristic // 2),
+    )
+
+
+def _compare_topology(brep: BrepFacts, mesh: MeshFacts, checks: list[Check]) -> None:
+    """The oracle: two independent counts of the same integer must agree.
+
+    The genus of a solid is how many handles it has, and it can be computed twice from
+    two files written by two different exporters — off the B-rep in the STEP, and off
+    the triangles in the STL. Neither number comes from the document, so this check
+    needs nothing to have been stated and cannot be satisfied by a plan agreeing with
+    itself (ADR-018's argument, with no document involved at all).
+
+    What it catches is the failure that looks like success. A sweep round a bend
+    tighter than its own profile passes through itself: OpenCascade reports the result
+    valid, its volume matches Pappus exactly, and its B-rep is a tidy genus-0 solid —
+    while the mesh of the same shape comes out at genus −45 with 69 open edges. The
+    B-rep alone says the part is fine. The mesh alone says the file is torn. Only the
+    disagreement says what is actually true, which is that the solid is not one.
+    """
+    checks.append(
+        Check(
+            "topology_agrees_with_mesh",
+            brep.genus == mesh.genus,
+            f"B-rep genus {brep.genus}, mesh genus {mesh.genus}."
+            + (
+                ""
+                if brep.genus == mesh.genus
+                else " The solid and the surface it exports to describe different shapes;"
+                " a self-intersecting sweep does exactly this."
+            ),
+        )
     )
 
 
@@ -561,6 +662,7 @@ def _round(values) -> list:
 
 
 __all__ = [
+    "BrepFacts",
     "Check",
     "FLOAT32_ULP",
     "Expectations",
@@ -568,5 +670,6 @@ __all__ = [
     "MeshFacts",
     "SurfaceFaceCount",
     "VerificationReport",
+    "topology_of",
     "verify",
 ]

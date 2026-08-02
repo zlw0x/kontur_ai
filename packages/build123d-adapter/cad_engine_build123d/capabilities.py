@@ -89,6 +89,11 @@ SKETCH_CONSTRAINTS = "sketch.constraints"
 SKETCH_DIMENSIONS = "sketch.driving_dimensions"
 FEATURE_HOLE_SIMPLE_THROUGH = "feature.hole.simple_through"
 FEATURE_BOSS_ADDITIVE = "feature.boss.additive"
+# Two modes of the operation the cycle uses most, each its own key. A part built
+# twice as thick and a part built with the wrong draft are different mistakes, and
+# an operator who has seen one wants to stop that one.
+FEATURE_EXTRUDE_SYMMETRIC = "feature.extrude.symmetric"
+FEATURE_EXTRUDE_DRAFT = "feature.extrude.draft"
 FEATURE_BODY_NEW = "feature.body.new"
 BOOLEAN_UNION = "boolean.union"
 BOOLEAN_SUBTRACT = "boolean.subtract"
@@ -111,6 +116,11 @@ VALIDATE_MANIFOLD = "validate.manifold"
 VALIDATE_BOUNDING_BOX = "validate.bounding_box"
 VALIDATE_HOLE_COUNT = "validate.hole_count"
 VALIDATE_SURFACE_FACE_COUNT = "validate.surface_face_count"
+# The topology oracle: the genus of the delivered solid, computed off the STEP and
+# off the STL and required to agree. Its own key because it is the one check that
+# needs nothing from the document, so an operator stopping it is stopping a
+# different kind of thing from a stated expectation.
+VALIDATE_TOPOLOGY = "validate.topology"
 
 
 @dataclass(frozen=True)
@@ -171,6 +181,8 @@ DECLARED: Mapping[str, Declaration] = {
     SKETCH_DIMENSIONS: Declaration("beta"),
     FEATURE_HOLE_SIMPLE_THROUGH: Declaration("beta"),
     FEATURE_BOSS_ADDITIVE: Declaration("beta"),
+    FEATURE_EXTRUDE_SYMMETRIC: Declaration("beta"),
+    FEATURE_EXTRUDE_DRAFT: Declaration("beta"),
     FEATURE_BODY_NEW: Declaration("beta"),
     BOOLEAN_UNION: Declaration("beta"),
     BOOLEAN_SUBTRACT: Declaration("beta"),
@@ -190,6 +202,7 @@ DECLARED: Mapping[str, Declaration] = {
     VALIDATE_BOUNDING_BOX: Declaration("beta"),
     VALIDATE_HOLE_COUNT: Declaration("beta"),
     VALIDATE_SURFACE_FACE_COUNT: Declaration("beta"),
+    VALIDATE_TOPOLOGY: Declaration("beta"),
 }
 
 #: Every key this build knows about, so a flag naming something else is refused
@@ -287,6 +300,7 @@ def requirements(document) -> dict[str, str]:
     need(EXPORT_STL, "every build")
     need(VALIDATE_MANIFOLD, "every build")
     need(VALIDATE_BOUNDING_BOX, "every build")
+    need(VALIDATE_TOPOLOGY, "every build")
     if any(str(getattr(item, "type", "")) == "through_hole_count" for item in document.expectations):
         need(VALIDATE_HOLE_COUNT, "the through-hole expectation")
     if any(
@@ -314,6 +328,14 @@ def requirements(document) -> dict[str, str]:
                 f"the boolean {feature.id}",
             )
             continue
+
+        if getattr(feature.inputs, "both_directions", False) and not isinstance(
+            feature, (SolidRevolveFeature, CutRevolveFeature)
+        ):
+            need(FEATURE_EXTRUDE_SYMMETRIC, f"the symmetric extrusion {feature.id}")
+        taper = getattr(feature.inputs, "taper_deg", 0.0)
+        if taper is not None and not isinstance(taper, (int, float)) or taper:
+            need(FEATURE_EXTRUDE_DRAFT, f"the draft on {feature.id}")
 
         if getattr(feature.inputs, "new_body", False):
             # A separate lump of material is its own capability: a part delivered as

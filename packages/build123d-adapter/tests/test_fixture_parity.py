@@ -76,7 +76,7 @@ class Parity:
 
 PARTS: tuple[Parity, ...] = (
     Parity(
-        name="plate.v1_9.json",
+        name="plate.v1_10.json",
         source="TASK-009 40 × 20 × 10 plate; a box has six faces and twelve edges",
         bodies=1,
         faces={"planar": 6},
@@ -86,7 +86,7 @@ PARTS: tuple[Parity, ...] = (
         horizontal_areas={0.0: 800.0, 10.0: 800.0},
     ),
     Parity(
-        name="plate-with-hole.v1_9.json",
+        name="plate-with-hole.v1_10.json",
         source="TASK-009 40 × 20 × 10 plate, one Ø6 through hole",
         bodies=1,
         faces={"planar": 6, "cylindrical": 1},
@@ -101,7 +101,7 @@ PARTS: tuple[Parity, ...] = (
         seam_edges=1,
     ),
     Parity(
-        name="constrained-plate.v1_9.json",
+        name="constrained-plate.v1_10.json",
         source=(
             "docs/acceptance/POSTMVP-007: 1 body, bounding box [60, 30, 8]. "
             "docs/acceptance/POSTMVP-005 recorded 8 faces and 16 edges for a "
@@ -122,7 +122,7 @@ PARTS: tuple[Parity, ...] = (
         kompas_edges=16,
     ),
     Parity(
-        name="lever-plate.v1_9.json",
+        name="lever-plate.v1_10.json",
         source="docs/acceptance/POSTMVP-006: 1 body, 17 faces (12 planar, 5 cylindrical)",
         bodies=1,
         faces={"planar": 12, "cylindrical": 5},
@@ -150,7 +150,7 @@ PARTS: tuple[Parity, ...] = (
     ),
 )
 
-IDS = [part.name.removesuffix(".v1_9.json") for part in PARTS]
+IDS = [part.name.removesuffix(".v1_10.json") for part in PARTS]
 
 
 @pytest.fixture(scope="module", params=PARTS, ids=IDS)

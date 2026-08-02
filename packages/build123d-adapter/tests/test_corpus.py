@@ -218,3 +218,42 @@ def test_the_step_timestamp_is_the_only_thing_that_moves():
     ]
     assert len(differing) <= 1
     assert all(left.startswith(_TIMESTAMP) for left, _ in differing)
+
+
+# --- the topology oracle ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for case in POSITIVES if case.topology is not None],
+    ids=[case.id for case in POSITIVES if case.topology is not None],
+)
+def test_a_case_that_states_its_topology_is_made_of_what_the_drawing_says(case):
+    """Faces, edges and vertices, closed-form from the drawing like the volume.
+
+    A round through hole adds one face, **three** edges and two vertices — two circles
+    and the seam OpenCascade puts on a closed cylinder. That seam is the migration's
+    own recorded cost (ADR-023), and stating it in arithmetic is what turns it from a
+    note into something a check reads.
+    """
+    from cad_engine_build123d.verify import topology_of
+
+    directory = Path(tempfile.mkdtemp())
+    outcome, _ = built(case, directory)
+    facts = topology_of(outcome.part)
+
+    assert (facts.faces, facts.edges, facts.vertices) == case.topology, case.arithmetic
+
+
+def test_every_case_agrees_with_itself_about_how_many_handles_it_has():
+    """The oracle, over the whole corpus: two counts of one integer, from two files.
+
+    The genus of a solid is computed twice — off the B-rep in the STEP and off the
+    triangles in the STL — by two exporters that share no code. Neither number comes
+    from the document, so this cannot be satisfied by a plan agreeing with itself.
+    """
+    for case in DETERMINISM:
+        directory = Path(tempfile.mkdtemp())
+        _, report = built(case, directory)
+        agreed = [item for item in report.checks if item.name == "topology_agrees_with_mesh"]
+        assert agreed and agreed[0].passed, f"{case.id}: {agreed}"

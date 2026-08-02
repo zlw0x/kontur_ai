@@ -52,6 +52,12 @@ class Case:
     #: cannot be named is a figure somebody typed to make a test pass.
     arithmetic: str
     bodies: int = 1
+    #: What the finished solid is made of, as (faces, edges, vertices), when the
+    #: drawing settles it. Closed-form like the volume: a box is 6 faces, 12 edges and
+    #: 8 vertices, and every round through hole adds one face, **three** edges and two
+    #: vertices — two circles and the seam OpenCascade puts on a closed cylinder
+    #: (ADR-023). Left out where the arithmetic would be a transcription of a run.
+    topology: tuple[int, int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +188,7 @@ def _plates() -> list[Case]:
                 (width, height, thickness), holes=0),
             volume_mm3=width * height * thickness,
             arithmetic=f"{width:g} × {height:g} × {thickness:g}",
+            topology=(6, 12, 8),
         ))
     return cases
 
@@ -295,6 +302,7 @@ def _holes() -> list[Case]:
                 (width, height, thickness), holes=count),
             volume_mm3=width * height * thickness - count * math.pi * radius**2 * thickness,
             arithmetic=f"{width:g} × {height:g} × {thickness:g} − {count} × π × {radius:g}² × {thickness:g}",
+            topology=(6 + count, 12 + 3 * count, 8 + 2 * count),
         ))
         cuts = [
             cut(f"feature.hole{index}", circle(radius, centre), ["feature.plate"])
@@ -308,12 +316,17 @@ def _holes() -> list[Case]:
                 (width, height, thickness), holes=count),
             volume_mm3=width * height * thickness - count * math.pi * radius**2 * thickness,
             arithmetic="the same plate, the same holes, cut instead of drawn as islands",
+            topology=(6 + count, 12 + 3 * count, 8 + 2 * count),
         ))
     return cases
 
 
 def _blind_hole() -> list[Case]:
-    """A hole that does not go through is not a handle, so the genus is 0."""
+    """A hole that does not go through is not a handle, so the genus is 0.
+
+    Topologically it is the plain box plus a bore and its floor: two faces, and the
+    edges are the rim circle, the seam and the floor circle.
+    """
     width, height, thickness, radius, depth = 60.0, 40.0, 10.0, 6.0, 4.0
     return [Case(
         id="blind-hole",
@@ -324,6 +337,7 @@ def _blind_hole() -> list[Case]:
             (width, height, thickness), holes=0),
         volume_mm3=width * height * thickness - math.pi * radius**2 * depth,
         arithmetic=f"{width:g} × {height:g} × {thickness:g} − π × {radius:g}² × {depth:g}",
+        topology=(6 + 2, 12 + 3, 8 + 2),
     )]
 
 
@@ -605,6 +619,79 @@ def _grid_and_mirror() -> list[Case]:
     ]
 
 
+def _extrude_modes() -> list[Case]:
+    """The two ways an extrusion can travel that are not "straight up by d".
+
+    Both have closed-form arithmetic, which is why they are checkable.
+
+    *Symmetric* states the **total** distance and splits it half each way, the reading
+    a revolve's `both_directions` has had since 1.4 — so the volume is the plain
+    prism's and only the position changes. A document that meant the distance twice
+    would be twice the part, and the bounding box is what says which happened.
+
+    *Draft* narrows the extrusion as it travels: over height h the profile moves in by
+    `h·tan θ` on every side, and the solid is a prismatoid —
+    `h/6 × (A_base + 4·A_mid + A_top)` — which is exact for a linear taper.
+    """
+    width, height, thickness = 40.0, 20.0, 10.0
+
+    def drafted(fid: str, taper: float, depth: float = thickness) -> dict[str, Any]:
+        feature = extrude(fid, "body.main", depth, rectangle(width, height))
+        feature["inputs"]["taper_deg"] = taper
+        return feature
+
+    def area(inset: float) -> float:
+        return (width - 2 * inset) * (height - 2 * inset)
+
+    def prismatoid(h: float, taper: float) -> float:
+        far = h * math.tan(math.radians(taper))
+        return h / 6 * (area(0.0) + 4 * area(far / 2) + area(far))
+
+    cases: list[Case] = []
+
+    symmetric = extrude("feature.plate", "body.main", thickness, rectangle(width, height))
+    symmetric["inputs"]["both_directions"] = True
+    cases.append(Case(
+        id="extrude-symmetric",
+        document=document("centred-plate", [symmetric], (width, height, thickness), holes=0),
+        volume_mm3=width * height * thickness,
+        arithmetic=(
+            f"{width:g} × {height:g} × {thickness:g} — the distance is the total, so the "
+            "volume is the plain prism's and only the position moves"
+        ),
+        topology=(6, 12, 8),
+    ))
+
+    for taper in (5.0, 10.0):
+        cases.append(Case(
+            id=f"extrude-draft-{taper:g}",
+            document=document("drafted-pad", [drafted("feature.pad", taper)],
+                              # The base is the widest section, so the bounding box is
+                              # the drawing's outline whichever way the taper leans.
+                              (width, height, thickness), holes=0),
+            volume_mm3=prismatoid(thickness, taper),
+            arithmetic=(
+                f"{thickness:g}/6 × (A + 4·A(½·{thickness:g}·tan{taper:g}°) + "
+                f"A({thickness:g}·tan{taper:g}°))"
+            ),
+            topology=(6, 12, 8),
+        ))
+
+    # A negative taper widens as it travels, which is the draft a moulded pocket needs
+    # and the reason the sign is one rule rather than two (ADR-033).
+    widening = -5.0
+    far = thickness * math.tan(math.radians(-widening))
+    cases.append(Case(
+        id="extrude-draft-widening",
+        document=document("flared-pad", [drafted("feature.pad", widening)],
+                          (width + 2 * far, height + 2 * far, thickness), holes=0),
+        volume_mm3=thickness / 6 * (area(0.0) + 4 * area(-far / 2) + area(-far)),
+        arithmetic=f"the same prismatoid with the sections growing by {thickness:g}·tan5°",
+        topology=(6, 12, 8),
+    ))
+    return cases
+
+
 def _shells() -> list[Case]:
     """A wall of t keeps the outside and takes out the inside.
 
@@ -648,6 +735,9 @@ def _shells() -> list[Case]:
                 [extrude("feature.block", "body.main", depth, rectangle(width, height)),
                  hollow(top, wall)],
                 (width, height, depth), holes=0),
+            # Five outer walls, five inner ones and the rim between them; every one
+            # of the eleven is a rectangle, so eight corners outside and eight inside.
+            topology=(11, 24, 16),
             volume_mm3=width * height * depth
             - (width - 2 * wall) * (height - 2 * wall) * (depth - wall),
             arithmetic=(
@@ -993,7 +1083,7 @@ def positives() -> list[Case]:
         *_plates(), *_discs(), *_polygons(), *_slots(), *_paths(), *_holes(),
         *_blind_hole(),
         *_cut_shapes(), *_bosses(), *_face_selector(), *_revolves(), *_fillets(),
-        *_chamfers(), *_patterns(), *_grid_and_mirror(), *_shells(),
+        *_chamfers(), *_patterns(), *_grid_and_mirror(), *_extrude_modes(), *_shells(),
         *_sweeps(), *_lofts(), *_bodies_and_booleans(),
     ]
 
@@ -1239,6 +1329,49 @@ def negatives() -> list[Refusal]:
             why="the kernel's topology does not record which feature made a face",
         ),
         *_sweep_and_loft_refusals(plate, with_features),
+        Refusal(
+            id="through-all-cut-with-a-second-side",
+            document=with_features([plate, {
+                **cut("feature.hole", circle(4.0), ["feature.plate"]),
+                "inputs": {**cut("feature.hole", circle(4.0), ["feature.plate"])["inputs"],
+                           "both_directions": True},
+            }], holes=0),
+            code="SCHEMA_INVALID",
+            why="a cut that already reaches through everything has no second side",
+            by_contract=True,
+        ),
+        Refusal(
+            id="through-all-cut-with-a-draft",
+            document=with_features([plate, {
+                **cut("feature.hole", circle(4.0), ["feature.plate"]),
+                "inputs": {**cut("feature.hole", circle(4.0), ["feature.plate"])["inputs"],
+                           "taper_deg": 5.0},
+            }], holes=0),
+            code="SCHEMA_INVALID",
+            why="the far end would be tapered over a length the engine chose, not the document",
+            by_contract=True,
+        ),
+        Refusal(
+            id="draft-past-vertical",
+            document=with_features([{
+                **extrude("feature.plate", "body.main", thickness, rectangle(60.0, 40.0)),
+                "inputs": {"sketch": sketch("plate", rectangle(60.0, 40.0)),
+                           "direction": "+Z", "distance": thickness, "taper_deg": 90.0},
+            }], holes=0),
+            code="SCHEMA_INVALID",
+            why="a 90 degree taper is a cut parallel to the face it starts from",
+            by_contract=True,
+        ),
+        Refusal(
+            id="draft-that-closes-the-section",
+            document=with_features([{
+                **extrude("feature.plate", "body.main", 40.0, rectangle(20.0, 20.0)),
+                "inputs": {"sketch": sketch("plate", rectangle(20.0, 20.0)),
+                           "direction": "+Z", "distance": 40.0, "taper_deg": 45.0},
+            }], holes=0),
+            code="EXTRUDE_DRAFT_TOO_STEEP",
+            why="40 mm at 45 degrees closes a 20 mm section after 10; the kernel returns the stump",
+        ),
         Refusal(
             id="shell-thicker-than-the-part",
             document=with_features([plate, {

@@ -40,7 +40,7 @@ PLATE = (120.0, 80.0, 8.0)
 
 
 def flange() -> dict:
-    return json.loads((FIXTURES / "patterned-flange.v1_9.json").read_text("utf-8"))
+    return json.loads((FIXTURES / "patterned-flange.v1_10.json").read_text("utf-8"))
 
 
 def built(value: dict):

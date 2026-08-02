@@ -310,7 +310,7 @@ def duct() -> dict:
     import json
 
     fixtures = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
-    return json.loads((fixtures / "transition-duct.v1_9.json").read_text("utf-8"))
+    return json.loads((fixtures / "transition-duct.v1_10.json").read_text("utf-8"))
 
 
 def test_the_transition_duct_is_the_arithmetic_of_its_drawing():
@@ -353,3 +353,49 @@ def test_the_transition_duct_verifies_after_a_round_trip_through_step_and_stl():
                     Expectations.of(document))
 
     assert report.valid, [item for item in report.checks if not item.passed]
+
+
+def test_the_topology_oracle_catches_the_tear_that_the_solid_alone_denies():
+    """Two counts of one integer, and the disagreement is the finding.
+
+    The self-intersecting sweep above is the case that makes the oracle worth having.
+    Asked about it separately, each half of the delivered pair gives a confident and
+    incompatible answer:
+
+        the STEP   a tidy genus-0 solid — 4 faces, 5 edges, `is_valid` true
+        the STL    genus −45, with 69 open edges
+
+    Neither is checkable against the other by reading a document, and neither on its
+    own is obviously wrong: plenty of correct parts are genus 0, and a mesh fault
+    normally reads as an exporter problem. It is the *mismatch* that says the solid is
+    not one, and nothing the document states is involved in noticing.
+
+    Built through build123d directly, because the engine refuses this document before
+    the kernel sees it (`SWEEP_BEND_TIGHTER_THAN_PROFILE`) — the oracle is the second
+    line, for the tear nobody predicted.
+    """
+    from build123d import Circle, Edge, Plane, Wire, sweep
+
+    from cad_engine_build123d.adapter import _export
+    from cad_engine_build123d.verify import Expectations, topology_of, verify
+
+    profile = (Plane.XY * Circle(RADIUS)).faces()[0]
+    torn = sweep(profile, path=Wire([
+        Edge.make_line((0, 0, 0), (0, 0, 40)),
+        Edge.make_three_point_arc(
+            (0, 0, 40),
+            (4 - 4 * math.cos(math.radians(45)), 0, 40 + 4 * math.sin(math.radians(45))),
+            (4, 0, 44)),
+    ]))
+
+    facts = topology_of(torn)
+    assert facts.genus == 0  # the B-rep is sure the part is fine
+
+    directory = Path(tempfile.mkdtemp())
+    _export(torn, directory)
+    report = verify(directory / "model.step", directory / "model.stl", Expectations())
+
+    failed = {item.name for item in report.checks if not item.passed}
+    assert "topology_agrees_with_mesh" in failed
+    assert report.brep is not None and report.brep.genus == 0
+    assert report.mesh is not None and report.mesh.genus != 0

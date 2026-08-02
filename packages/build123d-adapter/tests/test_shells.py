@@ -302,7 +302,7 @@ def enclosure_fixture() -> dict:
     from pathlib import Path
 
     fixtures = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
-    return json.loads((fixtures / "enclosure.v1_9.json").read_text("utf-8"))
+    return json.loads((fixtures / "enclosure.v1_10.json").read_text("utf-8"))
 
 
 def test_the_enclosure_fixture_is_the_arithmetic_of_its_drawing():
@@ -354,3 +354,80 @@ def test_the_enclosure_fixture_verifies_after_a_round_trip_through_step_and_stl(
     assert report.valid, [item for item in report.checks if not item.passed]
     named = {item.name for item in report.checks}
     assert "surface_face_count[inv_inner_corners]" in named
+
+
+# --- extrusion modes -------------------------------------------------------
+#
+# POSTMVP-021. Two ways an extrusion can travel that are not "straight up by d", and
+# both of them have a way of being wrong that the kernel does not report.
+
+
+def extruded(distance: float, **modes: Any) -> dict[str, Any]:
+    feature = block("feature.pad", "body.main", rectangle(40.0, 20.0))
+    feature["inputs"]["distance"] = distance
+    feature["inputs"].update(modes)
+    value = document([feature])
+    value["expectations"][0]["size_mm"] = {"x": 40.0, "y": 20.0, "z": distance}
+    return value
+
+
+def test_a_symmetric_extrusion_states_the_total_and_splits_it():
+    """The reading a revolve's `both_directions` has had since 1.4, applied here.
+
+    The alternative — the distance meaning "each way" — would make a part twice as
+    thick as the one the document describes, and a claimed thickness parameter would
+    name half of it. The volume is the same either way; only the position says which
+    happened, which is why the test looks at both.
+    """
+    plain = built(extruded(10.0))
+    centred = built(extruded(10.0, both_directions=True))
+
+    assert float(centred.volume) == pytest.approx(float(plain.volume), abs=1e-9)
+    assert (round(plain.bounding_box().min.Z, 6), round(plain.bounding_box().max.Z, 6)) == (0.0, 10.0)
+    assert (round(centred.bounding_box().min.Z, 6),
+            round(centred.bounding_box().max.Z, 6)) == (-5.0, 5.0)
+
+
+def test_a_draft_narrows_along_the_direction_and_a_negative_one_widens():
+    """One geometric rule, and the sign is the whole of it.
+
+    "Draft" means opposite things on a boss and in a cavity, so the contract states
+    what the *geometry* does — the extrusion narrows as it travels — and a moulded
+    pocket writes a negative one. A helpful translation would be a sign the document
+    cannot see and the engine chose.
+    """
+    narrowing = built(extruded(10.0, taper_deg=5.0))
+    widening = built(extruded(10.0, taper_deg=-5.0))
+
+    inset = 10.0 * math.tan(math.radians(5.0))
+    assert round(narrowing.bounding_box().size.X, 6) == 40.0  # the base is the widest
+    assert round(widening.bounding_box().size.X, 6) == pytest.approx(40.0 + 2 * inset, abs=1e-6)
+    assert float(narrowing.volume) < 40.0 * 20.0 * 10.0 < float(widening.volume)
+
+
+def test_a_draft_steep_enough_to_close_the_section_is_refused():
+    """The kernel's answer is a shorter part, reported as a success.
+
+    A 20 mm-wide pad drafted 45° over 40 mm closes after 10, and OpenCascade returns
+    the pyramid: one solid, five faces, `is_valid` true, a plausible volume and a
+    quarter of the height the document asked for.
+    """
+    from build123d import Plane, Rectangle, extrude as _extrude
+
+    stump = _extrude((Plane.XY * Rectangle(20, 20)).faces()[0], amount=40, taper=45.0)
+    assert stump.is_valid
+    # 10, to the tip the kernel could reach; the extra 1.4e-6 is where two
+    # slanted faces meet, which is a point rather than a face.
+    assert float(stump.bounding_box().max.Z) == pytest.approx(10.0, abs=1e-5)
+
+    square = block("feature.pad", "body.main", rectangle(20.0, 20.0))
+    square["inputs"].update(distance=40.0, taper_deg=45.0)
+    error = refusal_of(document([square]))
+    assert error.code == "EXTRUDE_DRAFT_TOO_STEEP"
+    assert "closes after 10" in error.safe_message
+
+
+def refusal_of(value: dict) -> CadEngineError:
+    with pytest.raises(CadEngineError) as raised:
+        built(value)
+    return raised.value

@@ -31,13 +31,13 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.9** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.10** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
   and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
   (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`), 1.9 sweep and loft
-  (`docs/adr/ADR-031-*`).
+  (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -232,10 +232,37 @@ is on offer, and **vision is now the only wall that matters** — revolve, sweep
 the booleans wait on whether an agent can read them off a scan, which no code here
 settles.
 
+**A part is now checked against itself** (POSTMVP-020, ADR-033). Every build delivers a
+STEP and an STL written by two different exporters, and the genus of the solid — how many
+handles it has — can be computed from either: Euler–Poincaré over the B-rep, Euler over
+the triangles. Neither number comes from the document, so this check needs nothing to have
+been stated. It runs on every build.
+
+The `L` term is why it works and why an earlier attempt gave up: the naive `V − E + F =
+2 − 2G` reads 0 for a plate that plainly has a hole, because a B-rep counts a full circle
+as one edge with one vertex. Counting *loops* puts it right. What it catches is the
+self-intersecting sweep — the STEP says a tidy genus-0 solid, the STL says genus −45 with
+69 open edges, and neither half is wrong-looking on its own.
+
+**Two ways an extrusion travels** came with it (POSTMVP-021). `both_directions` states the
+**total**, split half each way, like a revolve's since 1.4. `taper_deg` narrows the
+extrusion along `direction` — positive narrows, negative widens, and that is the only rule:
+"draft" means opposite things on a boss and in a cavity, and a sign the document cannot see
+is a sign somebody else chose. Both have closed-form arithmetic (the prismatoid rule for a
+taper, exact to six decimal places), and neither is offered to the drawing cycle, because
+neither is something a drawing states in words the reading stage has.
+
+**The kernel's failure mode is a plausible answer**, and that is now three findings of one
+shape: a shell with no room returns the original solid, a sweep round too tight a bend
+returns a self-intersecting one, a draft past the closing point returns a stump 10 mm tall
+where 40 was asked for. Each reports itself valid. So **every operation that can be
+over-driven gets a post-check comparing the result against what was asked** —
+`SHELL_NO_CAVITY`, `SWEEP_BEND_TIGHTER_THAN_PROFILE`, `EXTRUDE_DRAFT_TOO_STEEP`.
+
 **What is next**: the runs. Nine of them are listed in `docs/acceptance/POSTMVP-016-*.md`
 and `POSTMVP-019-*.md`, and until they happen every further widening is a guess. After
-them: rib and draft (P3.2, P3.3), then a topology oracle for Gate P4.
-`docs/POST-MVP-ROADMAP.md` has the order.
+them: rib (P3.2, which needs `extrude(until=…)` investigating — it fails on the first
+attempt), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the order.
 
 One thing is left over from the migration, named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,
