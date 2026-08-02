@@ -78,6 +78,20 @@ With neither, 11 of the 35 skip. With both, all 35 run — and they are the only
 check that the argument list this side builds and the invocation the other side
 accepts are still the same contract.
 
+**Rebuild the image after pulling.** A tag points at whatever was last built under
+it, so an image from before a CAD-IR version bump keeps answering with the old
+version and the container tests fail — reporting exactly what a code regression
+would report, in the same four tests. `describe` says which version is really in
+there:
+
+```powershell
+(docker run --rm --read-only --network none --tmpfs /tmp `
+  cad-ai/cad-worker:ci describe | ConvertFrom-Json).cad_ir_version
+```
+
+If that disagrees with `cad_ir.canonical.CAD_IR_VERSION`, the image is stale and
+nothing is wrong with the code.
+
 The interpreter needs the worker's dependencies, not only the engine:
 `pip install -r apps/cad-worker/requirements.txt`. A virtual environment created
 to read build123d's source has build123d and nothing else, and the failure that
