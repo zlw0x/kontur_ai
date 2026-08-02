@@ -46,16 +46,20 @@
             "openings": {
               "type": "array",
               "maxItems": 32,
-              "description": "Holes and cut-outs, grouped by the shape of the opening. Count every one the drawing shows, whether it goes through or not. Empty when the part has none.",
+              "description": "Holes and cut-outs, grouped by the shape of the opening and by whether they go through. Count every one the drawing shows. Empty when the part has none.",
               "items": {
                 "type": "object",
-                "required": ["kind", "count"],
+                "required": ["kind", "count", "through"],
                 "properties": {
                   "kind": {
                     "type": "string",
                     "enum": ["round", "slot", "rectangular", "polygonal", "profiled"]
                   },
-                  "count": {"type": "integer", "minimum": 1, "maximum": 1000}
+                  "count": {"type": "integer", "minimum": 1, "maximum": 1000},
+                  "through": {
+                    "type": ["boolean", "null"],
+                    "description": "true when the drawing shows these going all the way through, false when they stop inside the material, null when it does not say. Guessing is worse than null: a depth nobody stated is the one thing no later check can recover."
+                  }
                 },
                 "additionalProperties": false
               }

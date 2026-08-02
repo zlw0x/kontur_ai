@@ -268,3 +268,146 @@ def test_a_document_that_builds_nothing_is_named_as_such():
     value["features"][0]["enabled"] = False
     found = disagreements(validate_canonical(value), ShapeClaim(profile="rectangle"))
     assert [item.code for item in found] == ["NO_SOLID"]
+
+
+# --- how deep an opening goes ----------------------------------------------
+#
+# POSTMVP-016. Until the output profile offered blind cuts, every opening the cycle
+# could produce went right through and a depth could not be got wrong. Now it can,
+# and nothing else catches it: `through_hole_count` is written by the same stage that
+# chose the depth, so it agrees with whatever that stage decided.
+
+
+def plate_with(hole: dict, **extra) -> dict:
+    """A 60 × 40 × 8 plate with one opening, however the document spells it."""
+    return {
+        "schema": "cad-ai/cad-ir",
+        "schema_version": "1.7",
+        "document": {"units": "mm"},
+        "parameters": [
+            {"id": "thickness", "type": "length", "value": 8.0, "unit": "mm",
+             "status": "confirmed"}
+        ],
+        "features": [
+            {
+                "id": "feature.plate", "type": "solid.extrude", "enabled": True,
+                "depends_on": [], "produces": [{"id": "body.main", "kind": "solid_body"}],
+                "inputs": {
+                    "direction": "+Z", "distance": {"parameter": "thickness"},
+                    "sketch": {
+                        "id": "sketch.plate", "plane": {"on": "base", "plane": "XY"},
+                        "outer": {"type": "rectangle", "center": [0.0, 0.0],
+                                  "width": 60.0, "height": 40.0},
+                        "inner": extra.get("islands", []),
+                    },
+                },
+            },
+            *([hole] if hole else []),
+        ],
+        "expectations": [
+            {"id": "inv.box", "type": "bounding_box",
+             "size_mm": {"x": 60.0, "y": 40.0, "z": 8.0}, "tolerance_mm": 0.05},
+            {"id": "inv.bodies", "type": "body_count", "value": 1},
+        ],
+        "metadata": {"generator": "test", "generator_version": "1"},
+    }
+
+
+def hole(**depth) -> dict:
+    inputs = {
+        "direction": "+Z",
+        "source_body": {"result": "body.main"},
+        "sketch": {
+            "id": "sketch.hole", "plane": {"on": "base", "plane": "XY"},
+            "outer": {"type": "circle", "center": [0.0, 0.0], "radius": 5.0},
+        },
+        **depth,
+    }
+    return {"id": "feature.hole", "type": "cut.extrude", "enabled": True,
+            "depends_on": ["feature.plate"], "produces": [], "inputs": inputs}
+
+
+THROUGH = hole(through_all=True)
+BLIND = hole(distance=3.0)
+
+
+def claim_for(document: dict, **opening) -> list[str]:
+    return [
+        item.code
+        for item in disagreements(
+            validate_canonical(document),
+            ShapeClaim(profile="rectangle", openings=[{"kind": "round", **opening}]),
+        )
+    ]
+
+
+def test_a_hole_read_as_blind_agrees_with_a_document_that_stops():
+    assert claim_for(plate_with(BLIND), count=1, through=False) == []
+
+
+def test_a_hole_read_as_through_agrees_with_a_document_that_goes_through():
+    assert claim_for(plate_with(THROUGH), count=1, through=True) == []
+
+
+def test_a_blind_hole_where_the_drawing_shows_one_through_is_caught():
+    """The failure the depth field exists for.
+
+    Both documents are valid, both build, and both measure exactly what they declare —
+    including their own `through_hole_count`, which the compilation stage wrote to match
+    the depth it chose. The drawing is the only thing that says which was meant.
+    """
+    found = disagreements(
+        validate_canonical(plate_with(BLIND)),
+        ShapeClaim(profile="rectangle",
+                   openings=[{"kind": "round", "count": 1, "through": True}]),
+    )
+    assert [item.code for item in found] == ["OPENING_COUNT"]
+    assert "through round" in found[0].claimed
+    assert "0" in found[0].built
+
+
+def test_a_through_hole_where_the_drawing_shows_a_pocket_is_caught():
+    found = disagreements(
+        validate_canonical(plate_with(THROUGH)),
+        ShapeClaim(profile="rectangle",
+                   openings=[{"kind": "round", "count": 1, "through": False}]),
+    )
+    assert [item.code for item in found] == ["OPENING_COUNT"]
+    assert "blind" in found[0].claimed
+
+
+def test_a_reader_that_could_not_see_the_depth_agrees_with_either():
+    """Silence is not a claim.
+
+    The check exists for a drawing that plainly shows a pocket, not to punish a reader
+    for admitting the section view did not settle it.
+    """
+    assert claim_for(plate_with(BLIND), count=1) == []
+    assert claim_for(plate_with(THROUGH), count=1) == []
+
+
+def test_an_island_in_the_profile_goes_through_by_construction():
+    """A hole drawn into the base sketch is the full depth of the extrusion.
+
+    Nothing states it, so it is read off the shape of the document rather than a field:
+    an island in a solid profile cannot be a pocket.
+    """
+    document = plate_with(None, islands=[{"type": "circle", "center": [0.0, 0.0],
+                                          "radius": 5.0}])
+    assert claim_for(document, count=1, through=True) == []
+    assert claim_for(document, count=1, through=False) == ["OPENING_COUNT"]
+
+
+def test_a_patterned_pocket_counts_every_instance_as_blind():
+    """The two checks meet: a pattern multiplies, and the depth still holds."""
+    document = plate_with(BLIND)
+    document["features"].append({
+        "id": "feature.row", "type": "feature.pattern", "enabled": True,
+        "depends_on": ["feature.hole"], "produces": [],
+        "inputs": {"of": "feature.hole",
+                   "pattern": {"kind": "linear", "direction": "+X",
+                               "spacing_mm": 15.0, "count": 3},
+                   "skip": []},
+    })
+    assert claim_for(document, count=3, through=False) == []
+    assert claim_for(document, count=3, through=True) == ["OPENING_COUNT"]

@@ -113,6 +113,21 @@
           },
           {
             "$ref": "#/$defs/cut_extrusion"
+          },
+          {
+            "$ref": "#/$defs/blind_cut_extrusion"
+          },
+          {
+            "$ref": "#/$defs/datum_plane"
+          },
+          {
+            "$ref": "#/$defs/boss_extrusion"
+          },
+          {
+            "$ref": "#/$defs/linear_pattern"
+          },
+          {
+            "$ref": "#/$defs/circular_pattern"
           }
         ]
       },
@@ -586,6 +601,91 @@
       ],
       "additionalProperties": false
     },
+    "datum_sketch": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "plane": {
+          "type": "object",
+          "properties": {
+            "on": {
+              "type": "string",
+              "const": "datum"
+            },
+            "plane": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/$defs/identifier"
+                }
+              },
+              "required": [
+                "result"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "on",
+            "plane"
+          ],
+          "additionalProperties": false
+        },
+        "outer": {
+          "$ref": "#/$defs/contour"
+        },
+        "inner": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contour"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "construction": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/construction_entity"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        }
+      },
+      "required": [
+        "constraints",
+        "construction",
+        "dimensions",
+        "id",
+        "inner",
+        "outer",
+        "plane"
+      ],
+      "additionalProperties": false
+    },
     "base_extrusion": {
       "type": "object",
       "properties": {
@@ -736,6 +836,449 @@
             "sketch",
             "source_body",
             "through_all"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "blind_cut_extrusion": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "cut.extrude"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "kind": {
+                "type": "string",
+                "const": "face"
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "sketch": {
+              "$ref": "#/$defs/sketch"
+            },
+            "direction": {
+              "type": "string",
+              "const": "+Z"
+            },
+            "through_all": {
+              "type": "boolean",
+              "const": false
+            },
+            "distance": {
+              "$ref": "#/$defs/scalar"
+            },
+            "source_body": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/$defs/identifier"
+                }
+              },
+              "required": [
+                "result"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "direction",
+            "distance",
+            "sketch",
+            "source_body",
+            "through_all"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "datum_plane": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "datum.plane.offset"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "kind": {
+                "type": "string",
+                "const": "plane"
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "base": {
+              "type": "string",
+              "const": "XY"
+            },
+            "offset_mm": {
+              "$ref": "#/$defs/scalar"
+            },
+            "flip": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "base",
+            "flip",
+            "offset_mm"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "boss_extrusion": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "solid.extrude"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "kind": {
+                "type": "string",
+                "const": "solid_body"
+              }
+            },
+            "required": [
+              "id",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "sketch": {
+              "$ref": "#/$defs/datum_sketch"
+            },
+            "direction": {
+              "type": "string",
+              "const": "+Z"
+            },
+            "distance": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          "required": [
+            "direction",
+            "distance",
+            "sketch"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "linear_pattern": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "feature.pattern"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "of": {
+              "$ref": "#/$defs/identifier"
+            },
+            "pattern": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "linear"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "+X",
+                    "-X",
+                    "+Y",
+                    "-Y"
+                  ]
+                },
+                "spacing_mm": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 200
+                }
+              },
+              "required": [
+                "count",
+                "direction",
+                "kind",
+                "spacing_mm"
+              ],
+              "additionalProperties": false
+            },
+            "skip": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "of",
+            "pattern",
+            "skip"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "circular_pattern": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "feature.pattern"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "of": {
+              "$ref": "#/$defs/identifier"
+            },
+            "pattern": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "circular"
+                },
+                "axis": {
+                  "type": "string",
+                  "const": "axis.z"
+                },
+                "through": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/scalar"
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "step_deg": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 200
+                }
+              },
+              "required": [
+                "axis",
+                "count",
+                "kind",
+                "step_deg",
+                "through"
+              ],
+              "additionalProperties": false
+            },
+            "skip": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 0,
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "of",
+            "pattern",
+            "skip"
           ],
           "additionalProperties": false
         }

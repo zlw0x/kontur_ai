@@ -126,6 +126,92 @@ public sealed class DrawingPipelineTests
         finally { Directory.Delete(workspace, recursive: true); }
     }
 
+    /// <summary>
+    /// The prompts reach the model as text, and a placeholder is text that failed.
+    /// </summary>
+    /// <remarks>
+    /// Both prompts are C# raw string literals, and the compilation one spells out
+    /// nested JSON — so it needs a higher interpolation level than the others, and a
+    /// `{{Version}}` in a `$$$` literal renders as the literal characters while a
+    /// `{{{Version}}}` in a `$$` one renders the value wrapped in braces. Neither
+    /// fails to compile. Both are invisible until an AI run reads the nonsense, which
+    /// is the most expensive place to find out.
+    /// </remarks>
+    [Fact]
+    public async Task EveryPlaceholderInEveryPromptIsFilledIn()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_7.json"));
+            var invalid = valid.Replace(
+                @"""type"": ""solid.extrude""", @"""type"": ""cut.extrude""",
+                StringComparison.Ordinal);
+            var runner = new FakeRunner(AnalysisWithShape(), invalid, valid);
+
+            await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image]);
+
+            Assert.Equal(3, runner.Prompts.Count);
+            var compilation = runner.Prompts[1];
+            var repair = runner.Prompts[2];
+
+            // The version arrives as itself, not wrapped and not spelled out.
+            Assert.Contains("canonical CAD-IR 1.7", compilation);
+            Assert.Contains("CAD-IR 1.7 output schema", repair);
+            foreach (var prompt in runner.Prompts)
+            {
+                Assert.DoesNotContain("{1.7}", prompt);
+                Assert.DoesNotContain("CadIrVersion", prompt);
+                Assert.DoesNotContain("PromptVersion", prompt);
+            }
+
+            // The repair prompt carries the failure and the candidate, not their names.
+            Assert.DoesNotContain("{candidate}", repair);
+            Assert.DoesNotContain("{errorCode}", repair);
+            Assert.Contains("cut.extrude", repair);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
+    /// The compilation prompt describes every shape the output profile offers.
+    /// </summary>
+    /// <remarks>
+    /// The profile constrains what the model *may* emit; the prompt is what tells it
+    /// these shapes exist at all. A profile that grew without the prompt growing is a
+    /// capability nothing will ever ask for (POSTMVP-016).
+    /// </remarks>
+    [Fact]
+    public async Task TheCompilationPromptNamesEveryFeatureTheProfileOffers()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_7.json"));
+            var runner = new FakeRunner(AnalysisWithShape(), valid);
+            await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image]);
+
+            var compilation = runner.Prompts[1];
+            foreach (var offered in new[]
+                     {
+                         "solid.extrude", "cut.extrude", "datum.plane.offset", "feature.pattern",
+                         "through_all", "\"kind\":\"linear\"", "\"kind\":\"circular\"",
+                     })
+                Assert.Contains(offered, compilation);
+
+            // And the two rules a widened profile makes possible to get wrong.
+            Assert.Contains("never both", compilation);
+            Assert.Contains("count INCLUDES", compilation);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
     private static string AnalysisWithShape() =>
         """
         {
@@ -185,11 +271,15 @@ public sealed class DrawingPipelineTests
         private readonly Queue<string> values = new(outputs);
         public int Calls { get; private set; }
 
+        /// <summary>Every prompt this runner was handed, in order.</summary>
+        public List<string> Prompts { get; } = [];
+
         public async Task<CodexStageResult> RunAsync(
             CodexStageRequest request,
             CancellationToken cancellationToken = default)
         {
             Calls++;
+            Prompts.Add(request.Prompt);
             var value = values.Dequeue();
             Directory.CreateDirectory(Path.GetDirectoryName(request.OutputPath)!);
             await File.WriteAllTextAsync(request.OutputPath, value, cancellationToken);

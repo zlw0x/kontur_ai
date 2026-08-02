@@ -184,6 +184,179 @@ def test_the_profile_rejects_an_expression(profile):
         validate_canonical(document)
 
 
+# --- what the profile grew, and why each addition is safe ------------------
+#
+# POSTMVP-016. Everything below is a shape the *engine* has built since its own
+# milestone and the *cycle* could not ask for, because the output profile offered
+# one plate on XY with holes through it. Each is offered now for the same reason:
+# every one of its fields is mandatory, so the dialect can state it without forcing
+# the model to invent a value the canonical validator then refuses.
+
+
+def with_features(*features: dict, **overrides) -> dict:
+    """The profile-shaped document, with its feature list replaced."""
+    document = profile_shaped_document()
+    document["features"] = list(features)
+    document.update(overrides)
+    return document
+
+
+def base_feature() -> dict:
+    return profile_shaped_document()["features"][0]
+
+
+def sketch_on(plane: dict, name: str, outer: dict) -> dict:
+    return {
+        "id": f"sketch.{name}",
+        "plane": plane,
+        "outer": outer,
+        "inner": [],
+        "construction": [],
+        "constraints": [],
+        "dimensions": [],
+    }
+
+
+def blind_cut() -> dict:
+    return {
+        "id": "feature.pocket",
+        "type": "cut.extrude",
+        "enabled": True,
+        "depends_on": ["feature.base"],
+        "produces": [],
+        "inputs": {
+            "direction": "+Z",
+            "through_all": False,
+            "distance": 3.0,
+            "source_body": {"result": "body.main"},
+            "sketch": sketch_on({"on": "base", "plane": "XY"}, "pocket",
+                                {"type": "circle", "center": [10.0, 0.0], "radius": 4.0}),
+        },
+    }
+
+
+def datum_and_boss() -> list[dict]:
+    return [
+        {
+            "id": "feature.top",
+            "type": "datum.plane.offset",
+            "enabled": True,
+            "depends_on": ["feature.base"],
+            "produces": [{"id": "plane.top", "kind": "plane"}],
+            "inputs": {"base": "XY", "offset_mm": 8.0, "flip": False},
+        },
+        {
+            "id": "feature.boss",
+            "type": "solid.extrude",
+            "enabled": True,
+            "depends_on": ["feature.base", "feature.top"],
+            "produces": [],
+            "inputs": {
+                "direction": "+Z",
+                "distance": 5.0,
+                "sketch": sketch_on({"on": "datum", "plane": {"result": "plane.top"}}, "boss",
+                                    {"type": "circle", "center": [0.0, 0.0], "radius": 6.0}),
+            },
+        },
+    ]
+
+
+def hole_and_pattern(pattern: dict) -> list[dict]:
+    return [
+        {
+            "id": "feature.hole",
+            "type": "cut.extrude",
+            "enabled": True,
+            "depends_on": ["feature.base"],
+            "produces": [],
+            "inputs": {
+                "direction": "+Z",
+                "through_all": True,
+                "source_body": {"result": "body.main"},
+                "sketch": sketch_on({"on": "base", "plane": "XY"}, "hole",
+                                    {"type": "circle", "center": [-20.0, 0.0], "radius": 2.5}),
+            },
+        },
+        {
+            "id": "feature.repeat",
+            "type": "feature.pattern",
+            "enabled": True,
+            "depends_on": ["feature.hole"],
+            "produces": [],
+            "inputs": {"of": "feature.hole", "pattern": pattern, "skip": []},
+        },
+    ]
+
+
+LINEAR = {"kind": "linear", "direction": "+X", "spacing_mm": 20.0, "count": 3}
+CIRCULAR = {"kind": "circular", "axis": "axis.z", "through": [0.0, 0.0, 0.0],
+            "step_deg": 90.0, "count": 4}
+
+
+@pytest.mark.parametrize(
+    ("what", "features"),
+    [
+        ("a blind hole", [base_feature(), blind_cut()]),
+        ("a boss on a datum plane", [base_feature(), *datum_and_boss()]),
+        ("a linear pattern of holes", [base_feature(), *hole_and_pattern(LINEAR)]),
+        ("a circular pattern of holes", [base_feature(), *hole_and_pattern(CIRCULAR)]),
+    ],
+)
+def test_each_shape_the_profile_grew_is_canonically_valid(profile, what, features):
+    """The direction that matters, for every new branch.
+
+    A profile that accepted something the canonical validator refuses would tell the
+    model to produce documents the trusted gate then rejects — a repair loop caused
+    by our own schemas disagreeing.
+    """
+    document = with_features(*features)
+    assert list(profile.iter_errors(document)) == [], what
+    assert validate_canonical(document).schema_version == CAD_IR_VERSION
+
+
+def test_a_cut_may_not_state_both_a_depth_and_through_all(profile):
+    """The reason a blind hole is a second branch rather than an optional depth.
+
+    The dialect has no optional properties and the contract forbids stating both, so
+    one branch fixes `through_all` true and the other fixes it false. A document that
+    tried to have it both ways is refused by the profile *and* by the validator.
+    """
+    document = with_features(base_feature(), blind_cut())
+    document["features"][1]["inputs"]["through_all"] = True
+
+    assert list(profile.iter_errors(document)) != []
+    with pytest.raises(CadIrValidationError):
+        validate_canonical(document)
+
+
+def test_the_profile_still_refuses_what_the_dialect_cannot_state(profile):
+    """Selectors did not arrive with the rest, and this is what keeps that true.
+
+    A fillet's edges are named by predicates that are individually optional, which
+    rule 4 cannot express — so the operation stays out of the cycle even though the
+    engine has built it since POSTMVP-009.
+    """
+    document = with_features(base_feature(), {
+        "id": "feature.round",
+        "type": "feature.fillet",
+        "enabled": True,
+        "depends_on": ["feature.base"],
+        "produces": [],
+        "inputs": {
+            "edges": {
+                "id": "selector.corners", "kind": "edge", "from_result": "body.main",
+                "cardinality": {"type": "exactly_n", "value": 4},
+                "where": {"curve_type": "line", "direction_parallel_to": "axis.z"},
+            },
+            "radius": 3.0,
+        },
+    })
+
+    # The canonical model has had this since 1.5; the profile has never offered it.
+    assert validate_canonical(document).schema_version == CAD_IR_VERSION
+    assert list(profile.iter_errors(document)) != []
+
+
 #: The dialect the Codex structured-output API accepts, derived on 2026-07-28
 #: from the 0.1.0 schema it had been accepting for months and from three real
 #: rejections. Each rejection cost a full AI run, and the repair loop paid for

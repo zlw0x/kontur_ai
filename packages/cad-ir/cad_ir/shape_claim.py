@@ -142,6 +142,13 @@ _PATH_SIGNATURES: dict[ProfileKind, tuple[int, int]] = {
 class OpeningClaim(StrictModel):
     kind: OpeningKind
     count: Annotated[int, Field(ge=1, le=1000)]
+    #: Whether the drawing shows these going all the way through, or nothing when the
+    #: reader could not tell. Added with POSTMVP-016, when the output profile started
+    #: offering blind cuts: until then every opening the cycle could produce went
+    #: through, and a depth could not be got wrong. Now it can, and nothing else
+    #: catches it — `through_hole_count` is written by the same stage that chose the
+    #: depth, so it agrees with whatever that stage decided.
+    through: bool | None = None
 
 
 class ShapeClaim(StrictModel):
@@ -371,7 +378,9 @@ def _opening_disagreements(
     bolt circle are six holes to whoever read the drawing, whether the document spells
     out six circles or one and a pattern of six.
     """
-    built: dict[type, int] = {}
+    #: Openings by (contour type, whether it goes through). The second half is what a
+    #: blind hole made checkable, and `None` is where the document does not plainly say.
+    built: dict[tuple[type, bool | None], int] = {}
     for feature in document.features:
         if not feature.enabled:
             continue
@@ -379,33 +388,44 @@ def _opening_disagreements(
         if sketch is None:
             continue
         instances = repeats.get(str(feature.id), 1)
-        contours = list(sketch.inner)
-        if isinstance(feature, (CutExtrudeFeature, CutRevolveFeature)):
-            contours.append(sketch.outer)
+        cuts = isinstance(feature, (CutExtrudeFeature, CutRevolveFeature))
+        # An island in a solid profile is a hole through the whole extrusion. An island
+        # in a cut's profile is material that cut leaves behind, and how far it reaches
+        # is not something this can read off the document.
+        contours = [(contour, None if cuts else True) for contour in sketch.inner]
+        if cuts:
+            contours.append((sketch.outer, _reaches_through(feature)))
         elif str(feature.id) in subtracted:
             # A body extruded and then subtracted is a hole on the drawing. The shape
-            # of the opening is the shape of the tool's own outline (ADR-028).
-            contours.append(sketch.outer)
-        for contour in contours:
-            built[type(contour)] = built.get(type(contour), 0) + instances
+            # of the opening is the shape of the tool's own outline (ADR-028); how deep
+            # it reaches is geometry rather than a word in the document, so it is left
+            # unsaid.
+            contours.append((sketch.outer, None))
+        for contour, through in contours:
+            key = (type(contour), through)
+            built[key] = built.get(key, 0) + instances
 
     found: list[Disagreement] = []
     claimed_total = sum(item.count for item in claim.openings)
     for item in claim.openings:
         matched = sum(
             count
-            for kind, count in built.items()
+            for (kind, through), count in built.items()
             if issubclass(kind, _OPENING_CONTOURS[item.kind])
+            and _depth_agrees(item.through, through)
         )
         if matched != item.count:
+            depth = "" if item.through is None else (
+                " through" if item.through else " blind"
+            )
             found.append(
                 Disagreement(
                     code="OPENING_COUNT",
-                    claimed=f"{item.count} {item.kind}",
-                    built=f"{matched} {item.kind}",
+                    claimed=f"{item.count}{depth} {item.kind}",
+                    built=f"{matched}{depth} {item.kind}",
                     detail=(
-                        f"the drawing was read as {item.count} {item.kind} opening(s) "
-                        f"and the document builds {matched}"
+                        f"the drawing was read as {item.count}{depth} {item.kind} "
+                        f"opening(s) and the document builds {matched}"
                     ),
                 )
             )
@@ -423,6 +443,28 @@ def _opening_disagreements(
             )
         )
     return found
+
+
+def _reaches_through(feature) -> bool | None:
+    """Whether a cut goes all the way through, as the document states it.
+
+    Read rather than measured: `through_all` is a word in the document and a distance
+    is a number in it, and neither needs geometry. A revolved cut says nothing about
+    depth in these terms, so it says nothing.
+    """
+    if isinstance(feature, CutRevolveFeature):
+        return None
+    return bool(getattr(feature.inputs, "through_all", False))
+
+
+def _depth_agrees(claimed: bool | None, built: bool | None) -> bool:
+    """A reader who could not tell, or a document that does not say, agrees with both.
+
+    Silence is not a claim. This check exists for the drawing that plainly shows a
+    blind hole against a document that drills through — not to punish a reader for
+    admitting it could not see the depth.
+    """
+    return claimed is None or built is None or claimed == built
 
 
 def _thickness_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:

@@ -167,17 +167,24 @@ def build() -> dict[str, Any]:
 
     # The XY base plane only: this adapter extrudes along +Z from XY, so
     # offering XZ or YZ would invite geometry it refuses.
-    defs["sketch"] = obj(
-        id=ref("identifier"),
-        plane=obj(on=const("base"), plane=const("XY")),
-        outer=ref("contour"),
-        inner=array(ref("contour"), 0, 32),
-        construction=array(ref("construction_entity"), 0, 32),
-        # Present and always empty. Rule 4 makes every property mandatory, so
-        # the alternative to an empty array is a schema the model cannot satisfy.
-        constraints=array(obj(), 0, 0),
-        dimensions=array(obj(), 0, 0),
-    )
+    def sketch_on(plane: dict[str, Any]) -> dict[str, Any]:
+        return obj(
+            id=ref("identifier"),
+            plane=plane,
+            outer=ref("contour"),
+            inner=array(ref("contour"), 0, 32),
+            construction=array(ref("construction_entity"), 0, 32),
+            # Present and always empty. Rule 4 makes every property mandatory, so
+            # the alternative to an empty array is a schema the model cannot satisfy.
+            constraints=array(obj(), 0, 0),
+            dimensions=array(obj(), 0, 0),
+        )
+
+    defs["sketch"] = sketch_on(obj(on=const("base"), plane=const("XY")))
+    # The same sketch, on a plane an earlier feature built. This is what a boss
+    # standing on a plate needs, and it costs the dialect nothing: a datum plane's
+    # inputs are all mandatory, unlike a selector's predicates.
+    defs["datum_sketch"] = sketch_on(obj(on=const("datum"), plane=obj(result=ref("identifier"))))
 
     defs["base_extrusion"] = obj(
         id=ref("identifier"),
@@ -202,6 +209,89 @@ def build() -> dict[str, Any]:
             direction=const("+Z"),
             through_all={"type": "boolean", "const": True},
             source_body=obj(result=ref("identifier")),
+        ),
+    )
+    # A hole that stops. Its own variant rather than an optional depth, because the
+    # canonical validator refuses a cut that states both `through_all` and a
+    # distance — the dialect's lack of optional properties and the contract's
+    # exclusivity meet here, and two branches satisfy both.
+    defs["blind_cut_extrusion"] = obj(
+        id=ref("identifier"),
+        type=const("cut.extrude"),
+        enabled={"type": "boolean"},
+        depends_on=array(ref("identifier"), 1, 8),
+        produces=array(obj(id=ref("identifier"), kind=const("face")), 0, 0),
+        inputs=obj(
+            sketch=ref("sketch"),
+            direction=const("+Z"),
+            through_all={"type": "boolean", "const": False},
+            distance=ref("scalar"),
+            source_body=obj(result=ref("identifier")),
+        ),
+    )
+    # A plane parallel to XY, so a boss has somewhere to stand. Offset from the base
+    # plane only: a plane on top of another plane is a stack this profile has no use
+    # for, and every extra way to say the same thing is another way to say it wrong.
+    defs["datum_plane"] = obj(
+        id=ref("identifier"),
+        type=const("datum.plane.offset"),
+        enabled={"type": "boolean"},
+        depends_on=array(ref("identifier"), 1, 8),
+        produces=array(obj(id=ref("identifier"), kind=const("plane")), 1, 1),
+        inputs=obj(base=const("XY"), offset_mm=ref("scalar"), flip={"type": "boolean"}),
+    )
+    # Material added on that plane. It names no body and starts none, so it fuses
+    # into the one being built — which is what a boss on a plate is (ADR-028).
+    defs["boss_extrusion"] = obj(
+        id=ref("identifier"),
+        type=const("solid.extrude"),
+        enabled={"type": "boolean"},
+        depends_on=array(ref("identifier"), 1, 8),
+        produces=array(obj(id=ref("identifier"), kind=const("solid_body")), 0, 0),
+        inputs=obj(
+            sketch=ref("datum_sketch"),
+            direction=const("+Z"),
+            distance=ref("scalar"),
+        ),
+    )
+
+    # Patterns are the first operation the reading stage can genuinely ask for: six
+    # holes on a bolt circle is something a drawing shows and a shape claim carries,
+    # and every field of a pattern is mandatory, so the dialect can express it
+    # (ADR-027). `skip` is present and empty for the same reason `constraints` is.
+    defs["linear_pattern"] = obj(
+        id=ref("identifier"),
+        type=const("feature.pattern"),
+        enabled={"type": "boolean"},
+        depends_on=array(ref("identifier"), 1, 8),
+        produces=array(obj(), 0, 0),
+        inputs=obj(
+            of=ref("identifier"),
+            pattern=obj(
+                kind=const("linear"),
+                direction=enum("+X", "-X", "+Y", "-Y"),
+                spacing_mm=ref("scalar"),
+                count={"type": "integer", "minimum": 2, "maximum": 200},
+            ),
+            skip=array({"type": "integer"}, 0, 0),
+        ),
+    )
+    defs["circular_pattern"] = obj(
+        id=ref("identifier"),
+        type=const("feature.pattern"),
+        enabled={"type": "boolean"},
+        depends_on=array(ref("identifier"), 1, 8),
+        produces=array(obj(), 0, 0),
+        inputs=obj(
+            of=ref("identifier"),
+            pattern=obj(
+                kind=const("circular"),
+                axis=const("axis.z"),
+                through=array(ref("scalar"), 3, 3),
+                step_deg=ref("scalar"),
+                count={"type": "integer", "minimum": 2, "maximum": 200},
+            ),
+            skip=array({"type": "integer"}, 0, 0),
         ),
     )
 
@@ -243,7 +333,21 @@ def build() -> dict[str, Any]:
             1,
             64,
         ),
-        features=array({"anyOf": [ref("base_extrusion"), ref("cut_extrusion")]}, 1, 20),
+        features=array(
+            {
+                "anyOf": [
+                    ref("base_extrusion"),
+                    ref("cut_extrusion"),
+                    ref("blind_cut_extrusion"),
+                    ref("datum_plane"),
+                    ref("boss_extrusion"),
+                    ref("linear_pattern"),
+                    ref("circular_pattern"),
+                ]
+            },
+            1,
+            20,
+        ),
         expectations=array(
             {"anyOf": [ref("bounding_box_expectation"), ref("count_expectation")]}, 2, 8
         ),

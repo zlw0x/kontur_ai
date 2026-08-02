@@ -129,21 +129,43 @@ comparison was stricter than the format it reads (an STL stores float32, so 20�
 1.76e-6 mm *larger*); and a kept overlapping tool is not one manifold, which is the right
 answer and is recorded rather than accommodated.
 
+**The cap on the cycle is not the engine** (POSTMVP-016, ADR-029). The engine declares 33
+capabilities; the drawing cycle could reach two of them. Three different walls hold the
+rest back and they are worth telling apart: the **dialect** (Codex structured output has no
+optional properties, so an operation whose input is honestly optional cannot be offered),
+the **claim** (an operation the reading stage cannot state is an operation nothing checks),
+and **vision** (whether the agent can see it on a scan — the only one no code here settles).
+
+The profile now offers what the claim can already check: a blind cut, a datum plane and a
+boss on it, a linear pattern and a circular one. None of the geometry is new — the corpus
+already builds all of it — what is new is that the cycle may ask. A blind cut is **its own
+branch** rather than an optional depth, because the contract refuses a cut that states both
+`through_all` and a distance and the dialect cannot make one optional.
+
+With it came `OpeningClaim.through`, because until now every opening the cycle could produce
+went through, so a depth could not be got wrong. A misread depth is otherwise a document
+that is valid, builds, and measures exactly what it declares — including the
+`through_hole_count` it wrote to match. **Nothing is not false**: a reader that could not
+settle the depth says nothing, and a claim that says nothing agrees with either.
+
+A contract is not a run. Whether the model emits a pattern when it sees a bolt circle needs
+real Codex on the trusted machine; the six runs that would close it are listed in
+`docs/acceptance/POSTMVP-016-*.md`.
+
 **What is next**: sweep, loft and shell. `docs/POST-MVP-ROADMAP.md` has the order.
 
-Two things left over from the migration, both named in
+One thing is left over from the migration, named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,
 `ResourceStage.KOMPAS_STARTUP` and the manifest's `kompas_version` still exist
-because stored rows carry them, and they leave when none do; and no deployment has
-run on the container image yet.
+because stored rows carry them, and they leave when none do.
 
-The image itself is now **testable rather than merely defined**. `ContainerEngineTests`
-drives the launcher against a real daemon in the mode production uses — the manifest, a
-build whose results come back out of the bind mount, a shape claim on its own read-only
-mount, and a flag the operator set — and skips itself unless `CAD_ENGINE_IMAGE` names an
-image, which the `cad-worker-image` CI job now sets after building one. Until that job has
-run, container mode has still only ever been checked by reading the argument list the
-launcher builds.
+The image is no longer merely defined: it has been **built and run on a real daemon**
+(`docs/acceptance/ENGINE-MIG-DEPLOY-*.md`) — `describe` under `--read-only --network none`,
+a real part through a bind mount, and the launcher's four container tests green on the first
+attempt, 35 of 35 with nothing skipped once `CAD_ENGINE_PYTHON` gave the process runtime an
+interpreter too. `ContainerEngineTests` still skips itself unless `CAD_ENGINE_IMAGE` names an
+image, so a sandbox that cannot reach the Debian package hosts reports four skips, and that
+is expected rather than a regression.
 
 ## What was landed before the engine changed
 
