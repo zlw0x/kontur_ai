@@ -201,16 +201,133 @@ public sealed class DrawingPipelineTests
             foreach (var offered in new[]
                      {
                          "solid.extrude", "cut.extrude", "datum.plane.offset", "feature.pattern",
+                         "feature.fillet", "feature.chamfer", "feature.shell",
                          "through_all", "\"kind\":\"linear\"", "\"kind\":\"circular\"",
                      })
                 Assert.Contains(offered, compilation);
 
-            // And the two rules a widened profile makes possible to get wrong.
+            // The three rules a widened profile makes possible to get wrong.
             Assert.Contains("never both", compilation);
             Assert.Contains("count INCLUDES", compilation);
+            Assert.Contains("count is REQUIRED", compilation);
+
+            // A selection is spelled out verbatim rather than described, because the
+            // profile refuses every predicate set but these (ADR-032) and a model
+            // paraphrasing one produces a document the schema rejects.
+            Assert.Contains("\"convexity\":\"convex\"", compilation);
+            Assert.Contains("\"extreme_along\":\"axis.z\"", compilation);
+            Assert.Contains("\"direction\":\"positive\"", compilation);
         }
         finally { Directory.Delete(workspace, recursive: true); }
     }
+
+    /// <summary>
+    /// The reading prompt asks for everything the claim can now check.
+    /// </summary>
+    /// <remarks>
+    /// A claim field the reading stage is never told about is a field that arrives
+    /// null on every run, and a check that never fires (ADR-032).
+    /// </remarks>
+    [Fact]
+    public async Task TheAnalysisPromptAsksForEveryPartOfTheShapeTheClaimChecks()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_9.json"));
+            var runner = new FakeRunner(AnalysisWithShape(), valid);
+            await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image]);
+
+            var analysis = runner.Prompts[0];
+            foreach (var asked in new[]
+                     {
+                         "profile", "openings", "solids", "thickness_parameter",
+                         "wall_parameter", "blends",
+                     })
+                Assert.Contains(asked, analysis);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
+    /// A wall and a set of blends reach the engine as part of the claim.
+    /// </summary>
+    [Fact]
+    public async Task TheWallAndTheBlendsTheDrawingWasReadAsAreHandedToTheEngine()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_9.json"));
+            var engine = new StubValidatingEngine();
+            await new DrawingPipeline(
+                new FakeRunner(AnalysisWithHollowShape(), valid), engine: engine)
+                .RunAsync(workspace, [image]);
+
+            var claim = JsonDocument.Parse(File.ReadAllText(engine.SawShapeClaim!)).RootElement;
+            Assert.Equal("p_wall", claim.GetProperty("wall").GetString());
+            var blends = claim.GetProperty("blends");
+            Assert.Equal(1, blends.GetArrayLength());
+            Assert.Equal("fillet", blends[0].GetProperty("kind").GetString());
+            Assert.Equal(4, blends[0].GetProperty("count").GetInt32());
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
+    /// A reader who saw neither says neither, and the claim stays silent about both.
+    /// </summary>
+    /// <remarks>
+    /// A `null` wall copied through would claim the part is hollow on behalf of
+    /// somebody who did not say so, and an empty blend list is not a claim of zero.
+    /// </remarks>
+    [Fact]
+    public async Task NothingSeenIsNothingClaimed()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_9.json"));
+            var engine = new StubValidatingEngine();
+            await new DrawingPipeline(
+                new FakeRunner(AnalysisWithShape(), valid), engine: engine)
+                .RunAsync(workspace, [image]);
+
+            var claim = JsonDocument.Parse(File.ReadAllText(engine.SawShapeClaim!)).RootElement;
+            Assert.False(claim.TryGetProperty("wall", out _));
+            Assert.False(claim.TryGetProperty("blends", out _));
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    private static string AnalysisWithHollowShape() =>
+        """
+        {
+          "schema_version":"0.1.0","stage":"drawing_analysis",
+          "status":"success","confidence":1,"warnings":[],
+          "result":{
+            "ready_for_cad":true,"summary":"Housing 40 by 20 by 10, wall 2, R4 corners.",
+            "parameters":[],
+            "shape":{
+              "profile":"rectangle",
+              "openings":[],
+              "solids":1,
+              "thickness_parameter":"p_depth",
+              "wall_parameter":"p_wall",
+              "blends":[{"kind":"fillet","count":4}],
+              "note":null
+            },
+            "questions":[]
+          }
+        }
+        """;
 
     private static string AnalysisWithShape() =>
         """
@@ -225,6 +342,8 @@ public sealed class DrawingPipelineTests
               "openings":[{"kind":"round","count":1}],
               "solids":1,
               "thickness_parameter":"p_depth",
+              "wall_parameter":null,
+              "blends":[],
               "note":null
             },
             "questions":[]

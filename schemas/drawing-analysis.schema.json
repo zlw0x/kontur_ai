@@ -36,7 +36,7 @@
         "shape": {
           "type": "object",
           "description": "What the part is, structurally: the outline, the openings, how many solids and which parameter is the thickness. Never where anything is - coordinates are the compilation stage's job. This is checked against the compiled CAD-IR by trusted code, so a misread outline is caught before a valid document that builds the wrong part reaches anyone.",
-          "required": ["profile", "openings", "solids", "thickness_parameter", "note"],
+          "required": ["profile", "openings", "solids", "thickness_parameter", "wall_parameter", "blends", "note"],
           "properties": {
             "profile": {
               "type": "string",
@@ -74,6 +74,25 @@
               "type": ["string", "null"],
               "maxLength": 64,
               "description": "The id of the parameter above that holds the part's depth, or null when the drawing does not give one. Naming it is what keeps the dimension a name rather than a number."
+            },
+            "wall_parameter": {
+              "type": ["string", "null"],
+              "maxLength": 64,
+              "description": "The id of the parameter holding the wall thickness when the part is hollow - a box, a housing, a cover with a wall rather than solid material - and null when it is solid or the drawing does not say. A hollow part and a solid one of the same size agree on every other field here and differ by several times the material, so this is the only thing that catches a part built solid."
+            },
+            "blends": {
+              "type": "array",
+              "maxItems": 16,
+              "description": "Rounded and chamfered edges the drawing marks, grouped by kind and counted. A corner radius note that applies to all four corners is one entry with count 4. Empty when the drawing marks none.",
+              "items": {
+                "type": "object",
+                "required": ["kind", "count"],
+                "properties": {
+                  "kind": {"type": "string", "enum": ["fillet", "chamfer"]},
+                  "count": {"type": "integer", "minimum": 1, "maximum": 1000}
+                },
+                "additionalProperties": false
+              }
             },
             "note": {
               "type": ["string", "null"],

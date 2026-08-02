@@ -298,6 +298,15 @@ public sealed class DrawingPipeline(
           solids           how many separate lumps of material: 1 for a plain plate, 2 for a plate with a
                            boss standing on it, 4 for a plate with three pads.
           thickness_parameter  the id of the parameter holding the depth, or null if the drawing gives none.
+          wall_parameter   the id of the parameter holding the wall thickness when the part is hollow - a
+                           box, a housing, a cover with a wall rather than solid material - and null when
+                           it is solid or the drawing does not say. Nothing else here can tell a hollow
+                           part from a solid one: they have the same outline, the same openings, the same
+                           count of lumps and the same overall size, and differ several times over in
+                           material.
+          blends           rounded and chamfered edges the drawing marks, by kind and count. "R5" against
+                           all four corners is one entry, fillet, count 4; a "2x45" on a bore rim is one
+                           entry, chamfer, count 1. Empty when the drawing marks none.
           note             what the outline is, in words, when profile is closed_profile.
 
         Extract every dimension in millimetres. Never invent a missing one. A directly legible dimension is
@@ -359,7 +368,32 @@ public sealed class DrawingPipeline(
              {"kind":"circular","axis":"axis.z","through":[x,y,0],"step_deg","count"}. The count INCLUDES
              the hole itself, so six holes 60 degrees apart is count 6 and step_deg 60. Use a pattern
              whenever the drawing states a repeat - it is the count the drawing gives, and spelling out six
-             coordinates instead is six chances to get a number wrong.
+             coordinates instead is six chances to get a number wrong;
+          6. a rounded or chamfered corner is a "feature.fillet" or "feature.chamfer" with produces [],
+             depends_on the feature whose edges it treats, and inputs {"edges":<a selection>,"radius"} or
+             {"edges":<a selection>,"distance"}. There are exactly two selections and you may not compose
+             another. The upright corners of the outline:
+               {"id":"selector.corners","kind":"edge","from_result":"body.main",
+                "cardinality":{"type":"exactly_n","value":<how many>},
+                "where":{"curve_type":"line","direction_parallel_to":"axis.z","convexity":"convex"}}
+             and the rims where holes break out of the top face:
+               {"id":"selector.rims","kind":"edge","from_result":"body.main",
+                "cardinality":{"type":"exactly_n","value":<how many>},
+                "where":{
+                  "curve_type":"circle",
+                  "position":{"extreme_along":"axis.z","extreme":"maximum"}
+                }}
+             The count is REQUIRED and must be right: a blend that matched nothing would be a feature that
+             silently did not happen, and the part would have square corners where the drawing shows round;
+          7. a hollow part is a "feature.shell" with produces [], depends_on the feature it hollows, and
+             inputs {"faces":<the top face>,"thickness":<the wall>,"direction":"inward"}, where the top face
+             is exactly
+               {"id":"selector.top","kind":"face","from_result":"body.main","cardinality":"exactly_one",
+                "where":{
+                  "surface_type":"planar",
+                  "normal":{"parallel_to":"axis.z","direction":"positive"}
+                }}
+             Shell last, after the holes: it hollows the part as it then is.
 
         Prefer islands in the base sketch to separate cut features when a hole goes right through: it is the
         same solid and one fewer feature. Use a cut when the opening does not pass through the whole part.
@@ -378,7 +412,9 @@ public sealed class DrawingPipeline(
         true as an island or a through_all cut; a group of several counts once per hole, however you build
         them. If "solids" is more than 1, that many lumps of material must be added - the base plus one
         boss for each of the others. If "thickness_parameter" names a parameter, the base extrusion's
-        distance must reference exactly that parameter and not a literal.
+        distance must reference exactly that parameter and not a literal. If "wall_parameter" names one,
+        the document must shell the part and the shell's thickness must reference exactly that parameter.
+        Every entry in "blends" is a fillet or a chamfer whose selection states exactly that count.
 
         "through_hole_count" counts only holes that break out the far side. A blind pocket is not one of
         them, and counting it would fail a check that measures the finished solid.
@@ -516,6 +552,18 @@ public sealed class DrawingPipeline(
             if (shape.TryGetProperty("thickness_parameter", out var thickness) &&
                 thickness.ValueKind == JsonValueKind.String)
                 claim["thickness"] = thickness.GetString();
+            // Copied only when the reader named one. A `null` arriving as a wall would
+            // say "this part is hollow" on behalf of somebody who did not.
+            if (shape.TryGetProperty("wall_parameter", out var wall) &&
+                wall.ValueKind == JsonValueKind.String)
+                claim["wall"] = wall.GetString();
+            if (shape.TryGetProperty("blends", out var blends) &&
+                blends.ValueKind == JsonValueKind.Array && blends.GetArrayLength() > 0)
+                claim["blends"] = blends.EnumerateArray().Select(item => new
+                {
+                    kind = item.GetProperty("kind").GetString(),
+                    count = item.GetProperty("count").GetInt32()
+                }).ToArray();
             if (shape.TryGetProperty("note", out var note) && note.ValueKind == JsonValueKind.String)
                 claim["note"] = note.GetString();
 

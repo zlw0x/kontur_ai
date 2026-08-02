@@ -17,33 +17,37 @@ accepting for months and from three real rejections that each cost an AI run:
   5. every object sets `additionalProperties: false`
 
 This profile is deliberately narrower than the canonical schema. It offers
-base-plane sketches only, and no constraints or driving dimensions.
+base-plane sketches, a fixed set of **named selections**, and no constraints or
+driving dimensions.
 
-The reason is the same in every case: rule 4 has no notion of an optional
-property. A selector's predicates are individually optional, so the model would
-be forced to emit every one of them — and the canonical validator then rejects
-the result, because a planar face has no radius. A constraint's `to` and `axis`
-are optional in exactly the same way, and forcing them would make every
-constraint binary and axial. A schema that cannot express optionality must not
-be handed a model that needs it.
+Rule 4 has no notion of an optional property, and for a long time that was read
+as "a selector cannot be offered at all": a selector's predicates are
+individually optional, so forcing the model to emit every one of them produces a
+document the canonical validator rejects — a planar face has no radius.
 
-Auxiliary planes, face selectors, constraints and driving dimensions all reach
-the adapter through the manual API instead.
+That reading was too strong, and ADR-032 corrects it. Rule 4 governs the
+properties a schema *declares*. Nothing obliges the profile to declare the whole
+predicate vocabulary: a selection that declares three predicates and requires all
+three is dialect-legal and canonically valid at once, because the predicates it
+leaves out are optional in the canonical model. What could not be offered was the
+vocabulary; a *fixed* set of predicates was always expressible.
 
-Revolve (CAD-IR 1.4) is left out for a different reason, and not because of the
-dialect. The drawing agent reads a rectangle and round holes; a turned profile and
-the centre line it goes round are not something it can extract yet, so offering
-the operation would only invite a model to invent one. Widening what is read off a
-scan is a vision problem, and the operation waits for it.
+So the profile offers selections rather than selectors — "the upright corners of
+the outline", "the rims where holes break out of the top", "the face the part is
+open at" — each written here against the topology this engine builds, each
+exercised by the golden corpus, and each with nothing for the model to choose but
+a count. Composing a selector is still not on offer, and that is the point.
 
-Fillet and chamfer (CAD-IR 1.5) are left out for **both** reasons at once, which
-is why they are worth naming separately. A blend's entire input is an edge
-selector, every one of whose predicates is optional — so rule 4 would force the
-model to emit all of them, and the canonical validator then rejects the result
-because a straight edge has no radius. And even with a dialect that could express
-it, a fillet is not something the reading stage can currently state: a shape claim
-has no word for a rounded corner, so there would be nothing to check the blend
-against.
+Constraints and driving dimensions stay out for the original reason, which does
+still hold: a constraint's `to` and `axis` are optional in a way no fixed choice
+resolves, and forcing them would make every constraint binary and axial.
+
+Revolve (CAD-IR 1.4), sweep and loft (1.9) are left out for a different reason,
+and not because of the dialect. The drawing agent reads an outline and holes; a
+turned section with its centre line, or a path with bend radii on an elevation,
+are not things it can extract yet, so offering the operations would only invite a
+model to invent one. Widening what is read off a scan is a vision problem, and
+they wait for it.
 """
 
 from __future__ import annotations
@@ -262,6 +266,95 @@ def build() -> dict[str, Any]:
         ),
     )
 
+    # --- named selections ---------------------------------------------------
+    #
+    # The dialect wall, and how it turned out to be passable (ADR-032).
+    #
+    # Rule 4 says every object lists *its own* properties as required. It does not say
+    # a schema has to declare every property the canonical model allows — and a
+    # selector's predicates are optional in the canonical model, so a profile that
+    # declares three of them and requires all three is both dialect-legal and
+    # canonically valid. What could not be offered was the predicate *vocabulary*; a
+    # fixed set of predicates was always expressible, and nobody tried.
+    #
+    # So a selection is a named shape with nothing to choose but a count. The model
+    # cannot compose a selector, which is the point: every one of these was written
+    # here, against the topology this engine builds, and is exercised by the corpus.
+
+    def selection(kind: str, where: dict[str, Any], counted: bool) -> dict[str, Any]:
+        return obj(
+            id=ref("identifier"),
+            kind=const(kind),
+            # The base extrusion is the only body this profile builds, so naming it is
+            # a constant rather than a choice — one fewer thing to get wrong.
+            from_result=const("body.main"),
+            cardinality=(
+                obj(type=const("exactly_n"),
+                    value={"type": "integer", "minimum": 1, "maximum": 64})
+                if counted
+                else const("exactly_one")
+            ),
+            where=where,
+        )
+
+    # The upright edges of the outline, and only those: `convex` excludes the inside
+    # of a hole, which is where "round the corners" would otherwise land.
+    defs["outer_corner_edges"] = selection(
+        "edge",
+        obj(curve_type=const("line"),
+            direction_parallel_to=const("axis.z"),
+            convexity=const("convex")),
+        counted=True,
+    )
+    # The rims where holes break out of the top face. Circular, so the upright edges
+    # of the outline are not among them, and topmost, so the far side is not either.
+    defs["bore_rim_edges"] = selection(
+        "edge",
+        obj(curve_type=const("circle"),
+            position=obj(extreme_along=const("axis.z"), extreme=const("maximum"))),
+        counted=True,
+    )
+    # The face a hollow part is open at.
+    defs["top_face"] = selection(
+        "face",
+        obj(surface_type=const("planar"),
+            normal=obj(parallel_to=const("axis.z"), direction=const("positive"))),
+        counted=False,
+    )
+
+    def blend(name: str, type_name: str, selector: str, size: str) -> None:
+        defs[name] = obj(
+            id=ref("identifier"),
+            type=const(type_name),
+            enabled={"type": "boolean"},
+            depends_on=array(ref("identifier"), 1, 8),
+            produces=array(obj(), 0, 0),
+            inputs=obj(**{"edges": ref(selector), size: ref("scalar")}),
+        )
+
+    # `exactly_n` is what makes these safe to offer: a blend may not declare a
+    # cardinality that permits zero matches (ADR-026), and stating the count is also
+    # what gives the shape claim something to disagree with.
+    blend("corner_fillet", "feature.fillet", "outer_corner_edges", "radius")
+    blend("corner_chamfer", "feature.chamfer", "outer_corner_edges", "distance")
+    blend("bore_chamfer", "feature.chamfer", "bore_rim_edges", "distance")
+
+    # Hollow, inward, open at the top. `direction` is a constant rather than a choice:
+    # an outward wall changes the part's overall size, and a drawing that means one
+    # says so in dimensions the reading stage has no word for yet (ADR-030).
+    defs["hollow"] = obj(
+        id=ref("identifier"),
+        type=const("feature.shell"),
+        enabled={"type": "boolean"},
+        depends_on=array(ref("identifier"), 1, 8),
+        produces=array(obj(), 0, 0),
+        inputs=obj(
+            faces=ref("top_face"),
+            thickness=ref("scalar"),
+            direction=const("inward"),
+        ),
+    )
+
     # Patterns are the first operation the reading stage can genuinely ask for: six
     # holes on a bolt circle is something a drawing shows and a shape claim carries,
     # and every field of a pattern is mandatory, so the dialect can express it
@@ -350,6 +443,10 @@ def build() -> dict[str, Any]:
                     ref("boss_extrusion"),
                     ref("linear_pattern"),
                     ref("circular_pattern"),
+                    ref("corner_fillet"),
+                    ref("corner_chamfer"),
+                    ref("bore_chamfer"),
+                    ref("hollow"),
                 ]
             },
             1,

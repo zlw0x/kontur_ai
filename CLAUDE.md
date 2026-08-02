@@ -203,7 +203,38 @@ round the bends, because the centroid rides the path) and the **prismatoid rule*
 loft. Neither is reachable from the drawing cycle, and that is ADR-029's claim and vision
 walls rather than its dialect one.
 
-**What is next**: rib and draft (P3.2, P3.3), then a topology oracle for Gate P4.
+**The dialect wall was lower than it looked** (POSTMVP-019, ADR-032). ADR-029 read rule 4
+— every object lists all its properties as required — as "a selector cannot be offered,
+because its predicates are individually optional". That is true of offering the predicate
+*vocabulary*. Rule 4 governs the properties a schema **declares**, and a `where` that
+declares three predicates and requires all three is dialect-legal *and* canonically valid,
+because the ones it leaves out are optional in the contract. Three operations sat behind a
+misreading for a milestone.
+
+So the profile now offers **selections** rather than selectors: the upright convex corners
+of the outline, the circular rims topmost along Z, the planar +Z face. Every predicate a
+constant, `from_result` the constant `body.main`, nothing to choose but a count. **The
+model composes nothing** — that is the decision: a selection is written here against the
+topology this engine builds and is exercised by the corpus, where a composed one would be
+a selector nobody has resolved against a real part.
+
+Four operations follow — a corner fillet, a corner chamfer, a bore chamfer and a shell —
+and the claim grew with them, because ADR-029's rule cuts both ways. `ShapeClaim.blends`
+is kind and count: a plate with square corners where the drawing shows R5 agrees on the
+outline, the openings, the solid count and the bounding box, and `surface_face_count` is
+written by the same stage that chose the blend. A count, never a radius. The count is
+comparable only because the profile emits `exactly_n` — which is also the only cardinality
+ADR-026 allows. And `wall_parameter` finally reaches the reading stage, because the cycle
+can now build the shell it describes.
+
+The cycle reaches **ten** of the engine's 39 capabilities. Everything the claim can check
+is on offer, and **vision is now the only wall that matters** — revolve, sweep, loft and
+the booleans wait on whether an agent can read them off a scan, which no code here
+settles.
+
+**What is next**: the runs. Nine of them are listed in `docs/acceptance/POSTMVP-016-*.md`
+and `POSTMVP-019-*.md`, and until they happen every further widening is a guess. After
+them: rib and draft (P3.2, P3.3), then a topology oracle for Gate P4.
 `docs/POST-MVP-ROADMAP.md` has the order.
 
 One thing is left over from the migration, named in

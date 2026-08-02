@@ -411,3 +411,108 @@ def test_a_patterned_pocket_counts_every_instance_as_blind():
     })
     assert claim_for(document, count=3, through=False) == []
     assert claim_for(document, count=3, through=True) == ["OPENING_COUNT"]
+
+
+# --- blends: the claim's word for a treated edge ---------------------------
+#
+# POSTMVP-019. The output profile started offering a fillet and a chamfer (ADR-032),
+# and an operation the reading stage cannot state is an operation nothing checks. A
+# blend changes nothing else the claim counts: the outline, the openings and the solid
+# count are all the same with the corners square.
+
+
+def blend(kind: str, count: int, size: float = 4.0) -> dict:
+    size_field = "radius" if kind == "feature.fillet" else "distance"
+    return {
+        "id": "feature.treat", "type": kind, "enabled": True,
+        "depends_on": ["feature.plate"], "produces": [],
+        "inputs": {
+            "edges": {
+                "id": "selector.corners", "kind": "edge", "from_result": "body.main",
+                "cardinality": {"type": "exactly_n", "value": count},
+                "where": {"curve_type": "line", "direction_parallel_to": "axis.z",
+                          "convexity": "convex"},
+            },
+            size_field: size,
+        },
+    }
+
+
+def blended(feature: dict | None) -> dict:
+    value = plate_with(None)
+    if feature is not None:
+        value["features"].append(feature)
+    return value
+
+
+def blend_codes(document: dict, **claim) -> list[str]:
+    return [
+        item.code
+        for item in disagreements(
+            validate_canonical(document), ShapeClaim(profile="rectangle", **claim)
+        )
+    ]
+
+
+def test_four_rounded_corners_read_and_four_built_agree():
+    assert blend_codes(blended(blend("feature.fillet", 4)),
+                       blends=[{"kind": "fillet", "count": 4}]) == []
+
+
+def test_a_drawing_with_rounded_corners_and_a_document_without_is_caught():
+    """The check the word exists for.
+
+    A plate with square corners where the drawing shows R5 has the same outline, the
+    same openings, the same one solid and the same bounding box. Nothing else in the
+    claim can see the difference.
+    """
+    found = blend_codes(blended(None), blends=[{"kind": "fillet", "count": 4}])
+
+    assert found == ["BLEND_COUNT"]
+
+
+def test_the_wrong_number_of_rounded_corners_is_caught():
+    assert blend_codes(blended(blend("feature.fillet", 2)),
+                       blends=[{"kind": "fillet", "count": 4}]) == ["BLEND_COUNT"]
+
+
+def test_a_fillet_and_a_chamfer_are_counted_apart():
+    """A rounded corner and a cut one are different marks on a drawing.
+
+    A document that chamfered what the drawing rounds is the same part to every other
+    check and is not the part.
+    """
+    assert blend_codes(blended(blend("feature.chamfer", 4)),
+                       blends=[{"kind": "fillet", "count": 4}]) == ["BLEND_COUNT"]
+
+
+def test_a_reader_who_marked_no_blend_does_not_contradict_a_document_that_blends():
+    """Silence is not a claim, the rule POSTMVP-016 set and ADR-030 kept."""
+    assert blend_codes(blended(blend("feature.fillet", 4))) == []
+
+
+def test_a_blend_whose_count_the_document_never_stated_agrees_with_either():
+    """`one_or_more` says "at least one" and no number, so there is nothing to compare.
+
+    The output profile only ever emits `exactly_n`, so this is about hand-written
+    documents — and a claim cannot disagree with a number nobody wrote.
+    """
+    loose = blend("feature.fillet", 4)
+    loose["inputs"]["edges"]["cardinality"] = "one_or_more"
+
+    assert blend_codes(blended(loose), blends=[{"kind": "fillet", "count": 4}]) == []
+
+
+def test_a_disabled_blend_is_a_document_that_does_not_round_the_corners():
+    switched_off = {**blend("feature.fillet", 4), "enabled": False}
+
+    assert blend_codes(blended(switched_off),
+                       blends=[{"kind": "fillet", "count": 4}]) == ["BLEND_COUNT"]
+
+
+def test_a_blend_leaves_every_other_field_of_the_claim_satisfied():
+    """Which is the whole problem, stated as a test."""
+    stated = ShapeClaim(profile="rectangle", openings=[], solids=1)
+
+    assert disagreements(validate_canonical(blended(blend("feature.fillet", 4))), stated) == []
+    assert disagreements(validate_canonical(blended(None)), stated) == []

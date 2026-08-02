@@ -41,10 +41,12 @@ from .base import Id, ParameterRef, StrictModel
 from .canonical import (
     BooleanFeature,
     CadIrDocument,
+    ChamferFeature,
     CutExtrudeFeature,
     CutLoftFeature,
     CutRevolveFeature,
     CutSweepFeature,
+    FilletFeature,
     PatternFeature,
     ResultKind,
     ShellFeature,
@@ -54,6 +56,7 @@ from .canonical import (
     SolidSweepFeature,
     instance_count,
 )
+from .selectors import ExactlyN
 from .sketch import (
     CircleContour,
     PathContour,
@@ -162,6 +165,30 @@ _PATH_SIGNATURES: dict[ProfileKind, tuple[int, int]] = {
 }
 
 
+class BlendKind(StrEnum):
+    """A rounded edge or a cut one. The two things a drawing marks on a corner."""
+
+    FILLET = "fillet"
+    CHAMFER = "chamfer"
+
+
+class BlendClaim(StrictModel):
+    """How many edges the drawing shows treated, and how.
+
+    The claim's word for a blend, and it exists because the output profile started
+    offering one (ADR-032). A blend changes nothing else the claim counts — the
+    outline, the openings and the solid count are the same with the corners square —
+    so before this a fillet the compilation stage invented, forgot or applied to the
+    wrong edges was unchecked by anything the reading stage said.
+
+    A count, never a radius: ADR-025's rule holds. How big the round is is a size, and
+    a size is checked by an expectation against a number the drawing stated.
+    """
+
+    kind: BlendKind
+    count: Annotated[int, Field(ge=1, le=1000)]
+
+
 class OpeningClaim(StrictModel):
     kind: OpeningKind
     count: Annotated[int, Field(ge=1, le=1000)]
@@ -201,6 +228,9 @@ class ShapeClaim(StrictModel):
     #: times the material. Naming the parameter, rather than carrying the number,
     #: keeps the rule ADR-025 set — a claim states kinds and names, never sizes.
     wall: Id | None = None
+    #: The rounded and chamfered edges the drawing marks, by kind and count. Empty when
+    #: the part has none or the reader could not see them — silence is not a claim.
+    blends: Annotated[list[BlendClaim], Field(max_length=16)] = Field(default_factory=list)
     #: Free text, for a reader to say what an outline is when the vocabulary
     #: above does not name it. Never read by any check — it exists so a person
     #: reviewing a contradiction can see what was meant.
@@ -249,6 +279,7 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
     found.extend(_opening_disagreements(document, claim, repeats, subtracted))
     found.extend(_thickness_disagreement(solids[0], claim))
     found.extend(_wall_disagreement(document, claim))
+    found.extend(_blend_disagreements(document, claim))
     return found
 
 
@@ -521,6 +552,56 @@ def _depth_agrees(claimed: bool | None, built: bool | None) -> bool:
     return claimed is None or built is None or claimed == built
 
 
+def _blend_disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreement]:
+    """Rounded and chamfered edges, counted where the document states a count.
+
+    A blend's count is in the document only when its selector declares one. CAD-IR 1.5
+    already refuses a cardinality that could match nothing, and `exactly_n` is the one
+    that says how many — which is what the output profile emits, and what makes this
+    check possible at all. A blend that says `one_or_more` has not stated a number, and
+    a claim cannot disagree with a number nobody wrote.
+    """
+    if not claim.blends:
+        return []
+
+    counted: dict[BlendKind, int] = {kind: 0 for kind in BlendKind}
+    unstated: set[BlendKind] = set()
+    for feature in document.features:
+        if not feature.enabled:
+            continue
+        if isinstance(feature, FilletFeature):
+            kind = BlendKind.FILLET
+        elif isinstance(feature, ChamferFeature):
+            kind = BlendKind.CHAMFER
+        else:
+            continue
+        cardinality = feature.inputs.edges.cardinality
+        if isinstance(cardinality, ExactlyN):
+            counted[kind] += cardinality.value
+        else:
+            unstated.add(kind)
+
+    found: list[Disagreement] = []
+    for item in claim.blends:
+        if item.kind in unstated:
+            continue
+        built = counted[item.kind]
+        if built == item.count:
+            continue
+        found.append(
+            Disagreement(
+                code="BLEND_COUNT",
+                claimed=f"{item.count} {item.kind}",
+                built=f"{built} {item.kind}",
+                detail=(
+                    f"the drawing was read as {item.count} {item.kind}ed edge(s) and the "
+                    f"document blends {built}"
+                ),
+            )
+        )
+    return found
+
+
 def _wall_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreement]:
     """A part read as hollow must be hollowed by a named wall.
 
@@ -633,6 +714,8 @@ def _thickness_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:
 
 
 __all__ = [
+    "BlendClaim",
+    "BlendKind",
     "Disagreement",
     "OpeningClaim",
     "OpeningKind",

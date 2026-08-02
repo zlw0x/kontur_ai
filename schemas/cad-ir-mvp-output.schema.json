@@ -128,6 +128,18 @@
           },
           {
             "$ref": "#/$defs/circular_pattern"
+          },
+          {
+            "$ref": "#/$defs/corner_fillet"
+          },
+          {
+            "$ref": "#/$defs/corner_chamfer"
+          },
+          {
+            "$ref": "#/$defs/bore_chamfer"
+          },
+          {
+            "$ref": "#/$defs/hollow"
           }
         ]
       },
@@ -1079,6 +1091,448 @@
             "direction",
             "distance",
             "sketch"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "outer_corner_edges": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "type": "string",
+          "const": "edge"
+        },
+        "from_result": {
+          "type": "string",
+          "const": "body.main"
+        },
+        "cardinality": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "exactly_n"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "where": {
+          "type": "object",
+          "properties": {
+            "curve_type": {
+              "type": "string",
+              "const": "line"
+            },
+            "direction_parallel_to": {
+              "type": "string",
+              "const": "axis.z"
+            },
+            "convexity": {
+              "type": "string",
+              "const": "convex"
+            }
+          },
+          "required": [
+            "convexity",
+            "curve_type",
+            "direction_parallel_to"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "cardinality",
+        "from_result",
+        "id",
+        "kind",
+        "where"
+      ],
+      "additionalProperties": false
+    },
+    "bore_rim_edges": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "type": "string",
+          "const": "edge"
+        },
+        "from_result": {
+          "type": "string",
+          "const": "body.main"
+        },
+        "cardinality": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "exactly_n"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        "where": {
+          "type": "object",
+          "properties": {
+            "curve_type": {
+              "type": "string",
+              "const": "circle"
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "extreme_along": {
+                  "type": "string",
+                  "const": "axis.z"
+                },
+                "extreme": {
+                  "type": "string",
+                  "const": "maximum"
+                }
+              },
+              "required": [
+                "extreme",
+                "extreme_along"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "curve_type",
+            "position"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "cardinality",
+        "from_result",
+        "id",
+        "kind",
+        "where"
+      ],
+      "additionalProperties": false
+    },
+    "top_face": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "type": "string",
+          "const": "face"
+        },
+        "from_result": {
+          "type": "string",
+          "const": "body.main"
+        },
+        "cardinality": {
+          "type": "string",
+          "const": "exactly_one"
+        },
+        "where": {
+          "type": "object",
+          "properties": {
+            "surface_type": {
+              "type": "string",
+              "const": "planar"
+            },
+            "normal": {
+              "type": "object",
+              "properties": {
+                "parallel_to": {
+                  "type": "string",
+                  "const": "axis.z"
+                },
+                "direction": {
+                  "type": "string",
+                  "const": "positive"
+                }
+              },
+              "required": [
+                "direction",
+                "parallel_to"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "normal",
+            "surface_type"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "cardinality",
+        "from_result",
+        "id",
+        "kind",
+        "where"
+      ],
+      "additionalProperties": false
+    },
+    "corner_fillet": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "feature.fillet"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "edges": {
+              "$ref": "#/$defs/outer_corner_edges"
+            },
+            "radius": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          "required": [
+            "edges",
+            "radius"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "corner_chamfer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "feature.chamfer"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "edges": {
+              "$ref": "#/$defs/outer_corner_edges"
+            },
+            "distance": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          "required": [
+            "distance",
+            "edges"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "bore_chamfer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "feature.chamfer"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "edges": {
+              "$ref": "#/$defs/bore_rim_edges"
+            },
+            "distance": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          "required": [
+            "distance",
+            "edges"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "depends_on",
+        "enabled",
+        "id",
+        "inputs",
+        "produces",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "hollow": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "type": "string",
+          "const": "feature.shell"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "faces": {
+              "$ref": "#/$defs/top_face"
+            },
+            "thickness": {
+              "$ref": "#/$defs/scalar"
+            },
+            "direction": {
+              "type": "string",
+              "const": "inward"
+            }
+          },
+          "required": [
+            "direction",
+            "faces",
+            "thickness"
           ],
           "additionalProperties": false
         }

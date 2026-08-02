@@ -288,6 +288,32 @@ def hole_and_pattern(pattern: dict) -> list[dict]:
     ]
 
 
+CORNERS = {"id": "selector.corners", "kind": "edge", "from_result": "body.main",
+           "cardinality": {"type": "exactly_n", "value": 4},
+           "where": {"curve_type": "line", "direction_parallel_to": "axis.z",
+                     "convexity": "convex"}}
+RIMS = {"id": "selector.rims", "kind": "edge", "from_result": "body.main",
+        "cardinality": {"type": "exactly_n", "value": 1},
+        "where": {"curve_type": "circle",
+                  "position": {"extreme_along": "axis.z", "extreme": "maximum"}}}
+TOP_FACE = {"id": "selector.top", "kind": "face", "from_result": "body.main",
+            "cardinality": "exactly_one",
+            "where": {"surface_type": "planar",
+                      "normal": {"parallel_to": "axis.z", "direction": "positive"}}}
+
+
+def treated(fid: str, type_name: str, edges: dict, size: str, value: float) -> dict:
+    return {"id": fid, "type": type_name, "enabled": True,
+            "depends_on": ["feature.base"], "produces": [],
+            "inputs": {"edges": edges, size: value}}
+
+
+def hollowed() -> dict:
+    return {"id": "feature.hollow", "type": "feature.shell", "enabled": True,
+            "depends_on": ["feature.base"], "produces": [],
+            "inputs": {"faces": TOP_FACE, "thickness": 2.0, "direction": "inward"}}
+
+
 LINEAR = {"kind": "linear", "direction": "+X", "spacing_mm": 20.0, "count": 3}
 CIRCULAR = {"kind": "circular", "axis": "axis.z", "through": [0.0, 0.0, 0.0],
             "step_deg": 90.0, "count": 4}
@@ -300,6 +326,15 @@ CIRCULAR = {"kind": "circular", "axis": "axis.z", "through": [0.0, 0.0, 0.0],
         ("a boss on a datum plane", [base_feature(), *datum_and_boss()]),
         ("a linear pattern of holes", [base_feature(), *hole_and_pattern(LINEAR)]),
         ("a circular pattern of holes", [base_feature(), *hole_and_pattern(CIRCULAR)]),
+        ("a corner fillet", [base_feature(),
+                             treated("feature.round", "feature.fillet", CORNERS, "radius", 5.0)]),
+        ("a corner chamfer", [base_feature(),
+                              treated("feature.break", "feature.chamfer", CORNERS,
+                                      "distance", 3.0)]),
+        ("a bore chamfer", [base_feature(),
+                            treated("feature.deburr", "feature.chamfer", RIMS,
+                                    "distance", 1.5)]),
+        ("a hollow part", [base_feature(), hollowed()]),
     ],
 )
 def test_each_shape_the_profile_grew_is_canonically_valid(profile, what, features):
@@ -329,30 +364,53 @@ def test_a_cut_may_not_state_both_a_depth_and_through_all(profile):
         validate_canonical(document)
 
 
-def test_the_profile_still_refuses_what_the_dialect_cannot_state(profile):
-    """Selectors did not arrive with the rest, and this is what keeps that true.
+def test_the_profile_offers_named_selections_and_not_composed_selectors(profile):
+    """What the dialect wall actually forbids, now that it has been passed (ADR-032).
 
-    A fillet's edges are named by predicates that are individually optional, which
-    rule 4 cannot express — so the operation stays out of the cycle even though the
-    engine has built it since POSTMVP-009.
+    Rule 4 governs the properties a schema *declares*, so a selection that declares
+    three predicates and requires all three is legal — which is how the fillet above
+    reaches the cycle. What is still refused is the model *composing* one: the same
+    fillet with a predicate dropped, added or changed is a selector nobody wrote here
+    and nothing has resolved against this engine's topology.
     """
-    document = with_features(base_feature(), {
-        "id": "feature.round",
-        "type": "feature.fillet",
-        "enabled": True,
-        "depends_on": ["feature.base"],
-        "produces": [],
-        "inputs": {
-            "edges": {
-                "id": "selector.corners", "kind": "edge", "from_result": "body.main",
-                "cardinality": {"type": "exactly_n", "value": 4},
-                "where": {"curve_type": "line", "direction_parallel_to": "axis.z"},
-            },
-            "radius": 3.0,
-        },
-    })
+    loosened = dict(CORNERS, where={"curve_type": "line",
+                                    "direction_parallel_to": "axis.z"})
+    document = with_features(
+        base_feature(), treated("feature.round", "feature.fillet", loosened, "radius", 3.0))
 
-    # The canonical model has had this since 1.5; the profile has never offered it.
+    # Canonically fine — the contract has allowed this since 1.5. Not on offer.
+    assert validate_canonical(document).schema_version == CAD_IR_VERSION
+    assert list(profile.iter_errors(document)) != []
+
+    widened = dict(CORNERS, where={**CORNERS["where"], "length_mm": {"value": 10.0,
+                                                                     "tolerance": 0.1}})
+    assert list(profile.iter_errors(with_features(
+        base_feature(),
+        treated("feature.round", "feature.fillet", widened, "radius", 3.0)))) != []
+
+
+def test_a_blend_the_profile_offers_must_state_how_many_edges_it_treats(profile):
+    """`exactly_n` and nothing else, which is two rules meeting.
+
+    A blend may not declare a cardinality that permits zero matches (ADR-026), and a
+    count in the document is what a shape claim can disagree with (ADR-032). Both are
+    satisfied by the profile refusing every cardinality but the one that states a
+    number.
+    """
+    for cardinality in ("one_or_more", "exactly_one", "all", "zero_or_one"):
+        document = with_features(base_feature(), treated(
+            "feature.round", "feature.fillet", dict(CORNERS, cardinality=cardinality),
+            "radius", 3.0))
+        assert list(profile.iter_errors(document)) != [], cardinality
+
+
+def test_the_shell_the_profile_offers_is_inward_only(profile):
+    """An outward wall changes the part's overall size, and the reading stage has no
+    word for that yet — so the direction is a constant rather than a choice (ADR-030).
+    """
+    document = with_features(base_feature(), hollowed())
+    document["features"][1]["inputs"]["direction"] = "outward"
+
     assert validate_canonical(document).schema_version == CAD_IR_VERSION
     assert list(profile.iter_errors(document)) != []
 
