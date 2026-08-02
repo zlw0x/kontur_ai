@@ -102,9 +102,10 @@ def test_a_document_with_no_version_is_rejected_before_anything_is_read():
 def test_a_newer_version_is_named_as_such_rather_than_called_invalid():
     """A build from the future may use a field this one would silently ignore.
     "Too new" tells an operator to upgrade; "invalid" sends them hunting."""
-    assert codes(lambda: validate_canonical(document(schema_version="1.8"))) == {
-        "CAD_IR_VERSION_TOO_NEW"
-    }
+    major, minor = (int(part) for part in CAD_IR_VERSION.split("."))
+    assert codes(
+        lambda: validate_canonical(document(schema_version=f"{major}.{minor + 1}"))
+    ) == {"CAD_IR_VERSION_TOO_NEW"}
     assert codes(lambda: validate_canonical(document(schema_version="2.0"))) == {
         "CAD_IR_VERSION_TOO_NEW"
     }

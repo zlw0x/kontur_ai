@@ -19,16 +19,29 @@ from .canonical import (
     MIGRATABLE_VERSIONS,
     SUPPORTED_VERSIONS,
     CadIrDocument,
-    DatumPlaneOffsetFeature,
+    CutExtrudeFeature,
+    CutRevolveFeature,
     PatternFeature,
     ParameterRef,
     ParameterStatus,
     ResultKind,
     ResultRef,
+    SolidExtrudeFeature,
+    SolidRevolveFeature,
     declared_version,
 )
 from .errors import CadIrValidationError, ValidationIssue
 from .selectors import EdgeSelector, FaceSelector
+
+#: What a pattern may repeat: the features that make material, and a pattern, which
+#: is how a grid is written (ADR-027).
+_REPEATABLE = (
+    SolidExtrudeFeature,
+    CutExtrudeFeature,
+    SolidRevolveFeature,
+    CutRevolveFeature,
+    PatternFeature,
+)
 
 #: Text that has no business in a document describing geometric intent.
 #: The closed schema is the first defence — a COM handle has no field to live
@@ -212,13 +225,19 @@ def _pattern_issues(document: CadIrDocument, position: dict[str, int]) -> list[V
                     "a pattern adds instances to the one the source built",
                 )
             )
-        if isinstance(source, DatumPlaneOffsetFeature):
+        if not isinstance(source, _REPEATABLE):
+            # A pattern re-runs the operation that made material, at an offset. An
+            # operation that made none has nothing to re-run: a plane is not somewhere
+            # a second copy could go, and a blend or a shell modifies the body that is
+            # already there, so repeating one would mean applying it again to the same
+            # solid. Stated once, for every kind at once — naming the plane alone left
+            # the others to fail later, in the engine, as an unsupported tool.
             issues.append(
                 ValidationIssue(
                     "UNSUPPORTED_FEATURE_SET",
                     path,
-                    f"{feature.id} repeats {source.id}, which builds a plane rather "
-                    "than material",
+                    f"{feature.id} repeats {source.id}, which modifies the body rather "
+                    "than making material a pattern could place a copy of",
                 )
             )
         if source.id == feature.id:  # pragma: no cover - the cycle check has it too

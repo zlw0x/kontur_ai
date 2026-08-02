@@ -83,14 +83,15 @@ from .revolve import (  # re-exported alongside the document
     RevolveInputs,
     SolidRevolveFeature,
 )
+from .shell import ShellDirection, ShellFeature, ShellInputs  # re-exported
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.7"
+CAD_IR_VERSION = "1.8"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.7",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.8",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -98,7 +99,16 @@ SUPPORTED_VERSIONS: tuple[str, ...] = ("1.7",)
 #: adapter. A document declaring an old version while using a new entity would
 #: otherwise be accepted — and a document lying about its version is the start of
 #: a compatibility problem, not the end of one.
-MIGRATABLE_VERSIONS: tuple[str, ...] = ("0.1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6")
+MIGRATABLE_VERSIONS: tuple[str, ...] = (
+    "0.1.0",
+    "1.1",
+    "1.2",
+    "1.3",
+    "1.4",
+    "1.5",
+    "1.6",
+    "1.7",
+)
 
 class ParameterType(StrEnum):
     LENGTH = "length"
@@ -255,6 +265,7 @@ Feature = Annotated[
         ChamferFeature,
         PatternFeature,
         BooleanFeature,
+        ShellFeature,
     ],
     Field(discriminator="type"),
 ]

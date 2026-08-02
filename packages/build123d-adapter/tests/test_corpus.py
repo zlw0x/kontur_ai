@@ -176,6 +176,7 @@ DETERMINISM = [
     if case.id in {
         "plate-40x20x10", "islands-4", "revolve-360", "fillet-r8",
         "pattern-circular-6", "boolean-subtract", "boss-on-selected-face",
+        "shell-cup",
     }
 ]
 

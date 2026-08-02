@@ -31,12 +31,12 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.7** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.8** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
   and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
-  (`docs/adr/ADR-028-*`).
+  (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -152,7 +152,29 @@ A contract is not a run. Whether the model emits a pattern when it sees a bolt c
 real Codex on the trusted machine; the six runs that would close it are listed in
 `docs/acceptance/POSTMVP-016-*.md`.
 
-**What is next**: sweep, loft and shell. `docs/POST-MVP-ROADMAP.md` has the order.
+**A shell is how much of the part is there** (POSTMVP-017, ADR-030), which is a different
+question from every operation before it. Hollow a 100 × 60 × 40 enclosure with a 3 mm wall
+and it agrees with the solid block on the outline, the openings, the solid count, the
+bounding box and the hole count — and differs by four times the material. That table is
+the whole ADR.
+
+Two measurements decided the contract and are kept as tests. `offset` is **two operations
+wearing one name**: with a face open it hollows (52 188 mm³, outer size unchanged), with
+nothing open it *shrinks the solid* (172 584 mm³ = 94 × 54 × 34). So a shell may not declare
+a cardinality that permits zero matches — the blend rule from ADR-026, with a sharper
+reason. And a wall the part has no room for **does not fail**: 30 mm inward returns the
+original solid, whole, with no error, so the engine compares the volume before and after
+and refuses with `SHELL_NO_CAVITY`. A pre-check could not do it — 25 mm walls are fine with
+the top open and not with it closed, and only the kernel knows which.
+
+The claim gains one word, `wall`: the id of the parameter holding the wall thickness. It is
+the first thing a claim says about how much of the part is there rather than what shape it
+is, and it stays inside ADR-025's rule — a name, never a number. Silence is still not a
+claim. **The cycle cannot ask for a shell yet and that ordering is the point**: a face
+selector is behind ADR-029's dialect wall, so the claim's word for a hollow part arrives
+first and the output profile follows when the dialect allows.
+
+**What is next**: sweep and loft. `docs/POST-MVP-ROADMAP.md` has the order.
 
 One thing is left over from the migration, named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,

@@ -28,6 +28,7 @@ from typing import Any
 from .canonical import (
     CAD_IR_SCHEMA,
     CAD_IR_VERSION,
+    MIGRATABLE_VERSIONS,
     CadIrDocument,
     DocumentMetadata,
     canonical_json,
@@ -44,10 +45,24 @@ NORMALIZER_VERSION = "1.5"
 
 LEGACY_VERSION = "0.1.0"
 SKETCH_ENTITY_VERSION = "1.1"
-PRE_CONSTRAINT_VERSION = "1.2"
-PRE_REVOLVE_VERSION = "1.3"
-PRE_BLEND_VERSION = "1.4"
-PRE_PATTERN_VERSION = "1.5"
+
+#: The versions whose migration is a relabelling and nothing else.
+#:
+#: Everything from 1.2 onwards was purely additive — 1.3 added names, constraints
+#: and dimensions, 1.4 revolve, 1.5 the blends, 1.6 patterns, 1.7 named bodies and
+#: booleans, 1.8 the shell — so a document written against an older one uses none
+#: of it and nothing about the part changes.
+#:
+#: Derived from `MIGRATABLE_VERSIONS` rather than listed a second time. The two
+#: lists were kept in step by hand until 1.7, at which point 1.6 stayed in the
+#: migratable list and was never added here: a document declaring itself
+#: migratable and then being refused as unsupported. One list cannot disagree
+#: with itself.
+RELABEL_ONLY: tuple[str, ...] = tuple(
+    version
+    for version in MIGRATABLE_VERSIONS
+    if version not in (LEGACY_VERSION, SKETCH_ENTITY_VERSION)
+)
 
 _FEATURE_TYPES = {"extrude_add": "solid.extrude", "extrude_cut": "cut.extrude"}
 
@@ -108,16 +123,7 @@ def normalize(value: dict[str, Any], metadata: DocumentMetadata | None = None) -
         document = validate_canonical(_translate(value, metadata))
     elif version == SKETCH_ENTITY_VERSION:
         document = validate_canonical(_relabel(_lift_sketches(value)))
-    elif version in (
-        PRE_CONSTRAINT_VERSION,
-        PRE_REVOLVE_VERSION,
-        PRE_BLEND_VERSION,
-        PRE_PATTERN_VERSION,
-    ):
-        # Purely additive, all of them: 1.3 added names, constraints and
-        # dimensions, 1.4 added revolve, 1.5 fillet and chamfer, 1.6 patterns, and an
-        # older document uses none of it. Nothing about the part changes, so these are
-        # the migrations that are genuinely a relabelling.
+    elif version in RELABEL_ONLY:
         document = validate_canonical(_relabel(value))
     elif version is None:
         raise CadIrValidationError(

@@ -25,6 +25,7 @@ import pytest
 
 pytest.importorskip("build123d", reason="the CAD engine is not installed")
 
+from cad_ir.canonical import CAD_IR_VERSION  # noqa: E402
 from cad_ir.canonical_validator import validate_canonical  # noqa: E402
 
 from cad_engine_build123d.adapter import build_part  # noqa: E402
@@ -35,7 +36,7 @@ FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "boolean-bracket.v1_7.json").read_text("utf-8"))
+    return json.loads((FIXTURES / "boolean-bracket.v1_8.json").read_text("utf-8"))
 
 
 def built(value: dict):
@@ -265,7 +266,7 @@ def _two_blocks(op: str, offset: float = 20.0, tool_size: float = 40.0) -> dict:
 
     return {
         "schema": "cad-ai/cad-ir",
-        "schema_version": "1.7",
+        "schema_version": CAD_IR_VERSION,
         "document": {"units": "mm"},
         "parameters": [],
         "features": [

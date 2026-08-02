@@ -183,7 +183,7 @@ public sealed class ResourceLedgerTests
             var image = CreateImagePlaceholder(workspace);
             var ledger = new ResourceLedger("job-1");
             var valid = await File.ReadAllTextAsync(
-                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_7.json"));
+                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_8.json"));
             var runner = new FakeRunner(ReadyAnalysis(), valid);
 
             var result = await new DrawingPipeline(runner, ledger: ledger, engine: new StubValidatingEngine()).RunAsync(workspace, [image]);
@@ -218,7 +218,7 @@ public sealed class ResourceLedgerTests
             var image = CreateImagePlaceholder(workspace);
             var ledger = new ResourceLedger("job-1");
             var valid = await File.ReadAllTextAsync(
-                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_7.json"));
+                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_8.json"));
             var invalid = valid.Replace(
                 @"""type"": ""solid.extrude""", @"""type"": ""cut.extrude""", StringComparison.Ordinal);
             var runner = new FakeRunner(ReadyAnalysis(), invalid, valid);
@@ -263,13 +263,13 @@ public sealed class ResourceLedgerTests
     [Fact]
     public async Task TheCapabilityManifestIsWhateverTheEngineSaysItIs()
     {
-        var report = await new FakeDocumentEngine("1.7").DescribeAsync([], CancellationToken.None);
+        var report = await new FakeDocumentEngine("1.8").DescribeAsync([], CancellationToken.None);
         var manifest = WorkerCapabilities.ManifestFor(report, "codex-cli 0.145.0");
 
         Assert.Equal("1.0", manifest.SchemaVersion);
         Assert.Equal(WorkerCapabilities.WorkerVersion, manifest.WorkerVersion);
         Assert.Equal("codex-cli 0.145.0", manifest.CodexCliVersion);
-        Assert.Equal(["1.7"], manifest.CadIrVersions);
+        Assert.Equal(["1.8"], manifest.CadIrVersions);
         Assert.Equal("fake", manifest.Engine!.EngineId);
         // The fake declares nothing, so nothing is advertised. A key in a manifest
         // tells the API to start scheduling that operation on this machine.

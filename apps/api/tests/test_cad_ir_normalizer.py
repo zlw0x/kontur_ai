@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from cad_ir.canonical import CAD_IR_VERSION, DocumentMetadata
+from cad_ir.canonical import CAD_IR_VERSION, MIGRATABLE_VERSIONS, DocumentMetadata
 from cad_ir.errors import CadIrValidationError
 from cad_ir.normalizer import NORMALIZER_VERSION, normalize
 
@@ -225,3 +225,37 @@ def test_an_ambiguous_dependency_leaves_the_source_body_unset():
     normalized = normalize(document).document
 
     assert normalized.features[1].inputs.source_body is None
+
+
+def test_every_version_the_contract_calls_migratable_actually_migrates():
+    """The two lists that say which versions are readable must not disagree.
+
+    `MIGRATABLE_VERSIONS` is what the validator quotes back when it tells a caller to
+    normalise first, and the normalizer's own branch is what decides whether it can.
+    They were kept in step by hand until 1.7 landed, at which point 1.6 stayed in the
+    first list and never reached the second — so a 1.6 document was told to normalise
+    and then refused as unsupported, by the same build, on the same run.
+
+    Every version from 1.2 onwards is a relabelling, so a current document with its
+    version field rewritten is a valid document of that version for this purpose.
+    """
+    canonical = json.loads(normalize(legacy()).canonical_json)
+
+    for version in MIGRATABLE_VERSIONS:
+        if version in ("0.1.0", "1.1"):
+            # Genuinely different shapes, each with its own translation and its own
+            # tests above. A relabelled canonical document is not one of them.
+            continue
+        result = normalize({**canonical, "schema_version": version})
+        assert result.lineage.original_schema_version == version
+        assert result.lineage.canonical_schema_version == CAD_IR_VERSION
+
+
+def test_the_version_before_this_one_is_migratable():
+    """Backward compatibility of at least one version, as POSTMVP-004 requires.
+
+    Written as arithmetic on the current version rather than as a literal, because a
+    literal is what let 1.6 fall out of the list in the first place.
+    """
+    major, minor = (int(part) for part in CAD_IR_VERSION.split("."))
+    assert f"{major}.{minor - 1}" in MIGRATABLE_VERSIONS

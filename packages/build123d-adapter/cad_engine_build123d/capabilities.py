@@ -41,6 +41,8 @@ from cad_ir.canonical import (
     LinearPattern,
     MirrorPattern,
     PatternFeature,
+    ShellDirection,
+    ShellFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
 )
@@ -89,6 +91,11 @@ FEATURE_MIRROR = "feature.mirror"
 FEATURE_FILLET_CONSTANT = "feature.fillet.constant_radius"
 FEATURE_CHAMFER_EQUAL = "feature.chamfer.equal_distance"
 FEATURE_CHAMFER_ASYMMETRIC = "feature.chamfer.asymmetric"
+# Two keys, because the two directions are two different parts. An inward wall keeps
+# the drawing's outside size; an outward one grows past it, and an operator who has
+# seen a part come out 6 mm too big in every direction wants to stop that one alone.
+FEATURE_SHELL_INWARD = "feature.shell.inward"
+FEATURE_SHELL_OUTWARD = "feature.shell.outward"
 SELECTOR_EDGE_CONVEXITY = "selector.edge.convexity"
 EXPORT_STEP = "export.step"
 EXPORT_STL = "export.stl"
@@ -162,6 +169,8 @@ DECLARED: Mapping[str, Declaration] = {
     FEATURE_FILLET_CONSTANT: Declaration("beta"),
     FEATURE_CHAMFER_EQUAL: Declaration("beta"),
     FEATURE_CHAMFER_ASYMMETRIC: Declaration("experimental"),
+    FEATURE_SHELL_INWARD: Declaration("beta"),
+    FEATURE_SHELL_OUTWARD: Declaration("beta"),
     SELECTOR_EDGE_CONVEXITY: Declaration("beta"),
     EXPORT_STEP: Declaration("beta"),
     EXPORT_STL: Declaration("beta"),
@@ -324,6 +333,13 @@ def requirements(document) -> dict[str, str]:
                 MirrorPattern: FEATURE_MIRROR,
             }[type(spec)]
             need(key, f"the pattern {feature.id}")
+        elif isinstance(feature, ShellFeature):
+            need(
+                FEATURE_SHELL_INWARD
+                if feature.inputs.direction is ShellDirection.INWARD
+                else FEATURE_SHELL_OUTWARD,
+                f"the shell {feature.id}",
+            )
         elif isinstance(feature, FilletFeature):
             need(FEATURE_FILLET_CONSTANT, f"the fillet {feature.id}")
         elif isinstance(feature, ChamferFeature):

@@ -63,9 +63,19 @@ def test_a_document_declares_its_own_schema_and_version():
     assert parsed.canonical_dict()["schema"] == CAD_IR_SCHEMA
 
 
+def one_version_ahead() -> str:
+    """A version this build has not heard of, derived rather than written down.
+
+    "1.8" was a literal here until the shell landed and made it the current one, at
+    which point a test named for refusing the future asserted about the present.
+    """
+    major, minor = (int(part) for part in CAD_IR_VERSION.split("."))
+    return f"{major}.{minor + 1}"
+
+
 def test_a_future_version_is_refused_rather_than_read_optimistically():
     with pytest.raises(ValidationError):
-        CadIrDocument(**document(schema_version="1.8"))
+        CadIrDocument(**document(schema_version=one_version_ahead()))
     with pytest.raises(ValidationError):
         CadIrDocument(**document(schema_version="0.1.0"))
     with pytest.raises(ValidationError):

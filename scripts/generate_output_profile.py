@@ -56,8 +56,15 @@ from typing import Any
 ROOT = Path(__file__).parents[1]
 TARGET = ROOT / "schemas" / "cad-ir-mvp-output.schema.json"
 
-SCHEMA_ID = "https://cad.example.com/schemas/cad-ir-mvp-output/1.7"
-CAD_IR_VERSION = "1.7"
+sys.path.insert(0, str(ROOT / "packages" / "cad-ir"))
+
+from cad_ir.canonical import CAD_IR_VERSION  # noqa: E402
+
+# Taken from the contract rather than written here. A profile pinned to a version
+# the contract has moved past is a schema that constrains the model to emit a
+# document the validator will refuse — and the version is the one field where
+# that failure is total rather than partial.
+SCHEMA_ID = f"https://cad.example.com/schemas/cad-ir-mvp-output/{CAD_IR_VERSION}"
 
 MAX_COORDINATE = 1_000_000
 

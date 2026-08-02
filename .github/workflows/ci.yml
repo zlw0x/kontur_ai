@@ -100,7 +100,7 @@ jobs:
       # installed; this proves the kernel runs.
       - run: |
           mkdir -p job
-          cp tests/fixtures/cad-ir/lever-plate.v1_7.json job/cad-ir.json
+          cp tests/fixtures/cad-ir/lever-plate.v1_8.json job/cad-ir.json
           # The uid the launcher passes in production, for the same reason: the
           # job directory is a bind mount owned by whoever runs the worker, and a
           # container running as anyone else cannot write the results into it.

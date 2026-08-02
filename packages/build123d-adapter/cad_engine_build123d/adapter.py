@@ -27,6 +27,7 @@ from cad_ir.canonical import (
     Direction,
     FilletFeature,
     PatternFeature,
+    ShellFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
 )
@@ -43,6 +44,7 @@ from .errors import CadEngineError, unsupported
 from .parameters import Parameters
 from .revolves import axis_points, require_profile_clear_of_axis, world_axis
 from .selectors import require_one, resolve_faces
+from .shells import shell
 from .topology import read_faces
 from .identity import ARTIFACTS, EngineDescription, describe
 from .sketches import sketch_face
@@ -154,6 +156,13 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
             # what the selector's `from_result` says.
             target = bodies.locate(str(feature.inputs.edges.from_result), str(feature.id))
             bodies.replace(target, blend(feature, bodies.solid_at(target), params))
+            continue
+
+        if isinstance(feature, ShellFeature):
+            # Like a blend: resolved against the part as it is at this point, on the
+            # body the selector's `from_result` names.
+            target = bodies.locate(str(feature.inputs.faces.from_result), str(feature.id))
+            bodies.replace(target, shell(feature, bodies.solid_at(target), params))
             continue
 
         if isinstance(feature, BooleanFeature):

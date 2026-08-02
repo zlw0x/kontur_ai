@@ -45,6 +45,7 @@ from .canonical import (
     CutRevolveFeature,
     PatternFeature,
     ResultKind,
+    ShellFeature,
     SolidExtrudeFeature,
     SolidRevolveFeature,
     instance_count,
@@ -167,6 +168,17 @@ class ShapeClaim(StrictModel):
     #: a plate with a boss on it.
     solids: Annotated[int, Field(ge=1, le=64)] = 1
     thickness: Id | None = None
+    #: The id of the parameter holding the wall thickness, when the part is hollow,
+    #: and nothing when it is solid or the reader could not tell.
+    #:
+    #: The claim's only word for a shell, and the one place it says something about
+    #: how much of the part is there rather than what shape it is. It is here because
+    #: a shell is the operation whose *omission* nothing else can see: an enclosure
+    #: 100 × 60 × 40 with a 3 mm wall and a solid block of the same size agree on the
+    #: outline, the openings, the body count and the bounding box, and differ by four
+    #: times the material. Naming the parameter, rather than carrying the number,
+    #: keeps the rule ADR-025 set — a claim states kinds and names, never sizes.
+    wall: Id | None = None
     #: Free text, for a reader to say what an outline is when the vocabulary
     #: above does not name it. Never read by any check — it exists so a person
     #: reviewing a contradiction can see what was meant.
@@ -214,6 +226,7 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
     found.extend(_solid_count_disagreement(solids, claim, repeats))
     found.extend(_opening_disagreements(document, claim, repeats, subtracted))
     found.extend(_thickness_disagreement(solids[0], claim))
+    found.extend(_wall_disagreement(document, claim))
     return found
 
 
@@ -465,6 +478,74 @@ def _depth_agrees(claimed: bool | None, built: bool | None) -> bool:
     admitting it could not see the depth.
     """
     return claimed is None or built is None or claimed == built
+
+
+def _wall_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreement]:
+    """A part read as hollow must be hollowed by a named wall.
+
+    Three ways to get this wrong, and the first is the one worth the check: a
+    document that never shells at all. It builds, it is manifold, its bounding box is
+    the drawing's, its openings are the drawing's, and it is a solid billet where the
+    drawing shows a 3 mm wall.
+
+    The other two are the same mistake `thickness` catches one level up — a wall built
+    from a literal has lost the name the drawing gave it, and a wall built from the
+    wrong parameter moves when something else is edited.
+
+    Silence is not a claim, here as everywhere: a reader who did not see a wall says
+    nothing, and a document that shells anyway is not contradicted. What a reader
+    cannot see, a reader does not get to be wrong about.
+    """
+    if claim.wall is None:
+        return []
+    shells = [
+        feature
+        for feature in document.features
+        if feature.enabled and isinstance(feature, ShellFeature)
+    ]
+    if not shells:
+        return [
+            Disagreement(
+                code="WALL_PARAMETER",
+                claimed=str(claim.wall),
+                built="no shell",
+                detail=(
+                    f"the drawing was read as a hollow part with wall {claim.wall} and "
+                    "the document builds it solid"
+                ),
+            )
+        ]
+    named = {
+        str(shell.inputs.thickness.parameter)
+        for shell in shells
+        if isinstance(shell.inputs.thickness, ParameterRef)
+    }
+    if str(claim.wall) in named:
+        return []
+    literals = [shell for shell in shells if not isinstance(shell.inputs.thickness, ParameterRef)]
+    if literals:
+        return [
+            Disagreement(
+                code="WALL_PARAMETER",
+                claimed=str(claim.wall),
+                built=f"the literal {literals[0].inputs.thickness}",
+                detail=(
+                    f"the drawing's wall was read as parameter {claim.wall} and "
+                    f"{literals[0].id} shells by a literal, so the dimension lost its name"
+                ),
+            )
+        ]
+    return [
+        Disagreement(
+            code="WALL_PARAMETER",
+            claimed=str(claim.wall),
+            built=", ".join(sorted(named)),
+            detail=(
+                f"the drawing's wall was read as {claim.wall} and the document shells "
+                f"by {', '.join(sorted(named))}"
+            ),
+        )
+    ]
 
 
 def _thickness_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:

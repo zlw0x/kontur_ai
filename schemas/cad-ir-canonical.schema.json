@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.7",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.8",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -2531,6 +2531,103 @@
       "title": "RevolveInputs",
       "type": "object"
     },
+    "ShellDirection": {
+      "description": "Which side of the original surface the wall is on.\n\n`inward` is what \"shell this part\" means in every CAD system: the outer size is\nthe size on the drawing and the material is removed from inside. `outward` is the\nother reading — the surface that exists becomes the cavity — and it changes the\npart's overall size, which is why it cannot be a detail the document leaves out.",
+      "enum": [
+        "inward",
+        "outward"
+      ],
+      "title": "ShellDirection",
+      "type": "string"
+    },
+    "ShellFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "feature.shell",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 0,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/ShellInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "ShellFeature",
+      "type": "object"
+    },
+    "ShellInputs": {
+      "additionalProperties": false,
+      "description": "A wall of `thickness`, with the faces a selector names removed.\n\nThere is no `source_body`: the selector's `from_result` already says whose faces\nthese are, and a second way to say it is a second thing that can disagree — the\nsame reasoning as a blend's.",
+      "properties": {
+        "faces": {
+          "$ref": "#/$defs/FaceSelector"
+        },
+        "thickness": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            }
+          ],
+          "title": "Thickness"
+        },
+        "direction": {
+          "$ref": "#/$defs/ShellDirection",
+          "default": "inward"
+        }
+      },
+      "required": [
+        "faces",
+        "thickness"
+      ],
+      "title": "ShellInputs",
+      "type": "object"
+    },
     "Size3": {
       "additionalProperties": false,
       "properties": {
@@ -3235,8 +3332,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.7",
-      "default": "1.7",
+      "const": "1.8",
+      "default": "1.8",
       "title": "Schema Version",
       "type": "string"
     },
@@ -3271,6 +3368,7 @@
             "feature.chamfer": "#/$defs/ChamferFeature",
             "feature.fillet": "#/$defs/FilletFeature",
             "feature.pattern": "#/$defs/PatternFeature",
+            "feature.shell": "#/$defs/ShellFeature",
             "solid.extrude": "#/$defs/SolidExtrudeFeature",
             "solid.revolve": "#/$defs/SolidRevolveFeature"
           },
@@ -3303,6 +3401,9 @@
           },
           {
             "$ref": "#/$defs/BooleanFeature"
+          },
+          {
+            "$ref": "#/$defs/ShellFeature"
           }
         ]
       },

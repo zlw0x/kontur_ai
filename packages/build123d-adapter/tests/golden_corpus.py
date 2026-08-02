@@ -35,7 +35,9 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-CAD_IR = {"schema": "cad-ai/cad-ir", "schema_version": "1.7"}
+from cad_ir.canonical import CAD_IR_VERSION
+
+CAD_IR = {"schema": "cad-ai/cad-ir", "schema_version": CAD_IR_VERSION}
 
 
 @dataclass(frozen=True)
@@ -159,7 +161,7 @@ def document(name: str, features: list[dict], size: tuple[float, float, float],
         "parameters": parameters or [],
         "features": features,
         "expectations": expectations,
-        "metadata": {"generator": "golden-corpus", "generator_version": "1.7"},
+        "metadata": {"generator": "golden-corpus", "generator_version": CAD_IR_VERSION},
     }
 
 
@@ -603,6 +605,105 @@ def _grid_and_mirror() -> list[Case]:
     ]
 
 
+def _shells() -> list[Case]:
+    """A wall of t keeps the outside and takes out the inside.
+
+    Four numbers, all of them subtractions of one box or cylinder from another:
+
+    - open at the top, inward: `W·H·T − (W−2t)(H−2t)(T−t)`, the cavity being the part
+      minus one wall on four sides and one on the floor;
+    - open at both ends: `W·H·T − (W−2t)(H−2t)·T`, no floor to subtract;
+    - a cup: `πR²h − π(R−t)²(h−t)`;
+    - outward: `(W+2t)(H+2t)(T+t) − W·H·T`, the wall grown outside the part, the part
+      itself becoming the cavity — which is why the original volume is what is
+      *removed* rather than what is kept.
+    """
+
+    def opening(sid: str, where: dict, cardinality: Any = "exactly_one") -> dict[str, Any]:
+        return {"id": sid, "kind": "face", "from_result": "body.main",
+                "cardinality": cardinality, "where": where}
+
+    def hollow(faces: dict, thickness: float, direction: str = "inward",
+               depends: str = "feature.block") -> dict[str, Any]:
+        return {"id": "feature.hollow", "type": "feature.shell", "enabled": True,
+                "depends_on": [depends], "produces": [],
+                "inputs": {"faces": faces, "thickness": thickness, "direction": direction}}
+
+    # By where the face looks, not by where it reaches: an "extreme along z" predicate
+    # matches the four sides of a box too, because their upper edges touch the top.
+    top = opening("selector.top", {"surface_type": "planar",
+                                   "normal": {"parallel_to": "axis.z",
+                                              "direction": "positive"}})
+    ends = opening("selector.ends",
+                   {"surface_type": "planar", "normal": {"parallel_to": "axis.z"}},
+                   {"type": "exactly_n", "value": 2})
+
+    width, height, depth = 100.0, 60.0, 40.0
+    cases: list[Case] = []
+    for wall in (2.0, 5.0):
+        cases.append(Case(
+            id=f"shell-box-t{wall:g}",
+            document=document(
+                "enclosure",
+                [extrude("feature.block", "body.main", depth, rectangle(width, height)),
+                 hollow(top, wall)],
+                (width, height, depth), holes=0),
+            volume_mm3=width * height * depth
+            - (width - 2 * wall) * (height - 2 * wall) * (depth - wall),
+            arithmetic=(
+                f"{width:g}·{height:g}·{depth:g} − "
+                f"({width:g}−2·{wall:g})({height:g}−2·{wall:g})({depth:g}−{wall:g})"
+            ),
+        ))
+
+    wall = 3.0
+    cases.append(Case(
+        id="shell-open-at-both-ends",
+        document=document(
+            "duct",
+            [extrude("feature.block", "body.main", depth, rectangle(width, height)),
+             hollow(ends, wall)],
+            (width, height, depth),
+            # A tube is genus 1: the cavity runs from one open end to the other, which
+            # is a through hole to anything counting them off the finished solid.
+            holes=1),
+        volume_mm3=width * height * depth
+        - (width - 2 * wall) * (height - 2 * wall) * depth,
+        arithmetic=f"{width:g}·{height:g}·{depth:g} − 94·54·{depth:g}",
+    ))
+
+    radius, tall, wall = 20.0, 50.0, 2.0
+    cases.append(Case(
+        id="shell-cup",
+        document=document(
+            "cup",
+            [extrude("feature.block", "body.main", tall, circle(radius)),
+             hollow(top, wall)],
+            (2 * radius, 2 * radius, tall), holes=0),
+        volume_mm3=math.pi * radius**2 * tall - math.pi * (radius - wall) ** 2 * (tall - wall),
+        arithmetic=f"π·{radius:g}²·{tall:g} − π·{radius - wall:g}²·{tall - wall:g}",
+    ))
+
+    wall = 3.0
+    cases.append(Case(
+        id="shell-outward",
+        document=document(
+            "sleeve",
+            [extrude("feature.block", "body.main", depth, rectangle(width, height)),
+             hollow(top, wall, direction="outward")],
+            # The wall is added outside, so the part is 2t wider and t taller: the open
+            # face gets no wall, which is the whole difference between the two
+            # directions and the reason the bounding box states it.
+            (width + 2 * wall, height + 2 * wall, depth + wall), holes=0,
+            extra=[{"id": "inv.walls", "type": "surface_face_count",
+                    "surface": "planar", "value": 11}]),
+        volume_mm3=(width + 2 * wall) * (height + 2 * wall) * (depth + wall)
+        - width * height * depth,
+        arithmetic=f"106·66·43 − {width:g}·{height:g}·{depth:g}",
+    ))
+    return cases
+
+
 def _bodies_and_booleans() -> list[Case]:
     """Two bodies, and each of the three booleans between them."""
     thickness = 10.0
@@ -696,7 +797,8 @@ def positives() -> list[Case]:
         *_plates(), *_discs(), *_polygons(), *_slots(), *_paths(), *_holes(),
         *_blind_hole(),
         *_cut_shapes(), *_bosses(), *_face_selector(), *_revolves(), *_fillets(),
-        *_chamfers(), *_patterns(), *_grid_and_mirror(), *_bodies_and_booleans(),
+        *_chamfers(), *_patterns(), *_grid_and_mirror(), *_shells(),
+        *_bodies_and_booleans(),
     ]
 
 
@@ -843,6 +945,83 @@ def negatives() -> list[Refusal]:
             }], holes=0),
             code="SELECTOR_UNSUPPORTED_PREDICATE",
             why="the kernel's topology does not record which feature made a face",
+        ),
+        Refusal(
+            id="shell-thicker-than-the-part",
+            document=with_features([plate, {
+                "id": "feature.hollow", "type": "feature.shell", "enabled": True,
+                "depends_on": ["feature.plate"], "produces": [],
+                "inputs": {
+                    "faces": {"id": "selector.top", "kind": "face",
+                              "from_result": "body.main", "cardinality": "exactly_one",
+                              "where": {"surface_type": "planar",
+                                        "normal": {"parallel_to": "axis.z",
+                                                   "direction": "positive"}}},
+                    "thickness": 25.0, "direction": "inward",
+                },
+            }], holes=0),
+            code="SHELL_NO_CAVITY",
+            # The measured surprise: the kernel does not refuse this. It returns the
+            # solid it was given, whole, and every other check in the document passes.
+            why="two 25 mm walls meet inside a 40 mm plate, leaving no cavity at all",
+        ),
+        Refusal(
+            id="shell-opening-a-face-that-is-not-there",
+            document=with_features([plate, {
+                "id": "feature.hollow", "type": "feature.shell", "enabled": True,
+                "depends_on": ["feature.plate"], "produces": [],
+                "inputs": {
+                    "faces": {"id": "selector.bore", "kind": "face",
+                              "from_result": "body.main", "cardinality": "one_or_more",
+                              "where": {"surface_type": "cylindrical"}},
+                    "thickness": 2.0, "direction": "inward",
+                },
+            }], holes=0),
+            code="SELECTOR_NO_MATCH",
+            why="a plain plate has no cylindrical face to open",
+        ),
+        Refusal(
+            id="shell-that-opens-nothing",
+            document=with_features([plate, {
+                "id": "feature.hollow", "type": "feature.shell", "enabled": True,
+                "depends_on": ["feature.plate"], "produces": [],
+                "inputs": {
+                    "faces": {"id": "selector.any", "kind": "face",
+                              "from_result": "body.main", "cardinality": "zero_or_one",
+                              "where": {"surface_type": "cylindrical"}},
+                    "thickness": 2.0, "direction": "inward",
+                },
+            }], holes=0),
+            code="SCHEMA_INVALID",
+            why=(
+                "a cardinality that permits zero open faces; an offset with nothing "
+                "open shrinks the solid instead of hollowing it"
+            ),
+            by_contract=True,
+        ),
+        Refusal(
+            id="pattern-of-a-shell",
+            document=with_features([plate, {
+                "id": "feature.hollow", "type": "feature.shell", "enabled": True,
+                "depends_on": ["feature.plate"], "produces": [],
+                "inputs": {
+                    "faces": {"id": "selector.top", "kind": "face",
+                              "from_result": "body.main", "cardinality": "exactly_one",
+                              "where": {"surface_type": "planar",
+                                        "normal": {"parallel_to": "axis.z",
+                                                   "direction": "positive"}}},
+                    "thickness": 2.0, "direction": "inward",
+                },
+            }, {
+                "id": "feature.row", "type": "feature.pattern", "enabled": True,
+                "depends_on": ["feature.hollow"], "produces": [],
+                "inputs": {"of": "feature.hollow",
+                           "pattern": {"kind": "linear", "direction": "+X",
+                                       "spacing_mm": 20.0, "count": 3}, "skip": []},
+            }], holes=0),
+            code="UNSUPPORTED_FEATURE_SET",
+            why="a shell modifies the body, so there is no copy of it to place",
+            by_contract=True,
         ),
         Refusal(
             id="intersection-of-bodies-that-do-not-touch",
