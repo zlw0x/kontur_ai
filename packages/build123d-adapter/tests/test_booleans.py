@@ -36,7 +36,7 @@ FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "boolean-bracket.v1_8.json").read_text("utf-8"))
+    return json.loads((FIXTURES / "boolean-bracket.v1_9.json").read_text("utf-8"))
 
 
 def built(value: dict):

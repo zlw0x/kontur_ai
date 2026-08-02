@@ -35,7 +35,9 @@ from cad_ir.canonical import (
     ChamferFeature,
     CircularPattern,
     CutExtrudeFeature,
+    CutLoftFeature,
     CutRevolveFeature,
+    CutSweepFeature,
     DatumPlaneOffsetFeature,
     FilletFeature,
     LinearPattern,
@@ -44,7 +46,9 @@ from cad_ir.canonical import (
     ShellDirection,
     ShellFeature,
     SolidExtrudeFeature,
+    SolidLoftFeature,
     SolidRevolveFeature,
+    SolidSweepFeature,
 )
 from cad_ir.selectors import EdgeSelector, FaceSelector
 from cad_ir.sketch import (
@@ -69,6 +73,10 @@ SOLID_RECTANGULAR_PRISM = "solid.rectangular_prism"
 SOLID_CONTOUR_PROFILE = "solid.contour_profile"
 SOLID_REVOLVE = "solid.revolve"
 CUT_REVOLVE = "cut.revolve"
+SOLID_SWEEP = "solid.sweep"
+CUT_SWEEP = "cut.sweep"
+SOLID_LOFT = "solid.loft"
+CUT_LOFT = "cut.loft"
 SKETCH_ARC = "sketch.arc"
 SKETCH_SLOT = "sketch.slot"
 SKETCH_REGULAR_POLYGON = "sketch.regular_polygon"
@@ -147,6 +155,10 @@ DECLARED: Mapping[str, Declaration] = {
     SOLID_CONTOUR_PROFILE: Declaration("beta"),
     SOLID_REVOLVE: Declaration("beta"),
     CUT_REVOLVE: Declaration("beta"),
+    SOLID_SWEEP: Declaration("beta"),
+    CUT_SWEEP: Declaration("beta"),
+    SOLID_LOFT: Declaration("beta"),
+    CUT_LOFT: Declaration("beta"),
     SKETCH_ARC: Declaration("beta"),
     SKETCH_SLOT: Declaration("beta"),
     SKETCH_REGULAR_POLYGON: Declaration("beta"),
@@ -325,6 +337,16 @@ def requirements(document) -> dict[str, str]:
             solids_so_far += 1
         elif isinstance(feature, CutRevolveFeature):
             need(CUT_REVOLVE, f"the revolved cut {feature.id}")
+        elif isinstance(feature, SolidSweepFeature):
+            need(SOLID_SWEEP, f"the sweep {feature.id}")
+            solids_so_far += 1
+        elif isinstance(feature, CutSweepFeature):
+            need(CUT_SWEEP, f"the swept cut {feature.id}")
+        elif isinstance(feature, SolidLoftFeature):
+            need(SOLID_LOFT, f"the loft {feature.id}")
+            solids_so_far += 1
+        elif isinstance(feature, CutLoftFeature):
+            need(CUT_LOFT, f"the lofted cut {feature.id}")
         elif isinstance(feature, PatternFeature):
             spec = feature.inputs.pattern
             key = {
@@ -362,6 +384,12 @@ def requirements(document) -> dict[str, str]:
         sketch = getattr(feature.inputs, "sketch", None)
         if sketch is not None:
             _sketch_requirements(sketch, need)
+        # A loft has sections rather than a sketch, and each of them draws contours on
+        # a plane exactly as a sketch does. Asking only for `sketch` would leave a loft
+        # of two spelled-out profiles needing neither `solid.contour_profile` nor a
+        # plane key — a flag that silently did not apply.
+        for section in getattr(feature.inputs, "sections", []) or []:
+            _sketch_requirements(section, need)
 
     return needed
 

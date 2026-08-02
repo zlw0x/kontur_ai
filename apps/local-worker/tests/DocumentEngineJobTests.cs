@@ -92,7 +92,7 @@ public sealed class DocumentEngineJobTests
     [Fact]
     public async Task AJobBuiltByTheDocumentEngineProducesTheSameEnvelope()
     {
-        var job = JobWith("plate.v1_8.json");
+        var job = JobWith("plate.v1_9.json");
         var engine = new StubEngine();
 
         var code = await LocalCadJobHandler.RunAsync(job, PathsIn(job), engine);
@@ -120,7 +120,7 @@ public sealed class DocumentEngineJobTests
     [Fact]
     public async Task TheOperatorsFlagsTravelWithTheJob()
     {
-        var job = JobWith("plate.v1_8.json");
+        var job = JobWith("plate.v1_9.json");
         var paths = PathsIn(job);
         var flags = FeatureFlags.AllEnabled;
         flags.Disable("sketch.slot");
@@ -138,7 +138,7 @@ public sealed class DocumentEngineJobTests
     [Fact]
     public async Task ARefusedBuildFailsTheJobAndLeavesNoOutputBehind()
     {
-        var job = JobWith("plate.v1_8.json");
+        var job = JobWith("plate.v1_9.json");
         var refused = await Assert.ThrowsAsync<WorkerException>(() =>
             LocalCadJobHandler.RunAsync(job, PathsIn(job), new StubEngine(refuse: true)));
 
@@ -157,7 +157,7 @@ public sealed class DocumentEngineJobTests
         // ledger and the upload path with no engine at all. The one file it
         // writes is named for what it is, so nothing downstream can mistake it
         // for a model.
-        var job = JobWith("plate.v1_8.json");
+        var job = JobWith("plate.v1_9.json");
 
         var code = await LocalCadJobHandler.RunAsync(
             job, PathsIn(job), new FakeDocumentEngine(WorkerCapabilities.CadIrVersion));
@@ -178,7 +178,7 @@ public sealed class DocumentEngineJobTests
         Assert.Equal("build123d", manifest.Engine!.EngineId);
         Assert.Equal("opencascade", manifest.Engine.KernelId);
         Assert.Equal("7.9.3.1.1", manifest.Engine.KernelVersion);
-        Assert.Equal(["1.8"], manifest.CadIrVersions);
+        Assert.Equal(["1.9"], manifest.CadIrVersions);
         Assert.Equal("1.2.3", manifest.CodexCliVersion);
 
         // Straight from the engine, including the maturity it decides. Nothing

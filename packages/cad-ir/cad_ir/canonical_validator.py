@@ -20,14 +20,18 @@ from .canonical import (
     SUPPORTED_VERSIONS,
     CadIrDocument,
     CutExtrudeFeature,
+    CutLoftFeature,
     CutRevolveFeature,
+    CutSweepFeature,
     PatternFeature,
     ParameterRef,
     ParameterStatus,
     ResultKind,
     ResultRef,
     SolidExtrudeFeature,
+    SolidLoftFeature,
     SolidRevolveFeature,
+    SolidSweepFeature,
     declared_version,
 )
 from .errors import CadIrValidationError, ValidationIssue
@@ -40,6 +44,10 @@ _REPEATABLE = (
     CutExtrudeFeature,
     SolidRevolveFeature,
     CutRevolveFeature,
+    SolidSweepFeature,
+    CutSweepFeature,
+    SolidLoftFeature,
+    CutLoftFeature,
     PatternFeature,
 )
 

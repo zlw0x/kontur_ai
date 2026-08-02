@@ -302,7 +302,7 @@ def enclosure_fixture() -> dict:
     from pathlib import Path
 
     fixtures = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
-    return json.loads((fixtures / "enclosure.v1_8.json").read_text("utf-8"))
+    return json.loads((fixtures / "enclosure.v1_9.json").read_text("utf-8"))
 
 
 def test_the_enclosure_fixture_is_the_arithmetic_of_its_drawing():

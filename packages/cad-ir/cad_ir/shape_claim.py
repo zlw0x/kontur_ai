@@ -42,12 +42,16 @@ from .canonical import (
     BooleanFeature,
     CadIrDocument,
     CutExtrudeFeature,
+    CutLoftFeature,
     CutRevolveFeature,
+    CutSweepFeature,
     PatternFeature,
     ResultKind,
     ShellFeature,
     SolidExtrudeFeature,
+    SolidLoftFeature,
     SolidRevolveFeature,
+    SolidSweepFeature,
     instance_count,
 )
 from .sketch import (
@@ -56,6 +60,24 @@ from .sketch import (
     RectangleContour,
     RegularPolygonContour,
     SlotContour,
+)
+
+
+#: Every feature that puts a lump of material in the part, and every one that takes a
+#: piece out. A reader of a drawing counts lumps and openings, not operations, so these
+#: are the lists `solids` and `openings` are compared against — and a new operation that
+#: is missing from them is one the claim silently stops counting.
+_MAKES_MATERIAL = (
+    SolidExtrudeFeature,
+    SolidRevolveFeature,
+    SolidSweepFeature,
+    SolidLoftFeature,
+)
+_REMOVES_MATERIAL = (
+    CutExtrudeFeature,
+    CutRevolveFeature,
+    CutSweepFeature,
+    CutLoftFeature,
 )
 
 
@@ -208,7 +230,7 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
         feature
         for feature in document.features
         if feature.enabled
-        and isinstance(feature, (SolidExtrudeFeature, SolidRevolveFeature))
+        and isinstance(feature, _MAKES_MATERIAL)
         and str(feature.id) not in consumed
     ]
     if not solids:
@@ -315,8 +337,27 @@ def _repeats(document: CadIrDocument) -> dict[str, int]:
     return counts
 
 
+def _profile_of(feature):
+    """The contour a feature draws, wherever it keeps it.
+
+    Every operation but a loft has one sketch. A loft has sections, and its outline is
+    the first of them — which says as much about the part as it can, because CAD-IR 1.9
+    requires every section to be the same kind of contour (ADR-031). Had mixed sections
+    been allowed, a claim of `circle` would have been satisfied by a solid that ends as
+    a square.
+    """
+    sketch = getattr(feature.inputs, "sketch", None)
+    if sketch is not None:
+        return sketch
+    sections = getattr(feature.inputs, "sections", None)
+    return sections[0] if sections else None
+
+
 def _profile_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:
-    outer = base.inputs.sketch.outer
+    sketch = _profile_of(base)
+    if sketch is None:  # pragma: no cover - every material-making feature draws one
+        return []
+    outer = sketch.outer
     if not isinstance(outer, _PROFILE_CONTOURS[claim.profile]):
         return [
             Disagreement(
@@ -397,11 +438,11 @@ def _opening_disagreements(
     for feature in document.features:
         if not feature.enabled:
             continue
-        sketch = getattr(feature.inputs, "sketch", None)
+        sketch = _profile_of(feature)
         if sketch is None:
             continue
         instances = repeats.get(str(feature.id), 1)
-        cuts = isinstance(feature, (CutExtrudeFeature, CutRevolveFeature))
+        cuts = isinstance(feature, _REMOVES_MATERIAL)
         # An island in a solid profile is a hole through the whole extrusion. An island
         # in a cut's profile is material that cut leaves behind, and how far it reaches
         # is not something this can read off the document.

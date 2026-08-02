@@ -704,6 +704,202 @@ def _shells() -> list[Case]:
     return cases
 
 
+def _sweeps() -> list[Case]:
+    """Pappus: a profile carried along a path sweeps out `area × path length`.
+
+    Exact, not approximate, and exact for the bends too — the profile's centroid sits
+    on the path, so the distance its centroid travels *is* the path length. That is
+    what makes a sweep checkable by arithmetic rather than by a previous run.
+    """
+
+    def path(*segments: dict, plane: str = "XZ") -> dict[str, Any]:
+        return {"id": "path.spine", "plane": plane, "segments": list(segments)}
+
+    def line(start, end) -> dict[str, Any]:
+        return {"type": "line", "start": list(start), "end": list(end)}
+
+    def quarter(start, end, centre, sweep: str = "cw") -> dict[str, Any]:
+        return {"type": "arc", "start": list(start), "end": list(end),
+                "center": list(centre), "sweep": sweep}
+
+    def travel(fid: str, body: str | None, outer: dict, spine: dict,
+               plane: dict | None = None, depends: list[str] | None = None,
+               cut_from: str | None = None) -> dict[str, Any]:
+        inputs: dict[str, Any] = {"sketch": sketch(fid.split(".")[-1], outer, plane=plane),
+                                  "path": spine}
+        if cut_from:
+            inputs["source_body"] = {"result": cut_from}
+        return {"id": fid, "type": "cut.sweep" if cut_from else "solid.sweep",
+                "enabled": True, "depends_on": depends or [],
+                "produces": [{"id": body, "kind": "solid_body"}] if body else [],
+                "inputs": inputs}
+
+    cases: list[Case] = []
+
+    radius, length_mm = 8.0, 60.0
+    cases.append(Case(
+        id="sweep-straight",
+        document=document(
+            "tube",
+            [travel("feature.pipe", "body.main", circle(radius),
+                    path(line((0.0, 0.0), (0.0, length_mm))))],
+            (2 * radius, 2 * radius, length_mm), holes=0),
+        volume_mm3=math.pi * radius**2 * length_mm,
+        arithmetic=f"π × {radius:g}² × {length_mm:g} — a sweep along a line is an extrusion",
+    ))
+
+    straight, bend = 50.0, 30.0
+    cases.append(Case(
+        id="sweep-elbow",
+        document=document(
+            "elbow",
+            [travel("feature.pipe", "body.main", circle(radius),
+                    path(line((0.0, 0.0), (0.0, straight)),
+                         quarter((0.0, straight), (bend, straight + bend), (bend, straight))))],
+            # The outer wall of the bend reaches `bend + radius` in x, and the same
+            # above the straight run in z.
+            (bend + radius, 2 * radius, straight + bend + radius), holes=0),
+        volume_mm3=math.pi * radius**2 * (straight + bend * math.pi / 2),
+        arithmetic=f"π × {radius:g}² × ({straight:g} + {bend:g}·π/2)",
+    ))
+
+    across, along, run, turn = 20.0, 10.0, 40.0, 25.0
+    cases.append(Case(
+        id="sweep-rectangular-section",
+        document=document(
+            "duct",
+            [travel("feature.duct", "body.main", rectangle(across, along),
+                    path(line((0.0, 0.0), (0.0, run)),
+                         quarter((0.0, run), (turn, run + turn), (turn, run))))],
+            (turn + across / 2, along, run + turn + across / 2), holes=0),
+        volume_mm3=across * along * (run + turn * math.pi / 2),
+        arithmetic=f"{across:g}·{along:g} × ({run:g} + {turn:g}·π/2)",
+    ))
+
+    # A half-round channel milled across the top of a plate: the tool's axis lies in
+    # the top face, so exactly half of the swept cylinder is inside the material.
+    plate_w, plate_h, plate_t, groove = 100.0, 60.0, 20.0, 3.0
+    cases.append(Case(
+        id="sweep-cut-groove",
+        document=document(
+            "grooved-plate",
+            [extrude("feature.plate", "body.main", plate_t,
+                     rectangle(plate_w, plate_h, (plate_w / 2, 0.0))),
+             travel("feature.groove", None, circle(groove, (0.0, plate_t)),
+                    path(line((0.0, 0.0), (plate_w, 0.0)), plane="XY"),
+                    plane={"on": "base", "plane": "YZ"},
+                    depends=["feature.plate"], cut_from="body.main")],
+            (plate_w, plate_h, plate_t), holes=0),
+        volume_mm3=plate_w * plate_h * plate_t - math.pi * groove**2 * plate_w / 2,
+        arithmetic=f"plate − ½ × π × {groove:g}² × {plate_w:g}",
+    ))
+    return cases
+
+
+def _lofts() -> list[Case]:
+    """The prismatoid rule: `h/3 × (A₁ + √(A₁A₂) + A₂)` between similar sections.
+
+    Exact for a linear transition, which is what a loft between two sections of the
+    same kind is. Three sections lofted `ruled` are two of those end to end; three
+    lofted smooth are not, and that difference is a case of its own.
+    """
+
+    def section(name: str, outer: dict, plane: dict | None = None) -> dict[str, Any]:
+        return sketch(name, outer, plane=plane)
+
+    def datum(fid: str, result: str, offset: float, depends: list[str]) -> dict[str, Any]:
+        return {"id": fid, "type": "datum.plane.offset", "enabled": True,
+                "depends_on": depends, "produces": [{"id": result, "kind": "plane"}],
+                "inputs": {"base": "XY", "offset_mm": offset, "flip": False}}
+
+    def between(fid: str, body: str | None, sections: list[dict], depends: list[str],
+                ruled: bool = False, cut_from: str | None = None) -> dict[str, Any]:
+        inputs: dict[str, Any] = {"sections": sections, "ruled": ruled}
+        if cut_from:
+            inputs["source_body"] = {"result": cut_from}
+        return {"id": fid, "type": "cut.loft" if cut_from else "solid.loft",
+                "enabled": True, "depends_on": depends,
+                "produces": [{"id": body, "kind": "solid_body"}] if body else [],
+                "inputs": inputs}
+
+    def prismatoid(a1: float, a2: float, h: float) -> float:
+        return h / 3 * (a1 + math.sqrt(a1 * a2) + a2)
+
+    on_top = {"on": "datum", "plane": {"result": "plane.top"}}
+    cases: list[Case] = []
+
+    big, small, tall = 20.0, 8.0, 30.0
+    a1, a2 = math.pi * big**2, math.pi * small**2
+    cases.append(Case(
+        id="loft-truncated-cone",
+        document=document(
+            "cone",
+            [datum("feature.top", "plane.top", tall, []),
+             between("feature.cone", "body.main",
+                     [section("base", circle(big)), section("tip", circle(small), on_top)],
+                     depends=["feature.top"])],
+            (2 * big, 2 * big, tall), holes=0),
+        volume_mm3=prismatoid(a1, a2, tall),
+        arithmetic=f"{tall:g}/3 × (π{big:g}² + √(π{big:g}²·π{small:g}²) + π{small:g}²)",
+    ))
+
+    base_side, top_side = 40.0, 16.0
+    a1, a2 = base_side**2, top_side**2
+    cases.append(Case(
+        id="loft-truncated-pyramid",
+        document=document(
+            "pyramid",
+            [datum("feature.top", "plane.top", tall, []),
+             between("feature.taper", "body.main",
+                     [section("base", rectangle(base_side, base_side)),
+                      section("tip", rectangle(top_side, top_side), on_top)],
+                     depends=["feature.top"])],
+            (base_side, base_side, tall), holes=0),
+        volume_mm3=prismatoid(a1, a2, tall),
+        arithmetic=f"{tall:g}/3 × ({base_side:g}² + {base_side:g}·{top_side:g} + {top_side:g}²)",
+    ))
+
+    on_waist = {"on": "datum", "plane": {"result": "plane.waist"}}
+    cases.append(Case(
+        id="loft-three-sections-ruled",
+        document=document(
+            "spool",
+            [datum("feature.waist", "plane.waist", tall, []),
+             datum("feature.top", "plane.top", 2 * tall, ["feature.waist"]),
+             between("feature.spool", "body.main",
+                     [section("base", rectangle(base_side, base_side)),
+                      section("waist", rectangle(top_side, top_side), on_waist),
+                      section("tip", rectangle(base_side, base_side), on_top)],
+                     depends=["feature.waist", "feature.top"], ruled=True)],
+            (base_side, base_side, 2 * tall), holes=0),
+        # Ruled means straight between neighbours, so it is two of the case above.
+        volume_mm3=2 * prismatoid(a1, a2, tall),
+        arithmetic=f"2 × the truncated pyramid — ruled is straight between sections",
+    ))
+
+    # A tapered pocket: the mouth sits in the top face and the floor 15 mm below it.
+    plate_w, plate_h, plate_t, mouth, floor, deep = 80.0, 60.0, 20.0, 30.0, 10.0, 15.0
+    cases.append(Case(
+        id="loft-cut-tapered-pocket",
+        document=document(
+            "pocket",
+            [extrude("feature.plate", "body.main", plate_t, rectangle(plate_w, plate_h)),
+             datum("feature.floor", "plane.floor", plate_t - deep, ["feature.plate"]),
+             datum("feature.mouth", "plane.mouth", plate_t, ["feature.plate"]),
+             between("feature.pocket", None,
+                     [section("floor", rectangle(floor, floor),
+                              {"on": "datum", "plane": {"result": "plane.floor"}}),
+                      section("mouth", rectangle(mouth, mouth),
+                              {"on": "datum", "plane": {"result": "plane.mouth"}})],
+                     depends=["feature.plate", "feature.floor", "feature.mouth"],
+                     cut_from="body.main")],
+            (plate_w, plate_h, plate_t), holes=0),
+        volume_mm3=plate_w * plate_h * plate_t - prismatoid(floor**2, mouth**2, deep),
+        arithmetic=f"plate − {deep:g}/3 × ({floor:g}² + {floor:g}·{mouth:g} + {mouth:g}²)",
+    ))
+    return cases
+
+
 def _bodies_and_booleans() -> list[Case]:
     """Two bodies, and each of the three booleans between them."""
     thickness = 10.0
@@ -798,13 +994,109 @@ def positives() -> list[Case]:
         *_blind_hole(),
         *_cut_shapes(), *_bosses(), *_face_selector(), *_revolves(), *_fillets(),
         *_chamfers(), *_patterns(), *_grid_and_mirror(), *_shells(),
-        *_bodies_and_booleans(),
+        *_sweeps(), *_lofts(), *_bodies_and_booleans(),
     ]
 
 
 # ---------------------------------------------------------------------------
 # Negative cases
 # ---------------------------------------------------------------------------
+
+
+def _sweep_and_loft_refusals(plate: dict, with_features) -> list[Refusal]:
+    """Every way a path or a set of sections describes a part the kernel will not build.
+
+    Five of the seven are documents OpenCascade builds *without complaint*: a path in
+    the wrong place, at the wrong angle, or bending tighter than the profile all come
+    back as plausible solids, and two coplanar sections come back as a solid of zero
+    volume. That is the whole reason these checks are in front of the kernel.
+    """
+    radius = 8.0
+
+    def pipe(spine: dict, outer: dict | None = None, plane: dict | None = None) -> dict:
+        return {"id": "feature.pipe", "type": "solid.sweep", "enabled": True,
+                "depends_on": [], "produces": [{"id": "body.main", "kind": "solid_body"}],
+                "inputs": {"sketch": sketch("section", outer or circle(radius), plane=plane),
+                           "path": spine}}
+
+    def spine(*segments: dict, plane: str = "XZ") -> dict:
+        return {"id": "path.spine", "plane": plane, "segments": list(segments)}
+
+    def line(start, end) -> dict:
+        return {"type": "line", "start": list(start), "end": list(end)}
+
+    def section(name: str, outer: dict, plane: dict | None = None) -> dict:
+        return sketch(name, outer, plane=plane)
+
+    top = {"on": "datum", "plane": {"result": "plane.top"}}
+    datum_top = {"id": "feature.top", "type": "datum.plane.offset", "enabled": True,
+                 "depends_on": [], "produces": [{"id": "plane.top", "kind": "plane"}],
+                 "inputs": {"base": "XY", "offset_mm": 30.0, "flip": False}}
+
+    def lofted(sections: list[dict], depends: list[str]) -> dict:
+        return {"id": "feature.taper", "type": "solid.loft", "enabled": True,
+                "depends_on": depends, "produces": [{"id": "body.main", "kind": "solid_body"}],
+                "inputs": {"sections": sections, "ruled": False}}
+
+    return [
+        Refusal(
+            id="sweep-path-with-a-corner",
+            document=with_features([pipe(spine(line((0.0, 0.0), (0.0, 40.0)),
+                                               line((0.0, 40.0), (40.0, 40.0))))], holes=0),
+            code="SWEEP_PATH_NOT_TANGENT",
+            why="a right-angle corner is a bend radius the drawing did not give",
+        ),
+        Refusal(
+            id="sweep-path-that-does-not-start-at-the-profile",
+            document=with_features([pipe(spine(line((30.0, 0.0), (30.0, 40.0))))], holes=0),
+            code="SWEEP_PATH_NOT_AT_ORIGIN",
+            why="the kernel anchors the sweep at the profile and ignores the path's position",
+        ),
+        Refusal(
+            id="sweep-profile-not-across-the-path",
+            document=with_features([pipe(spine(line((0.0, 0.0), (40.0, 40.0))))], holes=0),
+            code="SWEEP_PROFILE_NOT_PERPENDICULAR",
+            why="a 45° path sweeps the profile's projection, which is 1/√2 of the drawing's",
+        ),
+        Refusal(
+            id="sweep-bend-tighter-than-the-profile",
+            document=with_features([pipe(spine(
+                line((0.0, 0.0), (0.0, 40.0)),
+                {"type": "arc", "start": [0.0, 40.0], "end": [4.0, 44.0],
+                 "center": [4.0, 40.0], "sweep": "cw"}))], holes=0),
+            code="SWEEP_BEND_TIGHTER_THAN_PROFILE",
+            why="a Ø16 pipe round a 4 mm bend passes through itself and reports valid",
+        ),
+        Refusal(
+            id="sweep-path-that-closes",
+            document=with_features([pipe(spine(
+                line((0.0, 0.0), (0.0, 40.0)),
+                {"type": "arc", "start": [0.0, 40.0], "end": [0.0, 0.0],
+                 "center": [0.0, 20.0], "sweep": "cw"}))], holes=0),
+            code="SWEEP_PATH_CLOSED",
+            why="a path back to its start meets itself at a seam nobody described",
+        ),
+        Refusal(
+            id="loft-between-sections-of-different-kinds",
+            document=with_features(
+                [datum_top,
+                 lofted([section("base", circle(20.0)),
+                         section("tip", rectangle(16.0, 16.0), top)], ["feature.top"])],
+                holes=0),
+            code="SCHEMA_INVALID",
+            why="round to square is the correspondence the kernel invents and never states",
+            by_contract=True,
+        ),
+        Refusal(
+            id="loft-between-sections-in-one-plane",
+            document=with_features(
+                [lofted([section("base", rectangle(40.0, 40.0)),
+                         section("tip", rectangle(16.0, 16.0))], [])],
+                holes=0),
+            code="LOFT_SECTIONS_COPLANAR",
+            why="two sections in the same plane loft into one closed solid of zero volume",
+        ),
+    ]
 
 
 def negatives() -> list[Refusal]:
@@ -946,6 +1238,7 @@ def negatives() -> list[Refusal]:
             code="SELECTOR_UNSUPPORTED_PREDICATE",
             why="the kernel's topology does not record which feature made a face",
         ),
+        *_sweep_and_loft_refusals(plate, with_features),
         Refusal(
             id="shell-thicker-than-the-part",
             document=with_features([plate, {

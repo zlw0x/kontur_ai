@@ -27,7 +27,7 @@ FIXTURES = Path(__file__).parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 def flange() -> dict:
-    return json.loads((FIXTURES / "patterned-flange.v1_8.json").read_text("utf-8"))
+    return json.loads((FIXTURES / "patterned-flange.v1_9.json").read_text("utf-8"))
 
 
 def feature(value: dict, name: str) -> dict:

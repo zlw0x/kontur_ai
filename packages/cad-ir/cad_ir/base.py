@@ -51,6 +51,10 @@ class FeatureType(StrEnum):
     PATTERN = "feature.pattern"
     BOOLEAN = "feature.boolean"
     SHELL = "feature.shell"
+    SOLID_SWEEP = "solid.sweep"
+    CUT_SWEEP = "cut.sweep"
+    SOLID_LOFT = "solid.loft"
+    CUT_LOFT = "cut.loft"
 
 
 class ResultKind(StrEnum):

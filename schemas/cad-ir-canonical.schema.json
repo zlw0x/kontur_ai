@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.8",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.9",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -916,6 +916,100 @@
       "title": "CutExtrudeInputs",
       "type": "object"
     },
+    "CutLoftFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "cut.loft",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 8,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/CutLoftInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "CutLoftFeature",
+      "type": "object"
+    },
+    "CutLoftInputs": {
+      "additionalProperties": false,
+      "description": "The same, removing material: a tapered pocket.",
+      "properties": {
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/Sketch"
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Sections",
+          "type": "array"
+        },
+        "ruled": {
+          "default": false,
+          "title": "Ruled",
+          "type": "boolean"
+        },
+        "source_body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "sections"
+      ],
+      "title": "CutLoftInputs",
+      "type": "object"
+    },
     "CutRevolveFeature": {
       "additionalProperties": false,
       "properties": {
@@ -972,6 +1066,93 @@
         "inputs"
       ],
       "title": "CutRevolveFeature",
+      "type": "object"
+    },
+    "CutSweepFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "cut.sweep",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 8,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/CutSweepInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "CutSweepFeature",
+      "type": "object"
+    },
+    "CutSweepInputs": {
+      "additionalProperties": false,
+      "description": "The same, removing material: a groove that follows a path.\n\nThere is no `through_all`. A swept cut removes exactly the volume the profile\nsweeps out, and \"through all\" has no meaning for a tool that is already a closed\nsolid of stated size — unlike an extruded cut, whose depth is otherwise unbounded.",
+      "properties": {
+        "sketch": {
+          "$ref": "#/$defs/Sketch"
+        },
+        "path": {
+          "$ref": "#/$defs/SweepPath"
+        },
+        "source_body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "sketch",
+        "path"
+      ],
+      "title": "CutSweepInputs",
       "type": "object"
     },
     "DatumPlaneOffsetFeature": {
@@ -1726,6 +1907,47 @@
         "count"
       ],
       "title": "LinearPattern",
+      "type": "object"
+    },
+    "LoftInputs": {
+      "additionalProperties": false,
+      "description": "The sections, in the order the material runs through them.\n\nOrder is the document's, not something derived from where the planes are: two\nsections on either side of a third is a shape a drawing can mean, and sorting them\nby height would silently build a different one.",
+      "properties": {
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/Sketch"
+          },
+          "maxItems": 16,
+          "minItems": 2,
+          "title": "Sections",
+          "type": "array"
+        },
+        "ruled": {
+          "default": false,
+          "title": "Ruled",
+          "type": "boolean"
+        },
+        "source_body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "new_body": {
+          "default": false,
+          "title": "New Body",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sections"
+      ],
+      "title": "LoftInputs",
       "type": "object"
     },
     "Measurement": {
@@ -3111,6 +3333,64 @@
       "title": "SolidExtrudeInputs",
       "type": "object"
     },
+    "SolidLoftFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "solid.loft",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 8,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/LoftInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "SolidLoftFeature",
+      "type": "object"
+    },
     "SolidRevolveFeature": {
       "additionalProperties": false,
       "properties": {
@@ -3167,6 +3447,64 @@
         "inputs"
       ],
       "title": "SolidRevolveFeature",
+      "type": "object"
+    },
+    "SolidSweepFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "solid.sweep",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 8,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/SweepInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "SolidSweepFeature",
       "type": "object"
     },
     "SourceRegion": {
@@ -3274,6 +3612,84 @@
       "title": "Sweep",
       "type": "string"
     },
+    "SweepInputs": {
+      "additionalProperties": false,
+      "description": "A profile and the path it travels.\n\nNo `distance`: how far the material goes is the length of the path, which the\ndocument already states segment by segment. A second way to say it would be a\nsecond thing that can disagree.",
+      "properties": {
+        "sketch": {
+          "$ref": "#/$defs/Sketch"
+        },
+        "path": {
+          "$ref": "#/$defs/SweepPath"
+        },
+        "source_body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResultRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "new_body": {
+          "default": false,
+          "title": "New Body",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sketch",
+        "path"
+      ],
+      "title": "SweepInputs",
+      "type": "object"
+    },
+    "SweepPath": {
+      "additionalProperties": false,
+      "description": "Where the profile goes, as a chain of lines and arcs in one plane.\n\nPlanar, and on a base plane. A path that left its plane would be the general 3D\ncurve of P4.3, which needs a way to say where a point is in space that CAD-IR does\nnot have yet — and a planar path is what a drawing gives: a centre line in an\nelevation, with the bend radii dimensioned on it.\n\nThe segments are the same lines and arcs a sketch contour is spelled out with, and\nfor the same reason (ADR-020): endpoints that have to *match* rather than angles\nthat have to be inferred.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/BasePlaneName"
+        },
+        "segments": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "arc": "#/$defs/ArcSegment",
+                "line": "#/$defs/LineSegment"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/LineSegment"
+              },
+              {
+                "$ref": "#/$defs/ArcSegment"
+              }
+            ]
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "plane",
+        "segments"
+      ],
+      "title": "SweepPath",
+      "type": "object"
+    },
     "ThroughHoleCountExpectation": {
       "additionalProperties": false,
       "properties": {
@@ -3332,8 +3748,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.8",
-      "default": "1.8",
+      "const": "1.9",
+      "default": "1.9",
       "title": "Schema Version",
       "type": "string"
     },
@@ -3362,7 +3778,9 @@
         "discriminator": {
           "mapping": {
             "cut.extrude": "#/$defs/CutExtrudeFeature",
+            "cut.loft": "#/$defs/CutLoftFeature",
             "cut.revolve": "#/$defs/CutRevolveFeature",
+            "cut.sweep": "#/$defs/CutSweepFeature",
             "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
             "feature.boolean": "#/$defs/BooleanFeature",
             "feature.chamfer": "#/$defs/ChamferFeature",
@@ -3370,7 +3788,9 @@
             "feature.pattern": "#/$defs/PatternFeature",
             "feature.shell": "#/$defs/ShellFeature",
             "solid.extrude": "#/$defs/SolidExtrudeFeature",
-            "solid.revolve": "#/$defs/SolidRevolveFeature"
+            "solid.loft": "#/$defs/SolidLoftFeature",
+            "solid.revolve": "#/$defs/SolidRevolveFeature",
+            "solid.sweep": "#/$defs/SolidSweepFeature"
           },
           "propertyName": "type"
         },
@@ -3404,6 +3824,18 @@
           },
           {
             "$ref": "#/$defs/ShellFeature"
+          },
+          {
+            "$ref": "#/$defs/SolidSweepFeature"
+          },
+          {
+            "$ref": "#/$defs/CutSweepFeature"
+          },
+          {
+            "$ref": "#/$defs/SolidLoftFeature"
+          },
+          {
+            "$ref": "#/$defs/CutLoftFeature"
           }
         ]
       },

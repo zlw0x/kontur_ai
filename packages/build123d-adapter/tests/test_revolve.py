@@ -44,7 +44,7 @@ def ring(outer: float, inner: float, height: float) -> float:
 
 
 def bushing() -> dict:
-    return json.loads((FIXTURES / "bushing.v1_8.json").read_text("utf-8"))
+    return json.loads((FIXTURES / "bushing.v1_9.json").read_text("utf-8"))
 
 
 def document(value: dict):

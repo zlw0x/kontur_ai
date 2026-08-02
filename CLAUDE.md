@@ -31,12 +31,13 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.8** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.9** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
   and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
-  (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`).
+  (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`), 1.9 sweep and loft
+  (`docs/adr/ADR-031-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -174,7 +175,36 @@ claim. **The cycle cannot ask for a shell yet and that ordering is the point**: 
 selector is behind ADR-029's dialect wall, so the claim's word for a hollow part arrives
 first and the output profile follows when the dialect allows.
 
-**What is next**: sweep and loft. `docs/POST-MVP-ROADMAP.md` has the order.
+**Sweep and loft are one question asked twice** (POSTMVP-018, ADR-031): given a profile,
+what carries it — a path, or the next profile along. What makes them different from every
+operation before is that a wrong document does not fail loudly. Five things were measured
+and all five build: a path 30 mm from the profile builds the part **at the profile** (the
+kernel ignores the path's position); a 45° path sweeps the profile's *projection*, so a
+Ø16 tube comes back with 1/√2 of the section drawn; a bend tighter than the profile passes
+through itself, reports `is_valid`, and matches Pappus exactly — only the mesh knows, as 69
+open edges; two loft sections in one plane give a closed solid of **volume 0.0**; and a
+square lofted into a circle gives a plausible solid whose correspondence the kernel chose
+and never stated.
+
+So a path is **stated from the profile** (it starts at its plane's origin, because there is
+no absolute position the kernel would honour), is open, is tangent-continuous — a corner is
+a bend radius the drawing did not give — and crosses the profile at a right angle. A bend
+is checked against the profile's reach **on the side it turns towards**, which is exact and
+not a circumradius: a profile 40 wide sitting 15 mm off the path may bend one way and not
+the other.
+
+A loft's sections are **the same kind of contour with the same number of vertices**, which
+is Gate P4's "ambiguous section correspondence is rejected" from the other end. It also
+means the claim needs nothing new: `profile` is the kind every section is. Round-to-square
+comes back when the document can state which vertex meets which.
+
+Both are checkable because both have closed-form arithmetic — **Pappus** for a sweep (exact
+round the bends, because the centroid rides the path) and the **prismatoid rule** for a
+loft. Neither is reachable from the drawing cycle, and that is ADR-029's claim and vision
+walls rather than its dialect one.
+
+**What is next**: rib and draft (P3.2, P3.3), then a topology oracle for Gate P4.
+`docs/POST-MVP-ROADMAP.md` has the order.
 
 One thing is left over from the migration, named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,

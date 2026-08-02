@@ -40,7 +40,7 @@ from .errors import CadEngineError, unsupported
 CLOSURE_TOLERANCE_MM = 1e-6
 
 
-def _point(value, params) -> tuple[float, float]:
+def sketch_point(value, params) -> tuple[float, float]:
     """A CAD-IR `Point2` as a pair of numbers.
 
     Its two coordinates are scalars, and a scalar may be a parameter reference:
@@ -57,7 +57,7 @@ def _point(value, params) -> tuple[float, float]:
 def contour_wire(contour, params) -> Wire:
     """One closed contour as a wire, in sketch coordinates."""
     if isinstance(contour, CircleContour):
-        centre = _point(contour.center, params)
+        centre = sketch_point(contour.center, params)
         radius = params.resolve(contour.radius, "circle radius")
         return Wire([Edge.make_circle(radius, Plane(origin=(centre[0], centre[1], 0)))])
 
@@ -139,7 +139,7 @@ def sketch_face(outer, inner: list, params) -> Face:
 
 
 def _rectangle_points(contour: RectangleContour, params) -> list[tuple[float, float]]:
-    cx, cy = _point(contour.center, params)
+    cx, cy = sketch_point(contour.center, params)
     half_w = params.resolve(contour.width, "rectangle width") / 2
     half_h = params.resolve(contour.height, "rectangle height") / 2
     corners = [(-half_w, -half_h), (half_w, -half_h), (half_w, half_h), (-half_w, half_h)]
@@ -147,7 +147,7 @@ def _rectangle_points(contour: RectangleContour, params) -> list[tuple[float, fl
 
 
 def _regular_polygon_points(contour: RegularPolygonContour, params) -> list[tuple[float, float]]:
-    cx, cy = _point(contour.center, params)
+    cx, cy = sketch_point(contour.center, params)
     radius = params.resolve(contour.circumradius, "polygon circumradius")
     step = 360.0 / contour.sides
     # First vertex on the +X axis before rotation, so a hexagon drawn twice from
@@ -189,8 +189,8 @@ def _polygon_wire(points: list[tuple[float, float]]) -> Wire:
 
 def _slot_wire(contour: SlotContour, params) -> Wire:
     """A stadium: two parallel lines closed by a semicircle at each end."""
-    start = Vector(*_point(contour.start, params), 0)
-    end = Vector(*_point(contour.end, params), 0)
+    start = Vector(*sketch_point(contour.start, params), 0)
+    end = Vector(*sketch_point(contour.end, params), 0)
     radius = params.resolve(contour.radius, "slot radius")
     axis = end - start
     if axis.length <= CLOSURE_TOLERANCE_MM:
@@ -219,9 +219,9 @@ def _path_wire(contour: PathContour, params) -> Wire:
     edges: list[Edge] = []
     previous_end: tuple[float, float] | None = None
     for index, segment in enumerate(contour.segments):
-        start = _point(segment.start, params)
-        end = _point(segment.end, params)
-        if previous_end is not None and _distance(previous_end, start) > CLOSURE_TOLERANCE_MM:
+        start = sketch_point(segment.start, params)
+        end = sketch_point(segment.end, params)
+        if previous_end is not None and plane_distance(previous_end, start) > CLOSURE_TOLERANCE_MM:
             raise CadEngineError(
                 "SKETCH_NOT_CLOSED",
                 "sketch",
@@ -232,13 +232,13 @@ def _path_wire(contour: PathContour, params) -> Wire:
         if isinstance(segment, LineSegment):
             edges.append(Edge.make_line(Vector(*start, 0), Vector(*end, 0)))
         elif isinstance(segment, ArcSegment):
-            edges.append(_arc_edge(segment, params))
+            edges.append(arc_edge(segment, params))
         else:  # pragma: no cover - the contract's union has only these two
             raise unsupported(f"Unknown path segment {type(segment).__name__}.", "sketch")
         previous_end = end
 
-    first = _point(contour.segments[0].start, params)
-    if previous_end is None or _distance(previous_end, first) > CLOSURE_TOLERANCE_MM:
+    first = sketch_point(contour.segments[0].start, params)
+    if previous_end is None or plane_distance(previous_end, first) > CLOSURE_TOLERANCE_MM:
         raise CadEngineError(
             "SKETCH_NOT_CLOSED",
             "sketch",
@@ -248,20 +248,20 @@ def _path_wire(contour: PathContour, params) -> Wire:
     return Wire(edges)
 
 
-def _arc_edge(segment: ArcSegment, params) -> Edge:
+def arc_edge(segment: ArcSegment, params) -> Edge:
     """An arc from its endpoints, centre and direction.
 
     Built from the centre and two angles rather than from the endpoints and a
     radius: two arcs share every endpoint and centre and differ only in which way
     round they go, and `sweep` is the only thing that separates them.
     """
-    centre = _point(segment.center, params)
-    start = _point(segment.start, params)
-    end = _point(segment.end, params)
-    radius = _distance(centre, start)
+    centre = sketch_point(segment.center, params)
+    start = sketch_point(segment.start, params)
+    end = sketch_point(segment.end, params)
+    radius = plane_distance(centre, start)
     if radius <= CLOSURE_TOLERANCE_MM:
         raise CadEngineError("SKETCH_INVALID", "sketch", "An arc has no radius.")
-    if abs(_distance(centre, end) - radius) > 1e-4:
+    if abs(plane_distance(centre, end) - radius) > 1e-4:
         raise CadEngineError(
             "SKETCH_INVALID",
             "sketch",
@@ -287,8 +287,15 @@ def _arc_edge(segment: ArcSegment, params) -> Edge:
     )
 
 
-def _distance(left: tuple[float, float], right: tuple[float, float]) -> float:
+def plane_distance(left: tuple[float, float], right: tuple[float, float]) -> float:
     return math.hypot(left[0] - right[0], left[1] - right[1])
 
 
-__all__ = ["contour_wire", "sketch_face", "CLOSURE_TOLERANCE_MM"]
+__all__ = [
+    "CLOSURE_TOLERANCE_MM",
+    "arc_edge",
+    "contour_wire",
+    "plane_distance",
+    "sketch_face",
+    "sketch_point",
+]

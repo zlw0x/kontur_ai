@@ -83,15 +83,28 @@ from .revolve import (  # re-exported alongside the document
     RevolveInputs,
     SolidRevolveFeature,
 )
+from .loft import (  # re-exported alongside the document
+    CutLoftFeature,
+    CutLoftInputs,
+    LoftInputs,
+    SolidLoftFeature,
+)
 from .shell import ShellDirection, ShellFeature, ShellInputs  # re-exported
+from .sweep import (  # re-exported alongside the document
+    CutSweepFeature,
+    CutSweepInputs,
+    SolidSweepFeature,
+    SweepInputs,
+    SweepPath,
+)
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.8"
+CAD_IR_VERSION = "1.9"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.8",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.9",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -108,6 +121,7 @@ MIGRATABLE_VERSIONS: tuple[str, ...] = (
     "1.5",
     "1.6",
     "1.7",
+    "1.8",
 )
 
 class ParameterType(StrEnum):
@@ -266,6 +280,10 @@ Feature = Annotated[
         PatternFeature,
         BooleanFeature,
         ShellFeature,
+        SolidSweepFeature,
+        CutSweepFeature,
+        SolidLoftFeature,
+        CutLoftFeature,
     ],
     Field(discriminator="type"),
 ]

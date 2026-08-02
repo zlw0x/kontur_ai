@@ -16,20 +16,33 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from build123d import Plane, export_step, export_stl, extrude, revolve
+from build123d import (
+    Location,
+    Plane,
+    export_step,
+    export_stl,
+    extrude,
+    loft,
+    revolve,
+    sweep,
+)
 from cad_ir.canonical import (
     BooleanFeature,
     CadIrDocument,
     ChamferFeature,
     CutExtrudeFeature,
+    CutLoftFeature,
     CutRevolveFeature,
+    CutSweepFeature,
     DatumPlaneOffsetFeature,
     Direction,
     FilletFeature,
     PatternFeature,
     ShellFeature,
     SolidExtrudeFeature,
+    SolidLoftFeature,
     SolidRevolveFeature,
+    SolidSweepFeature,
 )
 from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
@@ -44,7 +57,13 @@ from .errors import CadEngineError, unsupported
 from .parameters import Parameters
 from .revolves import axis_points, require_profile_clear_of_axis, world_axis
 from .selectors import require_one, resolve_faces
+from .lofts import require_distinct_planes
 from .shells import shell
+from .sweeps import (
+    path_wire,
+    require_bends_clear_the_profile,
+    require_profile_across_path,
+)
 from .topology import read_faces
 from .identity import ARTIFACTS, EngineDescription, describe
 from .sketches import sketch_face
@@ -131,7 +150,16 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
 
         if isinstance(
             feature,
-            (SolidExtrudeFeature, CutExtrudeFeature, SolidRevolveFeature, CutRevolveFeature),
+            (
+                SolidExtrudeFeature,
+                CutExtrudeFeature,
+                SolidRevolveFeature,
+                CutRevolveFeature,
+                SolidSweepFeature,
+                CutSweepFeature,
+                SolidLoftFeature,
+                CutLoftFeature,
+            ),
         ):
             _apply_solid_feature(feature, bodies, planes, params)
             continue
@@ -268,6 +296,10 @@ def _tool_of(feature, part, planes: dict[str, Plane], params, bodies=None):
         return _extrude_tool(feature, part, planes, params, bodies)
     if isinstance(feature, (SolidRevolveFeature, CutRevolveFeature)):
         return _revolve_tool(feature, part, planes, params, bodies)
+    if isinstance(feature, (SolidSweepFeature, CutSweepFeature)):
+        return _sweep_tool(feature, part, planes, params, bodies)
+    if isinstance(feature, (SolidLoftFeature, CutLoftFeature)):
+        return _loft_tool(feature, part, planes, params, bodies)
     raise unsupported(
         f"A {feature.type} feature cannot be repeated: this engine can only make a "
         "tool for an operation that extrudes or revolves a profile.",
@@ -373,6 +405,79 @@ def _revolve_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
         # meet twice; rotating one sweep is the same solid with no seam to remove.
         solid = solid.rotate(axis, -angle / 2)
 
+    return solid, is_cut
+
+
+def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
+    """A profile carried along a path the document states.
+
+    An extrude is this with a straight path and a revolve is this with a circular one,
+    so almost nothing here is about the sweep itself. It is about the four ways a path
+    can describe a part the kernel will not build — see `sweeps.py`, where each of them
+    is a measurement rather than a worry.
+    """
+    inputs = feature.inputs
+    sketch = inputs.sketch
+    _check_assertions(sketch, params)
+
+    profile_plane = _sketch_plane(sketch.plane, planes, part, bodies)
+    face = sketch_face(sketch.outer, list(sketch.inner), params)
+    placed = profile_plane.location * face
+
+    path_plane = BASE_PLANES[str(inputs.path.plane)]
+    require_profile_across_path(profile_plane, path_plane, inputs.path, params, feature.id)
+    require_bends_clear_the_profile(
+        placed, profile_plane, path_plane, inputs.path, params, feature.id
+    )
+
+    is_cut = isinstance(feature, CutSweepFeature)
+    if part is None and is_cut:
+        raise CadEngineError(
+            "UNSUPPORTED_FEATURE_SET",
+            "feature",
+            f"{feature.id} cuts, but nothing has been built for it to cut.",
+        )
+
+    # The path is stated from the profile (ADR-031), so it is drawn in its own plane's
+    # coordinates and then moved to where the profile stands. The kernel would anchor
+    # it there anyway; doing it here is what makes the wire in the trace the wire the
+    # checks were run against.
+    wire = path_plane.location * path_wire(inputs.path, params, str(feature.id))
+    anchored = wire.moved(Location(profile_plane.origin - path_plane.origin))
+
+    solid = sweep(placed, path=anchored)
+    return solid, is_cut
+
+
+def _loft_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
+    """The material between sections the document puts where the drawing puts them.
+
+    The correspondence question — which point of one section meets which of the next —
+    is settled by CAD-IR 1.9 before this runs: every section is the same kind of
+    contour with the same number of vertices. What is left for the engine is the one
+    part of it that needs the resolved planes.
+    """
+    inputs = feature.inputs
+    faces = []
+    section_planes = []
+    for section in inputs.sections:
+        _check_assertions(section, params)
+        plane = _sketch_plane(section.plane, planes, part, bodies)
+        section_planes.append(plane)
+        faces.append(plane.location * sketch_face(section.outer, [], params))
+    require_distinct_planes(
+        section_planes, [str(section.id) for section in inputs.sections], str(feature.id)
+    )
+
+    is_cut = isinstance(feature, CutLoftFeature)
+    if part is None and is_cut:
+        raise CadEngineError(
+            "UNSUPPORTED_FEATURE_SET",
+            "feature",
+            f"{feature.id} cuts, but nothing has been built for it to cut.",
+        )
+
+    solid = loft(faces, ruled=inputs.ruled)
     return solid, is_cut
 
 
