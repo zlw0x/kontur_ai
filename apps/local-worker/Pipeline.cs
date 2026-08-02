@@ -379,9 +379,9 @@ public static class ClaimLoop
                     .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
                 var answersPath = Path.Combine(jobPath, "context", "user-answers.json");
-                var drawing = await new DrawingPipeline(
-                    new CadAi.CodexRunner.LocalCodexRunner(),
-                    ledger: ledger).RunAsync(
+                var pipeline = new DrawingPipeline(
+                    new CadAi.CodexRunner.LocalCodexRunner(), ledger: ledger);
+                var drawing = await pipeline.RunAsync(
                     jobPath,
                     images,
                     File.Exists(answersPath) ? answersPath : null,
@@ -389,9 +389,9 @@ public static class ClaimLoop
                 waitingForAnswers = drawing.Status == "WAITING_FOR_USER_ANSWERS";
                 if (!waitingForAnswers)
                 {
-                    File.Copy(drawing.CadIrPath!, Path.Combine(jobPath, "cad-ir.json"), overwrite: true);
-                    await LocalCadJobHandler.RunAsync(
-                        jobPath, paths, selected.Engine, cancellation, ledger);
+                    await BuildWithRepairsAsync(
+                        pipeline, drawing.CadIrPath!, jobPath, paths, selected.Engine,
+                        ledger, cancellation);
                 }
             }
             else
@@ -399,6 +399,8 @@ public static class ClaimLoop
                 await LocalCadJobHandler.RunAsync(
                     jobPath, paths, selected.Engine, cancellation, ledger);
             }
+            // ^ see BuildWithRepairsAsync below.
+            //
             // What the engine says it produces, plus what the pipeline itself
             // writes. The engine half used to be a literal `M3D, STEP, STL` here,
             // which put an engine-native format into the definition of a finished
@@ -518,6 +520,59 @@ public static class ClaimLoop
         string job_id,
         ManifestInput[] inputs,
         string artifact_upload_url_template);
+    /// <summary>
+    /// Build the compiled document, and let the agent answer a build that refused it.
+    /// </summary>
+    /// <remarks>
+    /// The compile loop repairs what the validators refuse. This closes the other
+    /// half: a build failure that describes the *document* goes back to be
+    /// rewritten, and the rewrite is built. Until now those ended the job, which
+    /// meant the one class of failure the service can only learn by building was
+    /// also the one class it never learned from.
+    ///
+    /// Bounded, and only for codes that name something the document asked for.
+    /// <see cref="BuildFeedback"/> holds that judgement and the reasoning for it;
+    /// a failure about the machine is rethrown on the spot, because asking a model
+    /// to repair a missing container image spends a call to be told the same thing.
+    ///
+    /// The last failure is the one that surfaces. A job that failed three times
+    /// should report why it finally failed, not why it first did.
+    /// </remarks>
+    private static async Task BuildWithRepairsAsync(
+        DrawingPipeline pipeline,
+        string compiledPath,
+        string jobPath,
+        WorkerPaths paths,
+        ICadDocumentEngine engine,
+        ResourceLedger? ledger,
+        CancellationToken cancellation)
+    {
+        var documentPath = compiledPath;
+        for (var attempt = 0; ; attempt++)
+        {
+            File.Copy(documentPath, Path.Combine(jobPath, "cad-ir.json"), overwrite: true);
+            try
+            {
+                await LocalCadJobHandler.RunAsync(jobPath, paths, engine, cancellation, ledger);
+                return;
+            }
+            // A WorkerException, not a CadAdapterException: the job handler has
+            // already turned the engine's refusal into one, and catching the
+            // original here would catch nothing at all.
+            catch (WorkerException error)
+                when (attempt < BuildFeedback.MaxBuildRepairs && BuildFeedback.IsRepairable(error))
+            {
+                ledger?.Warn(
+                    ledger.Key("repair", "build_trigger", (attempt + 1).ToString()),
+                    ResourceStage.GEOMETRY_VALIDATION,
+                    error.Code,
+                    error.SafeMessage);
+                documentPath = await pipeline.RepairAfterBuildAsync(
+                    jobPath, documentPath, attempt + 1, error.Code, error.SafeMessage, cancellation);
+            }
+        }
+    }
+
     private sealed record ManifestInput(
         string kind,
         string download_url,
