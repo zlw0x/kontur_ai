@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 from cad_ir.canonical_validator import validate_canonical
+from cad_ir.errors import CadIrValidationError
 from cad_ir.shape_claim import ShapeClaim, disagreements
 
 FIXTURES = Path(__file__).parents[3] / "tests" / "fixtures" / "cad-ir"
@@ -107,6 +108,15 @@ def test_a_blend_is_not_part_of_what_the_part_is():
     ]
     without_blends["expectations"] = [
         item for item in value["expectations"] if item["type"] != "surface_face_count"
+    ]
+    # The blends' own dimensions go with them. Since CAD-IR 1.11 a document that
+    # kept `corner_radius` after deleting the fillet that used it is refused, and
+    # rightly — the claim is what this test is about, so the document it is given
+    # has to be one the gate would let through.
+    kept = json.dumps(without_blends["features"])
+    without_blends["parameters"] = [
+        parameter for parameter in value["parameters"]
+        if f'"{parameter["id"]}"' in kept
     ]
     assert disagreements(validate_canonical(without_blends), claim) == []
 
@@ -202,13 +212,16 @@ def test_a_thickness_that_lost_its_name_is_caught():
         "THICKNESS_PARAMETER"
     ]
 
+    # Replacing the reference with a literal no longer reaches the claim: since
+    # CAD-IR 1.11 the validator refuses a declared dimension nothing references,
+    # and it says so of every dimension rather than only of a thickness. The
+    # claim's remaining job is the case above — a thickness that names the
+    # *wrong* parameter, which is a document the validator is right to accept.
     literal = json.loads((FIXTURES / "plate.v1_10.json").read_text("utf-8"))
     literal["features"][0]["inputs"]["distance"] = 10.0
-    found = disagreements(
-        validate_canonical(literal), ShapeClaim(profile="rectangle", thickness="p_depth")
-    )
-    assert [item.code for item in found] == ["THICKNESS_PARAMETER"]
-    assert "lost its name" in found[0].detail
+    with pytest.raises(CadIrValidationError) as refused:
+        validate_canonical(literal)
+    assert "PARAMETER_DRIVES_NOTHING" in str(refused.value)
 
 
 def test_a_thickness_claimed_for_a_revolve_says_so_rather_than_being_ignored():

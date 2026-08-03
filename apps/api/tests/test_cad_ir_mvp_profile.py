@@ -194,10 +194,22 @@ def test_the_profile_rejects_an_expression(profile):
 
 
 def with_features(*features: dict, **overrides) -> dict:
-    """The profile-shaped document, with its feature list replaced."""
+    """The profile-shaped document, with its feature list replaced.
+
+    Parameters nothing in the new list references are dropped. Replacing the
+    features can orphan one — most variants keep only the base extrusion, which
+    leaves the hole radius declared and unused — and since CAD-IR 1.11 that is a
+    `PARAMETER_DRIVES_NOTHING` refusal. The rule is about documents a model wrote;
+    an orphan here is an artefact of building a document by substitution.
+    """
     document = profile_shaped_document()
     document["features"] = list(features)
     document.update(overrides)
+    used = json.dumps(document["features"])
+    document["parameters"] = [
+        parameter for parameter in document["parameters"]
+        if f'"{parameter["id"]}"' in used
+    ]
     return document
 
 

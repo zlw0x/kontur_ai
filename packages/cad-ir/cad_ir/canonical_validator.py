@@ -26,6 +26,7 @@ from .canonical import (
     PatternFeature,
     ParameterRef,
     ParameterStatus,
+    ParameterType,
     ResultKind,
     ResultRef,
     SolidExtrudeFeature,
@@ -425,6 +426,16 @@ def _selectors(value: Any, path: str):
             yield from _selectors(child, f"{path}.{key}")
 
 
+#: Parameter types a dimension can be measured in, and therefore the ones a
+#: feature is capable of referencing.
+#:
+#: A count or a boolean records something no contour, distance or angle can be
+#: driven by — six holes, a flag that a face is open. Those are worth carrying and
+#: cannot be "used", so the rule below leaves them alone. A ratio is excluded for
+#: the same reason until something in the contract takes one.
+_DIMENSIONAL = frozenset({ParameterType.LENGTH, ParameterType.ANGLE})
+
+
 def _parameter_issues(document: CadIrDocument) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     known: dict[str, ParameterStatus] = {}
@@ -436,6 +447,17 @@ def _parameter_issues(document: CadIrDocument) -> list[ValidationIssue]:
                 )
             )
         known.setdefault(parameter.id, parameter.status)
+
+    # Every feature, enabled or not. A feature turned off by a flag still names
+    # the dimensions it would build with, so a rollback must not make a document
+    # that was fine yesterday invalid today.
+    referenced: set[str] = {
+        reference.parameter
+        for index, feature in enumerate(document.features)
+        for _, reference in _references(
+            feature.inputs, f"$.features[{index}].inputs", ParameterRef
+        )
+    }
 
     for index, feature in enumerate(document.features):
         if not feature.enabled:
@@ -458,6 +480,38 @@ def _parameter_issues(document: CadIrDocument) -> list[ValidationIssue]:
                         f"an enabled feature uses unresolved parameter: {reference.parameter}",
                     )
                 )
+
+    # A dimension the document states must be the dimension the document builds.
+    #
+    # Found by a run and then blocked by the contract for half a day. A flange
+    # document declared `outer_diameter: 80` — carried from the reading stage,
+    # which cites the Ø80 callout it came from — drew the outline as a literal
+    # `radius: 40`, and restated 80 as a literal in its expectation. Three copies
+    # of one number: one with provenance and two without, and the two without are
+    # what builds and what checks the build.
+    #
+    # The cost is not untidiness. The contour and the expectation are written by
+    # the same model call, so a slip landing in both agrees with itself, and the
+    # copy that came from somewhere else is compared against nothing. A bushing
+    # order later shipped a Ø88 part from a Ø44 drawing exactly that way, with
+    # every measurement green and seven of its nine parameters driving nothing.
+    #
+    # This rule was written, measured and reverted once, because a canonical
+    # `Scalar` had no arithmetic: a diameter could not drive a radius, so
+    # enforcing it would have forced documents to delete dimensions read off the
+    # drawing. CAD-IR 1.11 gives scalars division and negation, and the rule
+    # follows — the two are one change, because arithmetic without this does not
+    # make anything use it.
+    for index, parameter in enumerate(document.parameters):
+        if parameter.type in _DIMENSIONAL and parameter.id not in referenced:
+            issues.append(
+                ValidationIssue(
+                    "PARAMETER_DRIVES_NOTHING",
+                    f"$.parameters[{index}]",
+                    f"a {parameter.type} parameter no feature references: {parameter.id}"
+                    " — state the dimension once, in the geometry that uses it",
+                )
+            )
     return issues
 
 

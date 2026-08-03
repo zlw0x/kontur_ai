@@ -42,6 +42,8 @@ from .base import (  # re-exported: this is still the one place to read the docu
     ResultKind,
     ResultRef,
     Scalar,
+    ScalarNegation,
+    ScalarQuotient,
     SourceRegion,
     StrictModel,
 )

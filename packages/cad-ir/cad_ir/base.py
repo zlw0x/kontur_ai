@@ -12,9 +12,10 @@ working and there is still one obvious place to read the document from.
 from __future__ import annotations
 
 from enum import StrEnum
+from math import isfinite
 from typing import Annotated, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
@@ -84,12 +85,98 @@ class Provenance(StrictModel):
 
 
 class ParameterRef(StrictModel):
-    """A reference to a named parameter, the only indirection CAD-IR allows."""
+    """A reference to a named parameter."""
 
     parameter: Id
 
 
-Scalar = Union[float, ParameterRef]
+class ScalarQuotient(StrictModel):
+    """A scalar divided by a constant — `{"divide": <scalar>, "by": 2.0}`.
+
+    Almost every mechanical drawing dimensions **diameters**, and almost every
+    contour takes a **radius**. Until this existed the two could not be the same
+    number: a `Scalar` was `float | ParameterRef` with no arithmetic, so a
+    document that read "Ø44" off a drawing had to write `44` into a parameter and
+    then write `22` — or, as one real order did, write `44` again — as a literal
+    beside it.
+
+    That order is why this is here. It declared `bushing_outer_radius: 44`, the
+    *diameter* value under a radius name, extruded a circle of radius 44, and
+    restated 88 in its own expectation so the check agreed. A Ø88 part, delivered,
+    with every measurement green — because the number that built it and the number
+    that checked it were the same copy, and the copy that came off the drawing was
+    compared against nothing.
+    """
+
+    divide: "Scalar"
+    #: A constant, never a parameter. One dimension divided by another is a
+    #: relationship the drawing did not state, and a document that computes one is
+    #: inventing geometry rather than recording it.
+    by: float
+
+    @model_validator(mode="after")
+    def validate_divisor(self) -> "ScalarQuotient":
+        if not isfinite(self.by) or self.by == 0:
+            raise ValueError("a scalar may only be divided by a finite, non-zero constant")
+        if _depth(self) > _MAX_SCALAR_DEPTH:
+            raise ValueError(
+                f"a scalar may not nest deeper than {_MAX_SCALAR_DEPTH} operations")
+        return self
+
+
+class ScalarNegation(StrictModel):
+    """The same scalar, the other way — `{"negate": <scalar>}`.
+
+    The second thing one parameter could not do: drive both sides of a symmetric
+    outline. `lever-plate`'s cap radius is 15 and its profile needs y = +15 *and*
+    y = −15, so one of the two had to be a literal, and a document half-driven by
+    its parameters is one where changing a dimension moves half the part.
+    """
+
+    negate: "Scalar"
+
+    @model_validator(mode="after")
+    def validate_depth(self) -> "ScalarNegation":
+        if _depth(self) > _MAX_SCALAR_DEPTH:
+            raise ValueError(
+                f"a scalar may not nest deeper than {_MAX_SCALAR_DEPTH} operations")
+        return self
+
+
+#: How far a scalar may be derived from the parameter underneath it.
+#:
+#: Three covers everything the drawing cases need — `divide(negate(p), 2)` is two —
+#: with one to spare. A bound exists at all because the nodes are recursive and a
+#: document is written by a model: nothing else stops a tower a thousand deep from
+#: being schema-valid, and every reader of it would recurse the same way.
+_MAX_SCALAR_DEPTH = 3
+
+
+def _depth(value: object) -> int:
+    """How many operations sit between this scalar and its numbers."""
+    if isinstance(value, ScalarQuotient):
+        return 1 + _depth(value.divide)
+    if isinstance(value, ScalarNegation):
+        return 1 + _depth(value.negate)
+    return 0
+
+
+#: A number, a parameter, or one of two ways of deriving one from a parameter.
+#:
+#: Deliberately two operations and not four. Multiplication and addition were
+#: considered and left out: the cases that were *measured* are a diameter driving
+#: a radius and a parameter driving a symmetric pair, and every further operation
+#: is another thing to validate, another line in the prompt, and another way for a
+#: document to state a relationship nobody drew.
+#:
+#: Structured nodes rather than the string form 0.1.0 had (`{"expr": "d / 2"}`).
+#: ADR-018 removed that on purpose: a string makes the trust boundary parse text
+#: written by the model, and once it does the schema guarantees nothing about what
+#: is inside. These are checked by the schema itself, and there is no parser.
+Scalar = Union[float, ParameterRef, ScalarQuotient, ScalarNegation]
+
+ScalarQuotient.model_rebuild()
+ScalarNegation.model_rebuild()
 
 
 class FeatureResult(StrictModel):

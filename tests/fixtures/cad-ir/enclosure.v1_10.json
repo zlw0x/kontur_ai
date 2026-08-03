@@ -1,237 +1,241 @@
 {
-  "document": {
-    "coordinate_system": "right_handed",
-    "name": "enclosure",
-    "part_type": "single_part",
-    "units": "mm"
+ "document": {
+  "coordinate_system": "right_handed",
+  "name": "enclosure",
+  "part_type": "single_part",
+  "units": "mm"
+ },
+ "expectations": [
+  {
+   "id": "inv_bbox",
+   "size_mm": {
+    "x": 120.0,
+    "y": 80.0,
+    "z": 40.0
+   },
+   "tolerance_mm": 0.05,
+   "type": "bounding_box"
   },
-  "expectations": [
-    {
-      "id": "inv_bbox",
-      "size_mm": {
-        "x": 120.0,
-        "y": 80.0,
-        "z": 40.0
-      },
-      "tolerance_mm": 0.05,
-      "type": "bounding_box"
-    },
-    {
-      "id": "inv_bodies",
-      "type": "body_count",
-      "value": 1
-    },
-    {
-      "id": "inv_holes",
-      "type": "through_hole_count",
-      "value": 2
-    },
-    {
-      "id": "inv_outer_corners",
-      "radius_mm": {
-        "tolerance": 0.001,
-        "value": 10.0
-      },
-      "surface": "cylindrical",
-      "type": "surface_face_count",
-      "value": 4
-    },
-    {
-      "id": "inv_inner_corners",
-      "radius_mm": {
-        "tolerance": 0.001,
-        "value": 7.0
-      },
-      "surface": "cylindrical",
-      "type": "surface_face_count",
-      "value": 4
-    }
-  ],
-  "features": [
-    {
-      "depends_on": [],
-      "enabled": true,
-      "id": "feature.body",
-      "inputs": {
-        "direction": "+Z",
-        "distance": {
-          "parameter": "p_depth"
-        },
-        "sketch": {
-          "constraints": [],
-          "construction": [],
-          "dimensions": [],
-          "id": "sketch.body",
-          "inner": [],
-          "outer": {
-            "center": [
-              0.0,
-              0.0
-            ],
-            "height": 80.0,
-            "rotation_deg": 0.0,
-            "type": "rectangle",
-            "width": 120.0
-          },
-          "plane": {
-            "on": "base",
-            "plane": "XY"
-          }
-        }
-      },
-      "produces": [
-        {
-          "id": "body.main",
-          "kind": "solid_body"
-        }
-      ],
-      "type": "solid.extrude"
-    },
-    {
-      "depends_on": [
-        "feature.body"
-      ],
-      "enabled": true,
-      "id": "feature.corners",
-      "inputs": {
-        "edges": {
-          "cardinality": {
-            "type": "exactly_n",
-            "value": 4
-          },
-          "from_result": "body.main",
-          "id": "selector.corners",
-          "kind": "edge",
-          "where": {
-            "convexity": "convex",
-            "curve_type": "line",
-            "direction_parallel_to": "axis.z"
-          }
-        },
-        "radius": 10.0
-      },
-      "produces": [],
-      "type": "feature.fillet"
-    },
-    {
-      "depends_on": [
-        "feature.corners"
-      ],
-      "enabled": true,
-      "id": "feature.hollow",
-      "inputs": {
-        "direction": "inward",
-        "faces": {
-          "cardinality": "exactly_one",
-          "from_result": "body.main",
-          "id": "selector.open_top",
-          "kind": "face",
-          "where": {
-            "normal": {
-              "direction": "positive",
-              "parallel_to": "axis.z"
-            },
-            "surface_type": "planar"
-          }
-        },
-        "thickness": {
-          "parameter": "p_wall"
-        }
-      },
-      "produces": [],
-      "type": "feature.shell"
-    },
-    {
-      "depends_on": [
-        "feature.body",
-        "feature.hollow"
-      ],
-      "enabled": true,
-      "id": "feature.mount",
-      "inputs": {
-        "direction": "+Z",
-        "sketch": {
-          "constraints": [],
-          "construction": [],
-          "dimensions": [],
-          "id": "sketch.mount",
-          "inner": [],
-          "outer": {
-            "center": [
-              -30.0,
-              0.0
-            ],
-            "radius": 3.0,
-            "type": "circle"
-          },
-          "plane": {
-            "on": "base",
-            "plane": "XY"
-          }
-        },
-        "source_body": {
-          "result": "body.main"
-        },
-        "through_all": true
-      },
-      "produces": [],
-      "type": "cut.extrude"
-    },
-    {
-      "depends_on": [
-        "feature.mount"
-      ],
-      "enabled": true,
-      "id": "feature.mounts",
-      "inputs": {
-        "of": "feature.mount",
-        "pattern": {
-          "count": 2,
-          "direction": "+X",
-          "kind": "linear",
-          "spacing_mm": 60.0
-        },
-        "skip": []
-      },
-      "produces": [],
-      "type": "feature.pattern"
-    }
-  ],
-  "metadata": {
-    "generator": "fixture",
-    "generator_version": "1.8"
+  {
+   "id": "inv_bodies",
+   "type": "body_count",
+   "value": 1
   },
-  "parameters": [
-    {
-      "id": "p_width",
-      "status": "confirmed",
-      "type": "length",
-      "unit": "mm",
-      "value": 120.0
+  {
+   "id": "inv_holes",
+   "type": "through_hole_count",
+   "value": 2
+  },
+  {
+   "id": "inv_outer_corners",
+   "radius_mm": {
+    "tolerance": 0.001,
+    "value": 10.0
+   },
+   "surface": "cylindrical",
+   "type": "surface_face_count",
+   "value": 4
+  },
+  {
+   "id": "inv_inner_corners",
+   "radius_mm": {
+    "tolerance": 0.001,
+    "value": 7.0
+   },
+   "surface": "cylindrical",
+   "type": "surface_face_count",
+   "value": 4
+  }
+ ],
+ "features": [
+  {
+   "depends_on": [],
+   "enabled": true,
+   "id": "feature.body",
+   "inputs": {
+    "direction": "+Z",
+    "distance": {
+     "parameter": "p_depth"
     },
-    {
-      "id": "p_height",
-      "status": "confirmed",
-      "type": "length",
-      "unit": "mm",
-      "value": 80.0
-    },
-    {
-      "id": "p_depth",
-      "status": "confirmed",
-      "type": "length",
-      "unit": "mm",
-      "value": 40.0
-    },
-    {
-      "id": "p_wall",
-      "status": "confirmed",
-      "type": "length",
-      "unit": "mm",
-      "value": 3.0
+    "sketch": {
+     "constraints": [],
+     "construction": [],
+     "dimensions": [],
+     "id": "sketch.body",
+     "inner": [],
+     "outer": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "height": {
+       "parameter": "p_height"
+      },
+      "rotation_deg": 0.0,
+      "type": "rectangle",
+      "width": {
+       "parameter": "p_width"
+      }
+     },
+     "plane": {
+      "on": "base",
+      "plane": "XY"
+     }
     }
-  ],
-  "reference_geometry": [],
-  "schema": "cad-ai/cad-ir",
-  "schema_version": "1.10"
+   },
+   "produces": [
+    {
+     "id": "body.main",
+     "kind": "solid_body"
+    }
+   ],
+   "type": "solid.extrude"
+  },
+  {
+   "depends_on": [
+    "feature.body"
+   ],
+   "enabled": true,
+   "id": "feature.corners",
+   "inputs": {
+    "edges": {
+     "cardinality": {
+      "type": "exactly_n",
+      "value": 4
+     },
+     "from_result": "body.main",
+     "id": "selector.corners",
+     "kind": "edge",
+     "where": {
+      "convexity": "convex",
+      "curve_type": "line",
+      "direction_parallel_to": "axis.z"
+     }
+    },
+    "radius": 10.0
+   },
+   "produces": [],
+   "type": "feature.fillet"
+  },
+  {
+   "depends_on": [
+    "feature.corners"
+   ],
+   "enabled": true,
+   "id": "feature.hollow",
+   "inputs": {
+    "direction": "inward",
+    "faces": {
+     "cardinality": "exactly_one",
+     "from_result": "body.main",
+     "id": "selector.open_top",
+     "kind": "face",
+     "where": {
+      "normal": {
+       "direction": "positive",
+       "parallel_to": "axis.z"
+      },
+      "surface_type": "planar"
+     }
+    },
+    "thickness": {
+     "parameter": "p_wall"
+    }
+   },
+   "produces": [],
+   "type": "feature.shell"
+  },
+  {
+   "depends_on": [
+    "feature.body",
+    "feature.hollow"
+   ],
+   "enabled": true,
+   "id": "feature.mount",
+   "inputs": {
+    "direction": "+Z",
+    "sketch": {
+     "constraints": [],
+     "construction": [],
+     "dimensions": [],
+     "id": "sketch.mount",
+     "inner": [],
+     "outer": {
+      "center": [
+       -30.0,
+       0.0
+      ],
+      "radius": 3.0,
+      "type": "circle"
+     },
+     "plane": {
+      "on": "base",
+      "plane": "XY"
+     }
+    },
+    "source_body": {
+     "result": "body.main"
+    },
+    "through_all": true
+   },
+   "produces": [],
+   "type": "cut.extrude"
+  },
+  {
+   "depends_on": [
+    "feature.mount"
+   ],
+   "enabled": true,
+   "id": "feature.mounts",
+   "inputs": {
+    "of": "feature.mount",
+    "pattern": {
+     "count": 2,
+     "direction": "+X",
+     "kind": "linear",
+     "spacing_mm": 60.0
+    },
+    "skip": []
+   },
+   "produces": [],
+   "type": "feature.pattern"
+  }
+ ],
+ "metadata": {
+  "generator": "fixture",
+  "generator_version": "1.8"
+ },
+ "parameters": [
+  {
+   "id": "p_width",
+   "status": "confirmed",
+   "type": "length",
+   "unit": "mm",
+   "value": 120.0
+  },
+  {
+   "id": "p_height",
+   "status": "confirmed",
+   "type": "length",
+   "unit": "mm",
+   "value": 80.0
+  },
+  {
+   "id": "p_depth",
+   "status": "confirmed",
+   "type": "length",
+   "unit": "mm",
+   "value": 40.0
+  },
+  {
+   "id": "p_wall",
+   "status": "confirmed",
+   "type": "length",
+   "unit": "mm",
+   "value": 3.0
+  }
+ ],
+ "reference_geometry": [],
+ "schema": "cad-ai/cad-ir",
+ "schema_version": "1.10"
 }

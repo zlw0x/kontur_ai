@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from cad_ir.base import ParameterRef
+from cad_ir.base import ParameterRef, ScalarNegation, ScalarQuotient
 from cad_ir.canonical import CadIrDocument, ParameterStatus
 
 from .errors import CadEngineError
@@ -54,7 +54,21 @@ class Parameters:
         return cls(values)
 
     def resolve(self, scalar, what: str) -> float:
-        """A scalar as a number, whether it was one or named one."""
+        """A scalar as a number: one, a named one, or one derived from a named one.
+
+        The only place in this engine where a `Scalar` becomes a float, and it
+        serves all twenty-four call sites — the contours, the distances, the blend
+        sizes, the pattern steps. That is why CAD-IR 1.11 could give scalars
+        arithmetic without touching any of them: the two new forms are handled
+        here, recursively, and everything above carries on asking for a number.
+        """
+        if isinstance(scalar, ScalarQuotient):
+            # The divisor is a constant and the contract already refused zero and
+            # anything non-finite, so this cannot produce an infinity the geometry
+            # would then be built from.
+            return self.resolve(scalar.divide, what) / float(scalar.by)
+        if isinstance(scalar, ScalarNegation):
+            return -self.resolve(scalar.negate, what)
         if isinstance(scalar, ParameterRef):
             name = str(scalar.parameter)
             if name not in self._values:

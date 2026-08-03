@@ -188,12 +188,23 @@ def test_a_part_read_as_hollow_and_built_solid_is_caught():
     assert found[0].built == "no shell"
 
 
-def test_a_wall_built_from_a_literal_has_lost_the_name_the_drawing_gave_it():
-    found = disagreements(validate_canonical(hollow_document(thickness=3.0)),
-                          claim(wall="p_wall"))
+def test_a_wall_built_from_a_literal_no_longer_reaches_the_claim():
+    """It is refused a step earlier now, and by a check that names it better.
 
-    assert [item.code for item in found] == ["WALL_PARAMETER"]
-    assert "literal" in found[0].detail
+    The claim used to be the only thing that noticed a document declaring `p_wall`
+    and then shelling with a bare 3.0 — it reported WALL_PARAMETER, "built from a
+    literal". Since CAD-IR 1.11 the validator refuses such a document outright:
+    a declared dimension nothing references is `PARAMETER_DRIVES_NOTHING`, and
+    that is true of every dimension rather than only of a wall.
+
+    So the claim's literal branch is now unreachable, and the case it still owns
+    is the one below: a wall built from the *wrong* parameter, which is a document
+    the validator is right to accept and only a reader can contradict.
+    """
+    with pytest.raises(CadIrValidationError) as refused:
+        validate_canonical(hollow_document(thickness=3.0))
+
+    assert "PARAMETER_DRIVES_NOTHING" in str(refused.value)
 
 
 def test_a_wall_built_from_the_wrong_parameter_is_named():
