@@ -150,6 +150,49 @@ public sealed class CodexRoutingTests
         Assert.Contains("model_reasoning_effort=\"medium\"", arguments);
     }
 
+    /// <summary>
+    /// The child's stdin is the worker's to close, not the environment's to fill.
+    /// </summary>
+    /// <remarks>
+    /// `codex exec` appends whatever arrives on stdin to the prompt, and says so
+    /// on stderr: "Reading additional input from stdin...". Inherited, that is
+    /// the parent's stdin — and the parent is a worker built to run with nobody
+    /// watching, under a service manager or a CI runner, where stdin is a pipe
+    /// somebody else owns.
+    ///
+    /// A real run found both halves of that. A pipe nobody closed left the child
+    /// waiting on it until the timeout, with no events written at all, which from
+    /// outside is indistinguishable from the model failing. And had bytes
+    /// arrived, they would have gone into the prompt: an input nothing here
+    /// assembled, validated or chose.
+    ///
+    /// **What this test sees and what it does not.** It sees that the stream is
+    /// redirected, which is the half that must be decided before the process
+    /// exists — leave it inherited and there is no handle to close. It does not
+    /// see the close itself; that needs a real child, and the proof for it is
+    /// the re-run recorded in
+    /// `docs/acceptance/POSTMVP-016-runs-2-6-what-the-cycle-states.md`. Saying
+    /// which half is covered is the point of writing it down.
+    /// </remarks>
+    [Fact]
+    public void TheChildCannotReadTheWorkersStandardInput()
+    {
+        var request = new CodexStageRequest(
+            "C:\\work", "C:\\work\\schema.json", "C:\\work\\out.json", "prompt");
+
+        var start = LocalCodexRunner.CreateStartInfo(
+            "codex", request, "C:\\work", "C:\\work\\schema.json", "C:\\work\\out.json", []);
+
+        Assert.True(
+            start.RedirectStandardInput,
+            "stdin must be redirected so the worker can close it; inherited, there is nothing to close");
+        // The other three streams are what they always were. Asserted alongside
+        // so a future change to one of them is a decision rather than a slip.
+        Assert.True(start.RedirectStandardOutput);
+        Assert.True(start.RedirectStandardError);
+        Assert.False(start.UseShellExecute);
+    }
+
     [Fact]
     public void ChangingTheRoutingProfileChangesTheModelOnTheCommandLine()
     {

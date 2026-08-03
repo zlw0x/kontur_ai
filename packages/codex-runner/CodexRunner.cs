@@ -158,21 +158,7 @@ public sealed class LocalCodexRunner : ICodexRunner
         var eventsPath = Path.Combine(logs, "codex-events.jsonl");
         var stderrPath = Path.Combine(logs, "codex-stderr.log");
 
-        var start = new ProcessStartInfo(executable)
-        {
-            WorkingDirectory = workspace,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        foreach (var argument in BuildArguments(request, workspace, schema, output, images))
-            start.ArgumentList.Add(argument);
-        // Runtime AI must use persisted local ChatGPT auth. API/access-token
-        // environment overrides are deliberately removed from the child.
-        start.Environment.Remove("OPENAI_API_KEY");
-        start.Environment.Remove("CODEX_API_KEY");
-        start.Environment.Remove("CODEX_ACCESS_TOKEN");
+        var start = CreateStartInfo(executable, request, workspace, schema, output, images);
 
         using var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         try
@@ -183,6 +169,37 @@ public sealed class LocalCodexRunner : ICodexRunner
         catch (Exception error) when (error is not CodexRunnerException)
         {
             throw Failure("CODEX_START_FAILED", "Codex CLI could not be started.", error);
+        }
+
+        // Close the child's stdin at once, before it can read a byte.
+        //
+        // `codex exec` appends whatever arrives on stdin to the prompt it was
+        // given, and announces it: "Reading additional input from stdin...".
+        // Inherited, that is the *parent's* stdin, and the parent is a worker
+        // meant to run with nobody watching — under a service manager, a
+        // supervisor, a CI runner. Two things follow, and both were observed
+        // rather than reasoned about.
+        //
+        // If that stdin is a pipe nobody closes, the child waits on it for the
+        // full ten-minute timeout and the stage fails having emitted no events
+        // at all. On the outside that is indistinguishable from the model
+        // failing — which is the third time in this project an environment
+        // detail has worn the costume of the work.
+        //
+        // And if bytes do arrive, they are spliced into the prompt. Nothing
+        // chose them, nothing validated them, and the whole design of this
+        // service is that what reaches the model is assembled here. An open
+        // inherited stdin is a way into the prompt that no one decided to open.
+        //
+        // EOF at once settles both: the child reads nothing and does not wait.
+        try
+        {
+            process.StandardInput.Close();
+        }
+        catch (IOException)
+        {
+            // The child exited before the handle could be closed. Its output is
+            // read below and will say so far more usefully than this would.
         }
 
         var parser = new CodexEventParser();
@@ -263,6 +280,48 @@ public sealed class LocalCodexRunner : ICodexRunner
     /// <summary>
     /// The exact argument list a stage will be launched with.
     /// </summary>
+    /// <summary>
+    /// Everything about how the Codex process is launched, in one place.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the launch for the same reason <see cref="BuildArguments"/>
+    /// is: the decisions here are about what the child may reach, and they can
+    /// be asserted without spending a real model call.
+    ///
+    /// Three of the four streams are settled here. The fourth — actually closing
+    /// stdin — has to happen after the process exists, and is done at the call
+    /// site with the reasoning beside it.
+    /// </remarks>
+    public static ProcessStartInfo CreateStartInfo(
+        string executable,
+        CodexStageRequest request,
+        string workspace,
+        string schema,
+        string output,
+        IReadOnlyList<string> images)
+    {
+        var start = new ProcessStartInfo(executable)
+        {
+            WorkingDirectory = workspace,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            // Redirected so it can be closed the moment the process starts.
+            // Inherited, the child reads the *parent's* stdin — see the comment
+            // at the close for what that cost.
+            RedirectStandardInput = true,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in BuildArguments(request, workspace, schema, output, images))
+            start.ArgumentList.Add(argument);
+        // Runtime AI must use persisted local ChatGPT auth. API/access-token
+        // environment overrides are deliberately removed from the child.
+        start.Environment.Remove("OPENAI_API_KEY");
+        start.Environment.Remove("CODEX_API_KEY");
+        start.Environment.Remove("CODEX_ACCESS_TOKEN");
+        return start;
+    }
+
     /// <remarks>
     /// Built separately from the process so it can be asserted directly. The
     /// guarantee that matters — that a run's model comes from the routing
