@@ -183,7 +183,11 @@ def test_turning_off_one_kind_of_pattern_refuses_the_document_whole():
     "name",
     ["plate.v1_10.json", "plate-with-hole.v1_10.json", "constrained-plate.v1_10.json",
      "lever-plate.v1_10.json", "bushing.v1_10.json", "blended-bracket.v1_10.json",
-     "patterned-flange.v1_10.json", "boolean-bracket.v1_10.json"],
+     "patterned-flange.v1_10.json", "boolean-bracket.v1_10.json",
+     # A rib, which is here to prove it needs nothing new: it asks for the same
+     # capabilities a plate does, because it *is* a closed contour extruded both
+     # ways (POSTMVP-022).
+     "rib-bracket.v1_10.json"],
 )
 def test_no_fixture_asks_for_a_capability_this_engine_does_not_declare(name):
     """The invariant that makes a manifest honest.
