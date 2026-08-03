@@ -57,7 +57,7 @@ public sealed class DrawingPipeline(
     /// between jobs that were asked the same question, so the version travels
     /// with every AI measurement.
     /// </summary>
-    internal const string PromptVersion = "drawing-mvp-5";
+    internal const string PromptVersion = "drawing-mvp-6";
 
     /// <summary>
     /// The version the prompt asks for, taken from the one place that declares it.
@@ -423,6 +423,14 @@ public sealed class DrawingPipeline(
         Otherwise ask the smallest set of concrete questions. A question about a number names its parameter;
         a question about the outline or the openings uses parameter_id "shape" - ask one when the drawing
         genuinely does not settle it, rather than guessing.
+
+        Every question states how it is answered, and asks for exactly one value.
+          answer_kind "number"  a single dimension in millimetres. choices is [].
+          answer_kind "choice"  choices lists the answers offered, 2 to 5 of them, each a short phrase.
+        Two dimensions are two questions. "What are the X and Y distances to the centre?" cannot be
+        answered, because an answer is one value; ask for X, then ask for Y. A question that is not
+        a number is a choice: "Is the opening through, or blind?" with choices ["through", "blind"].
+        Never ask something the customer cannot answer from the drawing or from what they ordered.
 
         Return only JSON matching the supplied schema.
         """;

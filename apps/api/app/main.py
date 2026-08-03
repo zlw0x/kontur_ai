@@ -42,6 +42,7 @@ from .contracts import (
     TransitionOrderRequest,
     DrawingJobResponse,
     DrawingAnswersRequest,
+    ClarificationAnswer,
 )
 from .workers.artifact_store import ArtifactIntegrityError, LocalArtifactStore
 from .workers.capabilities import required_capability_keys
@@ -162,6 +163,35 @@ def transition_order(
         version=updated.version,
         updated_at=updated.updated_at,
     )
+
+
+def _answer_matches(question: dict, answer: ClarificationAnswer) -> str | None:
+    """Is this the shape of answer the question asked for? The reason, or None.
+
+    The question is the authority, not the contract: `ClarificationAnswer` allows
+    a number or a choice, and which one is right is a property of what was asked.
+    Checking here rather than in the model is what lets the reading stage decide,
+    and is why the page can render a field that fits.
+
+    A question written before `answer_kind` existed is treated as a number, which
+    is what every such question was. An in-flight order does not become
+    unanswerable because a new build shipped.
+    """
+    kind = question.get("answer_kind", "number")
+    if kind == "number":
+        if not isinstance(answer.value, float):
+            return f"question {question['id']} asks for a dimension in millimetres"
+        return None
+    if kind == "choice":
+        choices = question.get("choices") or []
+        if not isinstance(answer.value, str):
+            return f"question {question['id']} asks for one of the answers offered"
+        if answer.value not in choices:
+            # Not a free-text field. Accepting anything would put text nobody
+            # offered into the prompt of the next round.
+            return f"question {question['id']} was not offered the answer {answer.value!r}"
+        return None
+    return f"question {question['id']} declares an answer kind this build cannot read"
 
 
 def scheduler_diagnostics() -> SchedulerDiagnostics:
@@ -467,10 +497,14 @@ def answer_drawing_questions(
         )
     except (ArtifactIntegrityError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=409, detail="order is not waiting for answers") from error
-    expected_ids = {item["id"] for item in question_document.get("questions", [])}
+    asked = {item["id"]: item for item in question_document.get("questions", [])}
     supplied_ids = {item.question_id for item in request.answers}
-    if supplied_ids != expected_ids:
+    if supplied_ids != set(asked):
         raise HTTPException(status_code=422, detail="answers must match the current question set")
+    for answer in request.answers:
+        problem = _answer_matches(asked[answer.question_id], answer)
+        if problem is not None:
+            raise HTTPException(status_code=422, detail=problem)
     if tracking["round"] >= 3:
         raise HTTPException(status_code=409, detail="clarification round limit reached")
     job_id = uuid.uuid4()

@@ -1972,12 +1972,28 @@
             "title": "Question Id"
           },
           "value": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              }
+            ],
             "title": "Value"
           },
           "unit": {
-            "type": "string",
-            "const": "mm",
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "mm"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Unit"
           }
         },
@@ -1985,10 +2001,10 @@
         "type": "object",
         "required": [
           "question_id",
-          "value",
-          "unit"
+          "value"
         ],
-        "title": "ClarificationAnswer"
+        "title": "ClarificationAnswer",
+        "description": "One answer, in the shape its question asked for.\n\nThis was `{question_id, value: float, unit: \"mm\"}` and nothing else, which\nmade most of what the reading stage actually asks unanswerable. Of the six\nquestions the acceptance runs produced, four could not be sent: two asked for\na pair of distances, and two asked whether an opening went through — which is\na choice, and has no millimetre value at all. The order was a dead end: the\nAPI refuses an answer set that is not a complete match, so a question with no\nexpressible answer stops the job forever.\n\nA number still carries `unit`, because a dimension without one is a number\nsomebody has to guess the meaning of. A choice carries none, because \"through\"\nis not measured in millimetres.\n\nWhich shape is valid is not decided here — it is decided by the question, and\nchecked against the question when the answers arrive (`_answer_matches`). The\nreading stage says how each of its questions is answered, so the customer is\nnever offered a field that cannot hold the answer."
       },
       "DrawingAnswersRequest": {
         "properties": {

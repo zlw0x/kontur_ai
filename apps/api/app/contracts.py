@@ -310,9 +310,39 @@ class DrawingJobResponse(StrictModel):
 
 
 class ClarificationAnswer(StrictModel):
+    """One answer, in the shape its question asked for.
+
+    This was `{question_id, value: float, unit: "mm"}` and nothing else, which
+    made most of what the reading stage actually asks unanswerable. Of the six
+    questions the acceptance runs produced, four could not be sent: two asked for
+    a pair of distances, and two asked whether an opening went through — which is
+    a choice, and has no millimetre value at all. The order was a dead end: the
+    API refuses an answer set that is not a complete match, so a question with no
+    expressible answer stops the job forever.
+
+    A number still carries `unit`, because a dimension without one is a number
+    somebody has to guess the meaning of. A choice carries none, because "through"
+    is not measured in millimetres.
+
+    Which shape is valid is not decided here — it is decided by the question, and
+    checked against the question when the answers arrive (`_answer_matches`). The
+    reading stage says how each of its questions is answered, so the customer is
+    never offered a field that cannot hold the answer.
+    """
+
     question_id: str = Field(min_length=1, max_length=100)
-    value: float
-    unit: Literal["mm"]
+    #: A dimension, or the text of one of the choices the question offered.
+    value: float | Annotated[str, Field(min_length=1, max_length=120)]
+    #: Present for a number, absent for a choice.
+    unit: Literal["mm"] | None = None
+
+    @model_validator(mode="after")
+    def validate_unit_matches_value(self) -> "ClarificationAnswer":
+        if isinstance(self.value, float) and self.unit is None:
+            raise ValueError("a numeric answer must carry its unit")
+        if isinstance(self.value, str) and self.unit is not None:
+            raise ValueError("a chosen answer is not measured in millimetres")
+        return self
 
 
 class DrawingAnswersRequest(StrictModel):

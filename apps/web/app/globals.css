@@ -1267,6 +1267,35 @@ svg {
   font-size: 8px;
 }
 
+/* A question that is not a dimension. The reading stage has always been able to
+   ask one — "is this opening through, or blind?" — and until it could say so,
+   every question was rendered as a number field with a millimetre suffix, which
+   such a question has no answer for. */
+.choice-field {
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 11px;
+  padding: 11px 13px;
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.choice-field legend {
+  padding: 0 4px;
+  font-size: 13px;
+  opacity: .82;
+}
+
+.choice-field label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.choice-field input { accent-color: #65d8d0; }
+
 /* Three things an order can need to say before it says anything else: it
    failed, it is stuck waiting, or it was never real. Same card, three tempers —
    the demonstration is the loudest deliberately, because mistaking it for a

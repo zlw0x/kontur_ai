@@ -6,7 +6,15 @@ import LandingPage from "./landing-page";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-type Question = { id: string; parameter_id: string; text: string };
+type Question = {
+  id: string;
+  parameter_id: string;
+  text: string;
+  // How the question is answered. Absent on a question written before the
+  // reading stage said so, and those were all numbers.
+  answer_kind?: "number" | "choice";
+  choices?: string[];
+};
 type Artifact = {
   type: string;
   size_bytes: number;
@@ -319,12 +327,20 @@ export default function Home() {
     setBusy(true);
     setError("");
     try {
-      const payload = order.questions.map((question) => ({
-        question_id: question.id,
-        value: Number(answers[question.id]),
-        unit: "mm",
-      }));
-      if (payload.some((answer) => !Number.isFinite(answer.value) || answer.value <= 0)) {
+      // A choice is sent as the text that was offered and carries no unit; a
+      // dimension carries millimetres. Which one a question wants is the
+      // question's to say, and the API checks the answer against it.
+      const payload = order.questions.map((question) =>
+        question.answer_kind === "choice"
+          ? { question_id: question.id, value: answers[question.id] ?? "" }
+          : { question_id: question.id, value: Number(answers[question.id]), unit: "mm" },
+      );
+      if (payload.some((answer) => answer.unit === undefined && !answer.value)) {
+        throw new Error("Выберите ответ на каждый вопрос.");
+      }
+      if (payload.some((answer) =>
+        answer.unit !== undefined &&
+        (!Number.isFinite(answer.value as number) || (answer.value as number) <= 0))) {
         throw new Error("Проверьте указанные размеры.");
       }
       // What the visitor confirmed, so the summary has something true to show
@@ -754,22 +770,54 @@ export default function Home() {
               </div>
               <div className="question-row">
                 {order.questions.map((question) => (
-                  <label className="dimension-field" key={question.id}>
-                    <span>{question.text}</span>
-                    <div>
-                      <input
-                        type="number"
-                        min="0.001"
-                        step="any"
-                        value={answers[question.id] ?? ""}
-                        onChange={(event) =>
-                          setAnswers((current) => ({ ...current, [question.id]: event.target.value }))
-                        }
-                        required
-                      />
-                      <b>мм</b>
-                    </div>
-                  </label>
+                  /*
+                    Rendered from what the question says it wants.
+
+                    Every question used to be a number field with a "мм" suffix,
+                    and the reading stage has always been able to ask things that
+                    are not numbers — "is this opening through or blind?". Those
+                    had no answer this form could send and no answer the API would
+                    accept, so the order stopped there permanently. A question
+                    written before `answer_kind` existed is a number, which is
+                    what all of them were.
+                  */
+                  question.answer_kind === "choice" ? (
+                    <fieldset className="choice-field" key={question.id}>
+                      <legend>{question.text}</legend>
+                      {(question.choices ?? []).map((choice) => (
+                        <label key={choice}>
+                          <input
+                            type="radio"
+                            name={question.id}
+                            value={choice}
+                            checked={answers[question.id] === choice}
+                            onChange={() =>
+                              setAnswers((current) => ({ ...current, [question.id]: choice }))
+                            }
+                            required
+                          />
+                          <span>{choice}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : (
+                    <label className="dimension-field" key={question.id}>
+                      <span>{question.text}</span>
+                      <div>
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          value={answers[question.id] ?? ""}
+                          onChange={(event) =>
+                            setAnswers((current) => ({ ...current, [question.id]: event.target.value }))
+                          }
+                          required
+                        />
+                        <b>мм</b>
+                      </div>
+                    </label>
+                  )
                 ))}
                 <button className="confirm-button" disabled={busy}>
                   <span>{busy ? "Создаём…" : "Подтвердить"}</span>

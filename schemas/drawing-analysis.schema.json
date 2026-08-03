@@ -107,14 +107,25 @@
           "maxItems": 10,
           "items": {
             "type": "object",
-            "required": ["id", "parameter_id", "text"],
+            "required": ["id", "parameter_id", "text", "answer_kind", "choices"],
             "properties": {
               "id": {"type": "string", "pattern": "^q_[A-Za-z0-9_.-]{1,61}$"},
               "parameter_id": {
                 "type": "string",
                 "description": "The parameter this question is about, or the literal \"shape\" when the question is about the outline or the openings rather than a number."
               },
-              "text": {"type": "string", "maxLength": 500}
+              "text": {"type": "string", "maxLength": 500},
+              "answer_kind": {
+                "type": "string",
+                "enum": ["number", "choice"],
+                "description": "What an answer to this question is. A question the reading stage can ask but the customer cannot answer is a dead end, and until this existed every question was rendered as a number field with a mm suffix — so \"is this opening through or blind?\" had no answer that would be accepted. Ask one question per value: two numbers are two questions, not one answer."
+              },
+              "choices": {
+                "type": "array",
+                "maxItems": 5,
+                "items": {"type": "string", "maxLength": 120},
+                "description": "The answers offered, for answer_kind \"choice\". Empty for \"number\". Required rather than optional because the Codex dialect has no optional properties (ADR-029 rule 4); an empty array is how a number question says it offers none."
+              }
             },
             "additionalProperties": false
           }
