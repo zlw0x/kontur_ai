@@ -20,6 +20,11 @@ public sealed class BuildFeedbackTests
     private static WorkerException Failure(string code) => new(code, $"the engine said {code}");
 
     [Theory]
+    // The trusted gate refused the document, which the agent wrote. The rule
+    // that fired travels in the message; the code is what this file decides
+    // about, and missing that distinction is what left a real order looping.
+    [InlineData("CAD_IR_INVALID")]
+    [InlineData("SHAPE_CLAIM_CONTRADICTED")]
     // The part came out and is not the part the document declared. The document
     // is the only place that can be changed.
     [InlineData("GEOMETRY_VALIDATION_FAILED")]

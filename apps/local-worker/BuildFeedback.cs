@@ -40,6 +40,20 @@ internal static class BuildFeedback
     private static readonly IReadOnlySet<string> Repairable =
         new HashSet<string>(StringComparer.Ordinal)
         {
+            // The trusted gate refused the document. The most repairable failure
+            // there is — the agent wrote it, and rewriting it is the entire fix.
+            //
+            // Missing until a run needed it, and the reason it was missed is worth
+            // keeping: the *rule* that fired is in the message, not in the code.
+            // A document refused for `PARAMETER_DRIVES_NOTHING` arrives here as
+            // `CAD_IR_INVALID`, so classifying the rule name did nothing and the
+            // loop went on treating the whole class as unrepairable. Codes are
+            // what this file decides about; the message is what the agent reads.
+            "CAD_IR_INVALID",
+
+            // The document is valid and is not the part the reading described.
+            "SHAPE_CLAIM_CONTRADICTED",
+
             // The part came out, and it is not the part the document declared.
             "GEOMETRY_VALIDATION_FAILED",
 
