@@ -259,10 +259,45 @@ where 40 was asked for. Each reports itself valid. So **every operation that can
 over-driven gets a post-check comparing the result against what was asked** —
 `SHELL_NO_CAVITY`, `SWEEP_BEND_TIGHTER_THAN_PROFILE`, `EXTRUDE_DRAFT_TOO_STEEP`.
 
-**What is next**: the runs. Nine of them are listed in `docs/acceptance/POSTMVP-016-*.md`
-and `POSTMVP-019-*.md`, and until they happen every further widening is a guess. After
-them: rib (P3.2, which needs `extrude(until=…)` investigating — it fails on the first
-attempt), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the order.
+**The nine runs are done** (`POSTMVP-016-run-1-*`, `POSTMVP-016-runs-2-6-*`,
+`POSTMVP-019-runs-7-9-*`), on the machine Codex is signed in on. Eight parts built,
+every number closed-form from the drawing and matching to four decimal places. The
+sentence "the cycle reaches ten capabilities" stopped being about contracts and became
+about behaviour, with three corrections.
+
+**The pattern is offered and not taken.** A drawing saying "6 × Ø6 on a Ø60 PCD" comes
+back as six islands in one sketch — perfect arithmetic, right part, no `pattern.circular`.
+Vision is not the wall: the count was read correctly and the claim says 6. Composing six
+contours is simply available and simpler. That is a **fourth kind of wall** beside
+ADR-029's dialect, claim and vision — an operation can be offered, readable and
+*unnecessary* — and it is the softest, because nothing makes the model prefer the form
+that carries the count.
+
+**The two ways of not knowing are two mechanisms.** A missing *number* produces a
+question, so optional `through` is not what answers it — the clarification loop is. A
+missing *view* is what nullable `through` is for, and there the claim omits the key
+entirely and agrees with whatever gets built. Silence is the fallback, and it fires only
+when asking cannot help.
+
+**A parameter can state a dimension it does not drive**, and the copy with the best
+provenance is the one nothing checks. A flange document carried `outer_diameter: 80` from
+the reading stage — cited to the Ø80 callout — and drew a literal `radius: 40`, then
+restated 80 as a literal in its expectation. The rule that would refuse it
+(`PARAMETER_DRIVES_NOTHING`) was written, measured and **reverted**: a canonical `Scalar`
+is `float | ParameterRef` with no arithmetic, so a diameter cannot drive a radius and one
+parameter cannot drive both sides of a symmetric outline. Version 0.1.0 had expressions
+and the canonical form traded them away; this is the bill. Unblocking it needs a `Scalar`
+carrying at least negation and division by a constant — a CAD-IR version, an evaluator in
+trusted code, and a decision about how much expression language is safe to take from a
+model.
+
+One defect outside the geometry was found by the runs and fixed: **the Codex child
+inherited the worker's own stdin**, so a pipe nobody closed made a stage fail with no
+events at all — indistinguishable from the model failing — and any bytes that did arrive
+would have been appended to the prompt. Redirected and closed at start.
+
+**What is next**: rib (P3.2, which needs `extrude(until=…)` investigating — it fails on
+the first attempt), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the order.
 
 One thing is left over from the migration, named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,
