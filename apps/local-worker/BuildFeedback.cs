@@ -80,7 +80,20 @@ internal static class BuildFeedback
         };
 
     /// <summary>Can the compiling agent do anything about this?</summary>
-    public static bool IsRepairable(WorkerException error) => Repairable.Contains(error.Code);
+    public static bool IsRepairable(WorkerException error) => IsRepairable(error.Code);
+
+    /// <summary>Can the compiling agent do anything about this?</summary>
+    /// <remarks>
+    /// By code rather than by exception, because the same question is asked on
+    /// two paths that raise two different types. The validate path asks the
+    /// engine whether it would accept a document, and an engine that cannot be
+    /// reached at all — no image under that tag, no daemon, no interpreter —
+    /// answers with a failure that looks from the outside exactly like a refusal
+    /// of the document. Repairing that spends two model calls rewriting a
+    /// document that was never the problem, which is what a real run did before
+    /// this existed.
+    /// </remarks>
+    public static bool IsRepairable(string code) => Repairable.Contains(code);
 
     /// <summary>
     /// How many times a build failure may send the document back to be rewritten.

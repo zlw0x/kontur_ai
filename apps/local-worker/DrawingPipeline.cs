@@ -239,7 +239,13 @@ public sealed class DrawingPipeline(
                     File.Copy(candidatePath, cadIrPath, overwrite: true);
                 return new("CAD_IR_READY", analysisPath, questionsPath, cadIrPath, analysisRun, compilationRun);
             }
-            catch (CadAdapterException error) when (repairAttempt < 2)
+            // A refusal of the *document*, not of the machine. An engine that
+            // cannot be reached — no image under that tag, no daemon, no
+            // interpreter — fails here in a way that looks exactly like a
+            // rejected document, and a real run spent two repairs rewriting a
+            // document that was never the problem.
+            catch (CadAdapterException error)
+                when (repairAttempt < 2 && BuildFeedback.IsRepairable(error.Code))
             {
                 budgetState.Reserve(CodexStage.Repair, budgetPolicy);
                 var previous = await ReadBoundedAsync(candidatePath, 1_000_000, cancellationToken);
