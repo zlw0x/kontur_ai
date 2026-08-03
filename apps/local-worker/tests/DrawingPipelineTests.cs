@@ -392,6 +392,56 @@ public sealed class DrawingPipelineTests
     }
 
     /// <summary>
+    /// A reading that could not decide what the part *is* is not reused.
+    /// </summary>
+    /// <remarks>
+    /// Found on a real order. The drawing showed two parts, the only question was
+    /// which to model, and the shape recorded beside that question was a stub —
+    /// `openings: []` for a bushing that is mostly bore. Reusing it carried the
+    /// stub into the round that had the answer, and the shape claim agreed with
+    /// the compilation because both were wrong the same way.
+    ///
+    /// A question tagged `parameter_id: "shape"` is the signal. A missing number
+    /// leaves the shape intact and is what reuse is for.
+    /// </remarks>
+    [Fact]
+    public async Task AReadingThatCouldNotSettleTheShapeIsReadAgain()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            Directory.CreateDirectory(Path.Combine(workspace, "context"));
+            File.WriteAllText(Path.Combine(workspace, "context", "drawing-analysis.json"),
+                """
+                {
+                  "schema_version":"0.1.0","stage":"drawing_analysis",
+                  "status":"need_user_input","confidence":0.5,"warnings":[],
+                  "result":{
+                    "ready_for_cad":false,"summary":"Two parts are shown.",
+                    "parameters":[],
+                    "questions":[{"id":"q_part","parameter_id":"shape","text":"Which part?"}]
+                  }
+                }
+                """);
+            var answers = Path.Combine(workspace, "context", "user-answers.json");
+            File.WriteAllText(answers, """{"schema_version":"0.1.0","answers":[]}""");
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_10.json"));
+            var runner = new FakeRunner(ReadyAnalysis(), valid);
+
+            var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image], answers);
+
+            Assert.Equal("CAD_IR_READY", result.Status);
+            // Two calls: the drawing was read again, with the answer in hand.
+            Assert.Equal(2, runner.Calls);
+            Assert.NotNull(result.AnalysisRun);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
     /// With no reading carried in, the drawing is read — which is what an older
     /// API, or an order whose analysis could not be found, still produces.
     /// </summary>

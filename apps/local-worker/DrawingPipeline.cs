@@ -170,9 +170,19 @@ public sealed class DrawingPipeline(
         // round is a new job directory and there is otherwise nothing here to
         // reuse. Absent — an older API, or an order whose analysis could not be
         // found — the drawing is read again, which is what always happened.
+        //
+        // **Only when the reading settled what the part is.** A question tagged
+        // `parameter_id: "shape"` says the reader could not: on a real order the
+        // drawing showed two parts, the only question was which to model, and the
+        // shape it recorded meanwhile was a stub — `openings: []` for a bushing
+        // that is mostly bore. Reusing that carried the stub into the round that
+        // had the answer, and the claim agreed with the compilation because both
+        // were wrong the same way. A missing *number* leaves the shape intact and
+        // is what this is for; a missing *shape* has to be read again.
         var carried = Path.Combine(workspace, "context", "drawing-analysis.json");
         var reusingPriorReading =
-            !string.IsNullOrWhiteSpace(answersPath) && File.Exists(answersPath) && File.Exists(carried);
+            !string.IsNullOrWhiteSpace(answersPath) && File.Exists(answersPath)
+            && File.Exists(carried) && ShapeWasSettled(carried);
         if (reusingPriorReading)
         {
             File.Copy(carried, analysisPath, overwrite: true);
@@ -216,6 +226,38 @@ public sealed class DrawingPipeline(
     /// the ledger says so: a round that read nothing must not report a vision
     /// call it did not make.
     /// </remarks>
+    /// <summary>
+    /// Did this reading settle what the part is, or only what size it is?
+    /// </summary>
+    /// <remarks>
+    /// A question naming `parameter_id: "shape"` is the reader saying it could
+    /// not decide the outline or the openings. Whatever shape it recorded beside
+    /// such a question is a placeholder, and carrying it into the round that
+    /// answers the question is how a stub becomes the delivered part.
+    ///
+    /// Unreadable is treated as unsettled: reading the drawing again costs a
+    /// vision call, and building the wrong part costs the order.
+    /// </remarks>
+    private static bool ShapeWasSettled(string analysisPath)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(analysisPath));
+            var questions = document.RootElement.GetProperty("result").GetProperty("questions");
+            foreach (var question in questions.EnumerateArray())
+            {
+                if (question.TryGetProperty("parameter_id", out var parameter) &&
+                    parameter.GetString() == "shape")
+                    return false;
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private async Task<DrawingPipelineResult> CompileAsync(
         string workspace,
         string output,
