@@ -245,6 +245,132 @@ def bolt_circle(path: Path) -> None:
           f"{count} x Ø{hole_d:.0f} on Ø{pcd:.0f} PCD")
 
 
+def rounded_corners(path: Path) -> None:
+    """A plate whose four corners carry an R5 note.
+
+    Run 7. A blend is the first thing the cycle can ask for that **builds
+    nothing** — a plate with square corners agrees with this drawing on the
+    outline, the openings, the solid count and the bounding box, and differs only
+    in `surface_face_count`. So the count in the claim is the whole check, and
+    what this run asks is whether the reading stage writes it at all.
+    """
+    width, height, thickness, radius = 80.0, 50.0, 10.0, 5.0
+    plate_w, plate_h = int(width * SCALE), int(height * SCALE)
+    side_h = int(thickness * SCALE)
+    image = Image.new("RGB", (plate_w + MARGIN * 2, plate_h + side_h + MARGIN * 3), "white")
+    draw = ImageDraw.Draw(image)
+    label, title = font(18), font(22)
+
+    left, top = MARGIN, MARGIN
+    right, bottom = left + plate_w, top + plate_h
+    r = radius * SCALE
+    draw.rounded_rectangle([left, top, right, bottom], radius=r, outline=INK, width=2)
+
+    dimension(draw, left, top - 30, right, top - 30, f"{width:.0f}", label)
+    dimension(draw, right + 34, top, right + 34, bottom, f"{height:.0f}", label)
+    # The note points at one corner and says "4×", which is how a drawing states
+    # a blend that repeats: the count is in words, not in four separate notes.
+    draw.line([left + r * 0.3, top + r * 0.3, left - 40, top - 46], fill=INK, width=2)
+    centred(draw, left - 78, top - 56, f"4 × R{radius:.0f}", label)
+
+    side_top = bottom + MARGIN
+    draw.rectangle([left, side_top, right, side_top + side_h], outline=INK, width=2)
+    dimension(draw, right + 34, side_top, right + 34, side_top + side_h, f"{thickness:.0f}", label)
+
+    centred(draw, image.width / 2, image.height - 34, "PLATE, ROUNDED CORNERS", title)
+    image.save(path)
+    print(f"wrote {path} — {width:.0f}x{height:.0f}x{thickness:.0f}, 4 x R{radius:.0f} corners")
+
+
+def chamfered_bore(path: Path) -> None:
+    """A plate with one bore, and a 2 × 45° note on the bore's rim.
+
+    Run 8, and the interesting failure is not a refusal — it is a part that
+    builds. A chamfer taken on the outline instead of the bore is a valid,
+    manifold, correctly-sized plate with the break in the wrong place. The
+    selection is what decides, so the drawing puts the note firmly on the bore and
+    nothing on the outline.
+    """
+    width, height, thickness, bore_d, chamfer = 70.0, 70.0, 14.0, 30.0, 2.0
+    plate_w, plate_h = int(width * SCALE), int(height * SCALE)
+    side_h = int(thickness * SCALE)
+    image = Image.new("RGB", (plate_w + MARGIN * 2, plate_h + side_h + MARGIN * 3), "white")
+    draw = ImageDraw.Draw(image)
+    label, title = font(18), font(22)
+
+    left, top = MARGIN, MARGIN
+    right, bottom = left + plate_w, top + plate_h
+    draw.rectangle([left, top, right, bottom], outline=INK, width=2)
+    cx, cy = (left + right) / 2, (top + bottom) / 2
+    br = bore_d / 2 * SCALE
+    draw.ellipse([cx - br, cy - br, cx + br, cy + br], outline=INK, width=2)
+    draw.line([cx - br - 12, cy, cx + br + 12, cy], fill=THIN, width=1)
+    draw.line([cx, cy - br - 12, cx, cy + br + 12], fill=THIN, width=1)
+
+    dimension(draw, left, top - 30, right, top - 30, f"{width:.0f}", label)
+    dimension(draw, right + 34, top, right + 34, bottom, f"{height:.0f}", label)
+    draw.line([cx + br * 0.7, cy - br * 0.7, cx + 96, cy - 96], fill=INK, width=2)
+    centred(draw, cx + 140, cy - 106, f"Ø{bore_d:.0f}", label)
+
+    side_top = bottom + MARGIN
+    draw.rectangle([left, side_top, right, side_top + side_h], outline=INK, width=2)
+    draw.rectangle([cx - br, side_top, cx + br, side_top + side_h], outline=INK, width=2)
+    # The note leaves the bore's top rim in the section, so the face it belongs to
+    # is unambiguous on the view that shows the break.
+    draw.line([cx - br, side_top, cx - br - 70, side_top - 40], fill=INK, width=2)
+    centred(draw, cx - br - 132, side_top - 50, f"{chamfer:.0f} × 45°", label)
+    dimension(draw, right + 34, side_top, right + 34, side_top + side_h, f"{thickness:.0f}", label)
+
+    centred(draw, image.width / 2, image.height - 34, "PLATE WITH CHAMFERED BORE", title)
+    image.save(path)
+    print(f"wrote {path} — {width:.0f}x{height:.0f}x{thickness:.0f}, "
+          f"Ø{bore_d:.0f} bore, {chamfer:.0f} x 45 deg on the rim")
+
+
+def housing(path: Path) -> None:
+    """An open-topped box with its wall thickness called out.
+
+    Run 9, and the failure it looks for is the loudest of the three: a document
+    that builds this solid agrees with the drawing on the outline, the openings,
+    the solid count, the bounding box and the hole count — and weighs four times
+    what it should. `ShapeClaim.wall` exists for exactly that, so the drawing
+    states the wall in the way a drawing does: a note, on the section, at the
+    material.
+    """
+    width, depth, height, wall = 100.0, 60.0, 40.0, 3.0
+    plan_w, plan_h = int(width * SCALE), int(depth * SCALE)
+    side_h = int(height * SCALE)
+    image = Image.new("RGB", (plan_w + MARGIN * 2, plan_h + side_h + MARGIN * 3), "white")
+    draw = ImageDraw.Draw(image)
+    label, title = font(18), font(22)
+
+    left, top = MARGIN, MARGIN
+    right, bottom = left + plan_w, top + plan_h
+    w = wall * SCALE
+    draw.rectangle([left, top, right, bottom], outline=INK, width=2)
+    draw.rectangle([left + w, top + w, right - w, bottom - w], outline=INK, width=2)
+
+    dimension(draw, left, top - 30, right, top - 30, f"{width:.0f}", label)
+    dimension(draw, right + 34, top, right + 34, bottom, f"{depth:.0f}", label)
+
+    side_top = bottom + MARGIN
+    # The section of a hollow box: outer rectangle, floor at the bottom, two
+    # walls, open at the top.
+    draw.rectangle([left, side_top, right, side_top + side_h], outline=INK, width=2)
+    draw.rectangle([left + w, side_top, right - w, side_top + side_h - w],
+                   outline=INK, width=2, fill="white")
+    dimension(draw, right + 34, side_top, right + 34, side_top + side_h, f"{height:.0f}", label)
+    draw.line([left + w / 2, side_top + side_h * 0.55, left - 66, side_top + side_h * 0.55],
+              fill=INK, width=2)
+    centred(draw, left - 118, side_top + side_h * 0.55, f"t = {wall:.0f}", label)
+    centred(draw, (left + right) / 2, side_top - 26, "OPEN TOP", label)
+
+    centred(draw, image.width / 2, image.height - 34, "HOUSING", title)
+    image.save(path)
+    print(f"wrote {path} — {width:.0f}x{depth:.0f}x{height:.0f} box, "
+          f"{wall:.0f} mm wall, open top")
+
+
 def main() -> int:
     # These lines print diameters, and "Ø" does not exist in the code page a
     # Windows console falls back to when stdout is a pipe. The drawings are
@@ -260,6 +386,9 @@ def main() -> int:
     plan_only(target / "plan-only.png")
     pad(target / "pad.png")
     bolt_circle(target / "bolt-circle.png")
+    rounded_corners(target / "rounded-corners.png")
+    chamfered_bore(target / "chamfered-bore.png")
+    housing(target / "housing.png")
     return 0
 
 
