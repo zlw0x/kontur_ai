@@ -482,6 +482,11 @@ public static class ClaimLoop
                     Path.Combine(jobPath, "input", input.local_name),
                 "user_answers" when input.local_name == "user-answers.json" =>
                     Path.Combine(jobPath, "context", input.local_name),
+                // The reading that produced the questions these answers reply to.
+                // Without it a clarification round re-reads the drawing and gets
+                // fresh question ids, which the answers no longer refer to.
+                "prior_analysis" when input.local_name == "drawing-analysis.json" =>
+                    Path.Combine(jobPath, "context", input.local_name),
                 _ => throw new WorkerException("MANIFEST_INVALID", "Job input kind or local name is invalid.")
             };
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);

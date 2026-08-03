@@ -351,6 +351,74 @@ public sealed class DrawingPipelineTests
         }
         """;
 
+    /// <summary>
+    /// A clarification round reuses the reading it was given, and does not look
+    /// at the drawing again.
+    /// </summary>
+    /// <remarks>
+    /// The vision call used to run before anything checked for answers, so every
+    /// round re-read the image. Two costs: a second billed call, and a *fresh*
+    /// set of question ids — the answers in hand are keyed by the old ones, so
+    /// the compiling agent got values referring to questions that no longer
+    /// existed, beside a reading nobody had answered.
+    ///
+    /// One runner call is the whole assertion: compilation, and no analysis.
+    /// </remarks>
+    [Fact]
+    public async Task AClarificationRoundReusesTheReadingItWasGiven()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            Directory.CreateDirectory(Path.Combine(workspace, "context"));
+            File.WriteAllText(
+                Path.Combine(workspace, "context", "drawing-analysis.json"), ReadyAnalysis());
+            var answers = Path.Combine(workspace, "context", "user-answers.json");
+            File.WriteAllText(answers, """{"schema_version":"0.1.0","answers":[]}""");
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_10.json"));
+            var runner = new FakeRunner(valid);
+
+            var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image], answers);
+
+            Assert.Equal("CAD_IR_READY", result.Status);
+            Assert.Equal(1, runner.Calls);
+            // Nothing was read this round, so nothing claims to have been.
+            Assert.Null(result.AnalysisRun);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
+    /// With no reading carried in, the drawing is read — which is what an older
+    /// API, or an order whose analysis could not be found, still produces.
+    /// </summary>
+    [Fact]
+    public async Task WithNothingCarriedInTheDrawingIsReadAgain()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            Directory.CreateDirectory(Path.Combine(workspace, "context"));
+            var answers = Path.Combine(workspace, "context", "user-answers.json");
+            File.WriteAllText(answers, """{"schema_version":"0.1.0","answers":[]}""");
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_10.json"));
+            var runner = new FakeRunner(ReadyAnalysis(), valid);
+
+            var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image], answers);
+
+            Assert.Equal("CAD_IR_READY", result.Status);
+            Assert.Equal(2, runner.Calls);
+            Assert.NotNull(result.AnalysisRun);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
     private static string ReadyAnalysis() =>
         """
         {

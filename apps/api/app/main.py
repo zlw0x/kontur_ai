@@ -514,6 +514,23 @@ def answer_drawing_questions(
         "schema_version": "0.1.0",
         "answers": [item.model_dump() for item in request.answers],
     })
+    # The reading that produced these questions travels with the answers.
+    #
+    # A round is a new job with a new directory, so without this the worker has
+    # nothing but the drawing and reads it again: a second vision call on every
+    # round, and — worse — a *fresh* set of question ids. The answers already sent
+    # are keyed by the old ones, so what reaches the compiling agent is a set of
+    # values referring to questions that no longer exist.
+    #
+    # Best-effort: an order whose analysis cannot be found still proceeds by
+    # re-reading, which is what it did before this existed.
+    try:
+        artifact_store.put_prior_analysis(
+            job_id,
+            artifact_store.artifact(prior_job_id, "DRAWING_ANALYSIS").path.read_bytes(),
+        )
+    except ArtifactIntegrityError:
+        pass
     round_number = tracking["round"] + 1
     worker_protocol.enqueue(Job(
         job_id,
@@ -630,6 +647,15 @@ def get_job_manifest(
             "size_bytes": source.size_bytes,
             "local_name": f"page-001{source.path.suffix.lower()}",
         }]
+        prior = artifact_store.prior_analysis(job_id)
+        if prior is not None:
+            inputs.append({
+                "kind": "prior_analysis",
+                "download_url": str(request.url_for("download_job_input", job_id=job_id, input_kind="prior-analysis")),
+                "sha256": prior.sha256,
+                "size_bytes": prior.size_bytes,
+                "local_name": "drawing-analysis.json",
+            })
         answers = artifact_store.answers(job_id)
         if answers is not None:
             inputs.append({
@@ -671,6 +697,9 @@ def download_job_input(
     if input_kind == "drawing":
         source = artifact_store.drawing(job_id)
         media_type = "image/png" if source.path.suffix.lower() == ".png" else "image/jpeg"
+    elif input_kind == "prior-analysis":
+        source = artifact_store.prior_analysis(job_id)
+        media_type = "application/json"
     elif input_kind == "user-answers":
         source = artifact_store.answers(job_id)
         if source is None:

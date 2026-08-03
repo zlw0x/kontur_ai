@@ -9,7 +9,12 @@ public sealed record DrawingPipelineResult(
     string AnalysisPath,
     string QuestionsPath,
     string? CadIrPath,
-    CodexStageResult AnalysisRun,
+    /// <summary>
+    /// The vision call, or null when a clarification round reused the reading
+    /// carried in with the answers. Nullable because reporting a call that was
+    /// not made would put a cost in the ledger that nobody paid.
+    /// </summary>
+    CodexStageResult? AnalysisRun,
     CodexStageResult? CompilationRun);
 
 public sealed class DrawingPipeline(
@@ -151,6 +156,31 @@ public sealed class DrawingPipeline(
         var analysisSchema = Path.Combine(workspace, "schemas", "drawing-analysis.schema.json");
         var cadIrSchema = Path.Combine(workspace, "schemas", "cad-ir-mvp-output.schema.json");
 
+        // A clarification round reuses the reading that asked the questions.
+        //
+        // The vision call used to run unconditionally, before anything looked at
+        // whether answers had arrived. So round two read the drawing again — a
+        // second billed call on the same image — and produced a *fresh* set of
+        // question ids. The answers already in hand are keyed by the old ones, so
+        // what reached the compiling agent was a set of values referring to
+        // questions that no longer existed, next to an analysis nobody had
+        // answered.
+        //
+        // The prior reading travels with the answers as a job input, because a
+        // round is a new job directory and there is otherwise nothing here to
+        // reuse. Absent — an older API, or an order whose analysis could not be
+        // found — the drawing is read again, which is what always happened.
+        var carried = Path.Combine(workspace, "context", "drawing-analysis.json");
+        var reusingPriorReading =
+            !string.IsNullOrWhiteSpace(answersPath) && File.Exists(answersPath) && File.Exists(carried);
+        if (reusingPriorReading)
+        {
+            File.Copy(carried, analysisPath, overwrite: true);
+            return await CompileAsync(
+                workspace, output, imagePaths, analysisPath, questionsPath, cadIrSchema,
+                answersPath, analysisRun: null, cancellationToken);
+        }
+
         budgetState.Reserve(CodexStage.DrawingExtraction, budgetPolicy);
         var analysisRoute = router.Route(CodexStage.DrawingExtraction, "drawing_analyzer");
         var analysisPrompt = AnalysisPrompt();
@@ -171,6 +201,32 @@ public sealed class DrawingPipeline(
                 CodexProvenance.PromptBundleSha256(PromptVersion, analysisPrompt)),
             cancellationToken);
 
+        return await CompileAsync(
+            workspace, output, imagePaths, analysisPath, questionsPath, cadIrSchema,
+            answersPath, analysisRun, cancellationToken);
+    }
+
+    /// <summary>
+    /// Everything after the drawing has been read: ask, or compile and check.
+    /// </summary>
+    /// <remarks>
+    /// Split out because a clarification round arrives here with the reading
+    /// already done — it was carried in with the answers rather than produced by
+    /// a second look at the same image. `analysisRun` is null on that path, and
+    /// the ledger says so: a round that read nothing must not report a vision
+    /// call it did not make.
+    /// </remarks>
+    private async Task<DrawingPipelineResult> CompileAsync(
+        string workspace,
+        string output,
+        IReadOnlyList<string> imagePaths,
+        string analysisPath,
+        string questionsPath,
+        string cadIrSchema,
+        string? answersPath,
+        CodexStageResult? analysisRun,
+        CancellationToken cancellationToken)
+    {
         using var analysisDocument = JsonDocument.Parse(await File.ReadAllBytesAsync(analysisPath, cancellationToken));
         var result = analysisDocument.RootElement.GetProperty("result");
         var questions = result.GetProperty("questions").Clone();
