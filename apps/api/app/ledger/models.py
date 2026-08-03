@@ -168,7 +168,6 @@ class WorkerCapabilitySnapshotRow(Base):
     worker_id: Mapped[str] = mapped_column(ForeignKey("local_workers.id"), index=True)
     manifest_sha256: Mapped[str] = mapped_column(String(64))
     worker_version: Mapped[str] = mapped_column(String(50))
-    kompas_version: Mapped[str | None] = mapped_column(String(50))
     codex_cli_version: Mapped[str | None] = mapped_column(String(50))
     cad_ir_versions: Mapped[list[str]] = mapped_column(JSON, default=list)
     capabilities: Mapped[dict] = mapped_column(JSON, default=dict)

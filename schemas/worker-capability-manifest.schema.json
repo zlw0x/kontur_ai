@@ -36,7 +36,7 @@
     },
     "WorkerEngineDeclaration": {
       "additionalProperties": false,
-      "description": "Which CAD engine a worker builds with, and on what kernel.\n\nAdded by ENGINE-MIG-007 rather than reusing `kompas_version`, which names one\nengine and reports a version that only that engine has. Putting an\nOpenCascade version in a field called `kompas_version` would make every\nreader of a manifest wrong about what produced the model, and the field is\nstill read by anything holding an older manifest.\n\nOptional, because a worker older than this build does not send it and being\nunable to say which engine it uses is not a reason to refuse its work.",
+      "description": "Which CAD engine a worker builds with, and on what kernel.\n\nAdded by ENGINE-MIG-007 rather than reusing the `kompas_version` field that\nstood here, which named one engine and reported a version only that engine\nhad. An OpenCascade version in a field called `kompas_version` would make\nevery reader of a manifest wrong about what produced the model. That field is\ngone; this one says which engine, and says it in terms of the engine.\n\nOptional, because a worker older than this build does not send it and being\nunable to say which engine it uses is not a reason to refuse its work.",
       "properties": {
         "engine_id": {
           "maxLength": 50,
@@ -103,19 +103,6 @@
         }
       ],
       "default": null
-    },
-    "kompas_version": {
-      "anyOf": [
-        {
-          "maxLength": 50,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Kompas Version"
     },
     "codex_cli_version": {
       "anyOf": [

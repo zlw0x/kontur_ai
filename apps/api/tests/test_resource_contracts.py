@@ -131,9 +131,10 @@ def test_a_manifest_may_say_which_engine_it_builds_with():
         capabilities={"solid.rectangular_prism": CapabilityStatus.BETA},
     )
     assert manifest.engine.engine_id == "build123d"
-    # And `kompas_version` is left alone rather than filled with a number that
-    # belongs to a different engine.
-    assert manifest.kompas_version is None
+    # The engine says which engine, in the engine's own terms. What stood here
+    # was `kompas_version`, and an OpenCascade number in it would have made every
+    # reader of a manifest wrong about what produced the model.
+    assert manifest.engine.kernel_id == "opencascade"
 
 
 def test_a_worker_that_cannot_say_which_engine_it_uses_is_still_a_worker():
@@ -141,7 +142,6 @@ def test_a_worker_that_cannot_say_which_engine_it_uses_is_still_a_worker():
     their work."""
     manifest = WorkerCapabilityManifest(
         worker_version="0.3.0",
-        kompas_version="22.0",
         cad_ir_versions=["1.10"],
         capabilities={"solid.rectangular_prism": CapabilityStatus.STABLE},
     )
@@ -295,20 +295,24 @@ def test_a_non_ai_event_needs_no_model():
     assert batch.events[0].ai is None
 
 
-def test_the_coarse_capability_no_longer_names_an_engine_and_the_old_name_still_parses():
-    """ENGINE-MIG-008 renamed KOMPAS_BUILD to CAD_BUILD.
+def test_the_engine_is_no_longer_named_in_the_vocabulary():
+    """KOMPAS_BUILD became CAD_BUILD (ENGINE-MIG-008) and then went (0006).
 
-    The old member stays because it is *stored*: every release before this one
-    wrote it into `worker.capabilities` and `order.required_capabilities` as a JSON
-    string. Deleting it would make those rows unparseable, which turns a rename
-    into an outage.
+    It stayed parseable in between because it was *stored*, and deleting a name
+    rows still carry turns a rename into an outage. Migration 0006 rewrote those
+    rows, so this pins the end state: the coarse capability says what the work
+    is, and nothing in the vocabulary says which program does it.
     """
     assert WorkerCapability("CAD_BUILD") is WorkerCapability.CAD_BUILD
-    assert WorkerCapability("KOMPAS_BUILD") is WorkerCapability.KOMPAS_BUILD
-    assert WorkerCapability.CAD_BUILD != WorkerCapability.KOMPAS_BUILD
+    assert not any("KOMPAS" in member.value for member in WorkerCapability)
+    assert not any("KOMPAS" in member.value for member in ResourceStage)
 
 
-def test_the_ledger_stage_no_longer_names_an_engine_and_the_old_value_still_parses():
-    """A measurement that cannot be read back is a measurement that was not taken."""
+def test_a_measurement_survived_the_rename():
+    """A measurement that cannot be read back is a measurement that was not taken.
+
+    The stage was KOMPAS_STARTUP and ledger rows carried it. It stayed readable
+    under both names until migration 0006 moved the rows, which is the order that
+    matters: the rows first, the name second.
+    """
     assert ResourceStage("CAD_STARTUP") is ResourceStage.CAD_STARTUP
-    assert ResourceStage("KOMPAS_STARTUP") is ResourceStage.KOMPAS_STARTUP

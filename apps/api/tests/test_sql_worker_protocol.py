@@ -20,14 +20,14 @@ def service_fixture():
     clock = Clock()
     service = SqlWorkerProtocolService(sessions, "e" * 32, clock)
     worker, credential = service.register(enrollment_token="e" * 32, worker_name=f"worker-{uuid4()}", app_version="0.1")
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["0.1.0"], 1)
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], ["0.1.0"], 1)
     return service, worker, credential, clock
 
 
 def test_sql_claim_renew_and_duplicate_completion():
     service, worker, credential, _ = service_fixture()
     assert service.authenticate(worker.id, credential).id == worker.id
-    job = Job(uuid4(), uuid4(), JobType.BUILD_CAD, "sha256:sql", {WorkerCapability.KOMPAS_BUILD}, "0.1.0")
+    job = Job(uuid4(), uuid4(), JobType.BUILD_CAD, "sha256:sql", {WorkerCapability.CAD_BUILD}, "0.1.0")
     service.enqueue(job)
     claimed = service.claim(worker)
     assert claimed and claimed.attempt == 1
@@ -39,7 +39,7 @@ def test_sql_claim_renew_and_duplicate_completion():
 
 def test_sql_expired_lease_is_reclaimed_and_wrong_key_rejected():
     service, worker, _, clock = service_fixture()
-    job = Job(uuid4(), uuid4(), JobType.BUILD_CAD, "sha256:retry", {WorkerCapability.KOMPAS_BUILD}, "0.1.0")
+    job = Job(uuid4(), uuid4(), JobType.BUILD_CAD, "sha256:retry", {WorkerCapability.CAD_BUILD}, "0.1.0")
     service.enqueue(job)
     service.claim(worker, lease_seconds=1)
     clock.now += timedelta(seconds=2)

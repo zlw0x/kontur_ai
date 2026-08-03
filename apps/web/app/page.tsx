@@ -48,11 +48,9 @@ type IconName =
   | "trash"
   | "upload";
 
-// The order results are shown in. `M3D` is still listed, and last: nothing has
-// produced one since the CAD engine changed (ADR-023), but artifacts are files
-// and are served as written, so an order finished before that still shows
-// everything it was delivered.
-const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT", "M3D"];
+// The order results are shown in: two files and the report they were checked
+// with, which is ADR-023's whole answer to what a customer gets.
+const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT"];
 const statusCopy: Record<string, string> = {
   PENDING: "Ожидает запуска",
   LEASED: "Создаём модель",
@@ -79,8 +77,7 @@ export default function Home() {
   const [material, setMaterial] = useState<Material>("aluminum");
   const [precision, setPrecision] = useState<"standard" | "high">("high");
   const [viewMode, setViewMode] = useState<ViewMode>("model");
-  // What a new order asks for. No M3D: nothing produces one, and offering a
-  // format that cannot arrive is a promise the page cannot keep.
+  // What a new order asks for: everything a build delivers.
   const [outputs, setOutputs] = useState<Record<string, boolean>>({
     STEP: true,
     STL: true,
@@ -950,7 +947,6 @@ function Icon({ name }: { name: IconName }) {
 
 function artifactLabel(type: string) {
   return {
-    M3D: "Исходная модель КОМПАС",
     STEP: "STEP-модель",
     STL: "STL-модель",
     VALIDATION_REPORT: "Паспорт модели",
@@ -959,7 +955,6 @@ function artifactLabel(type: string) {
 
 function artifactDescription(type: string) {
   return {
-    M3D: "Из заказов до смены движка",
     STEP: "Для CAD-систем",
     STL: "Для производства",
     VALIDATION_REPORT: "Результаты проверки",
@@ -978,7 +973,6 @@ function localArtifacts(): Artifact[] {
 function localArtifactContents(type: string) {
   if (type === "STL") return LOCAL_STL;
   if (type === "STEP") return "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('KONTUR 3D MODEL'),'2;1');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
-  if (type === "M3D") return "KONTUR 3D MODEL\n";
   return JSON.stringify({ valid: true, body_count: 1, units: "mm", dimensions: [80, 40, 12] }, null, 2);
 }
 
@@ -1083,7 +1077,7 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 function extensionFor(type: string) {
-  return ({ M3D: "m3d", STEP: "step", STL: "stl", VALIDATION_REPORT: "json" } as Record<string, string>)[type] ?? "bin";
+  return ({ STEP: "step", STL: "stl", VALIDATION_REPORT: "json" } as Record<string, string>)[type] ?? "bin";
 }
 
 function cleanFileName(value: string) {

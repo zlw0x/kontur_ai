@@ -28,7 +28,6 @@ class LocalArtifactStore:
     """
 
     _extensions = {
-        "M3D": ".m3d",
         "STEP": ".step",
         "STL": ".stl",
         "PREVIEW": ".png",

@@ -567,10 +567,6 @@ def download_manual_artifact(
     except ArtifactIntegrityError as error:
         raise HTTPException(status_code=404, detail="artifact was not found") from error
     media_types = {
-        # Kept although nothing produces one any more: artifacts are files and
-        # are served as written, so an order completed before ENGINE-MIG-008
-        # still downloads everything it was delivered.
-        "M3D": "application/octet-stream",
         "STEP": "model/step",
         "STL": "model/stl",
         "PREVIEW": "image/png",

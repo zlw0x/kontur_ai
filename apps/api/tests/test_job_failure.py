@@ -42,7 +42,7 @@ def _enrol(client: TestClient, name: str = "failing-worker") -> tuple[dict, str]
 def _claim(client: TestClient, headers: dict, worker_id: str) -> dict:
     return client.post("/api/v1/workers/claim", headers=headers, json={
         "protocol_version": "1.0", "worker_id": worker_id,
-        "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": [CAD_IR_VERSION],
+        "capabilities": ["CAD_BUILD"], "supported_cad_ir": [CAD_IR_VERSION],
         "available_slots": 1, "capability_manifest": mvp_manifest(),
     }).json()["job"]
 

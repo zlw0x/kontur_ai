@@ -299,10 +299,22 @@ would have been appended to the prompt. Redirected and closed at start.
 **What is next**: rib (P3.2, which needs `extrude(until=…)` investigating — it fails on
 the first attempt), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the order.
 
-One thing is left over from the migration, named in
-`docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,
-`ResourceStage.KOMPAS_STARTUP` and the manifest's `kompas_version` still exist
-because stored rows carry them, and they leave when none do.
+**The migration's last leftovers are gone.** `WorkerCapability.KOMPAS_BUILD`,
+`ResourceStage.KOMPAS_STARTUP`, the manifest's `kompas_version` and the `M3D`
+artifact type stayed parseable because stored rows carried them — deleting a name
+rows still hold turns a rename into an outage. Migration 0006 rewrote the rows
+first and the names went second, which is the order that matters. Nothing in the
+vocabulary names which program does the work.
+
+Two things were kept on purpose. `_COARSE_ALIASES` is now empty and still there:
+it is the seam a rename goes through, and `canonical_capabilities` being the only
+way anything compares capabilities is what made the last one a one-line change.
+And every comment explaining *why* something is the way it is — a seam edge
+OpenCascade carries and KOMPAS did not, constraints a STEP cannot hold — stays.
+Those are the record of how the current behaviour was arrived at, not leftovers.
+Artifact rows of type `M3D` are also left alone: such a row is a file really
+delivered to a customer, and rewriting its type would make the record claim a
+STEP was delivered when one was not.
 
 The image is no longer merely defined: it has been **built and run on a real daemon**
 (`docs/acceptance/ENGINE-MIG-DEPLOY-*.md`) — `describe` under `--read-only --network none`,

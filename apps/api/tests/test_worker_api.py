@@ -35,7 +35,6 @@ def mvp_manifest(**overrides) -> dict:
     return {
         "schema_version": "1.0",
         "worker_version": "0.4.0",
-        "kompas_version": "22.0",
         "cad_ir_versions": [CAD_IR_VERSION],
         "capabilities": {key: CapabilityStatus.STABLE.value for key in MVP_CAPABILITIES},
         **overrides,
@@ -52,11 +51,11 @@ def test_worker_register_heartbeat_and_empty_claim(monkeypatch):
     body = registered.json()
     headers = {"Authorization": f"Bearer {body['credential']}"}
     heartbeat = client.post("/api/v1/workers/heartbeat", headers=headers, json={
-        "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1
+        "worker_id": body["worker_id"], "capabilities": ["CAD_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1
     })
     assert heartbeat.status_code == 204
     claim = client.post("/api/v1/workers/claim", headers=headers, json={
-        "protocol_version": "1.0", "worker_id": body["worker_id"], "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1
+        "protocol_version": "1.0", "worker_id": body["worker_id"], "capabilities": ["CAD_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1
     })
     assert claim.status_code == 200 and claim.json() == {"protocol_version": "1.0", "job": None, "retry_after_seconds": 5}
 
@@ -65,7 +64,7 @@ def test_worker_api_rejects_bad_enrollment_and_missing_credential(monkeypatch):
     memory_protocol(monkeypatch)
     client = TestClient(app)
     assert client.post("/api/v1/workers/register", json={"enrollment_token": "x" * 32, "worker_name": "bad", "app_version": "0.1"}).status_code == 401
-    assert client.post("/api/v1/workers/claim", json={"protocol_version": "1.0", "worker_id": "123e4567-e89b-12d3-a456-426614174000", "capabilities": ["KOMPAS_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1}).status_code == 401
+    assert client.post("/api/v1/workers/claim", json={"protocol_version": "1.0", "worker_id": "123e4567-e89b-12d3-a456-426614174000", "capabilities": ["CAD_BUILD"], "supported_cad_ir": [CAD_IR_VERSION], "available_slots": 1}).status_code == 401
 
 
 def test_job_heartbeat_and_completion_are_authenticated_and_idempotent(monkeypatch, tmp_path):
@@ -77,8 +76,8 @@ def test_job_heartbeat_and_completion_are_authenticated_and_idempotent(monkeypat
     }).json()
     worker_id, job_id = UUID(registered["worker_id"]), uuid4()
     worker = protocol.repo.workers[worker_id]
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
-    protocol.repo.jobs[job_id] = Job(job_id, uuid4(), JobType.BUILD_CAD, "sha256:complete", {WorkerCapability.KOMPAS_BUILD}, CAD_IR_VERSION)
+    protocol.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1)
+    protocol.repo.jobs[job_id] = Job(job_id, uuid4(), JobType.BUILD_CAD, "sha256:complete", {WorkerCapability.CAD_BUILD}, CAD_IR_VERSION)
     assert protocol.claim(worker) is not None
     headers = {"Authorization": f"Bearer {registered['credential']}"}
     heartbeat = client.post(f"/api/v1/workers/jobs/{job_id}/heartbeat", headers=headers, json={
@@ -141,7 +140,7 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
         json={
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
-            "capabilities": ["KOMPAS_BUILD"],
+            "capabilities": ["CAD_BUILD"],
             "supported_cad_ir": [CAD_IR_VERSION],
             "available_slots": 1,
             "capability_manifest": mvp_manifest(),
@@ -241,7 +240,7 @@ def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
         json={
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
-            "capabilities": ["AI_DRAWING", "KOMPAS_BUILD"],
+            "capabilities": ["AI_DRAWING", "CAD_BUILD"],
             "supported_cad_ir": [CAD_IR_VERSION],
             "available_slots": 1,
             "capability_manifest": mvp_manifest(),

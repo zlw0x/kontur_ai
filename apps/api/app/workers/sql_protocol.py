@@ -137,7 +137,6 @@ class SqlWorkerProtocolService:
                 worker_id=row.id,
                 manifest_sha256=fingerprint,
                 worker_version=manifest.worker_version,
-                kompas_version=manifest.kompas_version,
                 codex_cli_version=manifest.codex_cli_version,
                 cad_ir_versions=list(manifest.cad_ir_versions),
                 capabilities=document["capabilities"],
