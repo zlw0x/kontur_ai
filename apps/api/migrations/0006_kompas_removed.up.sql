@@ -10,19 +10,23 @@
 -- that declared KOMPAS_BUILD could build CAD and still can; a startup stage
 -- measured the same seconds under either name.
 
+-- Cast: the column is declared `json`, not `jsonb`, and the containment
+-- operator only exists on the latter.
 UPDATE local_workers
    SET capabilities = (
         SELECT jsonb_agg(CASE WHEN value = '"KOMPAS_BUILD"'::jsonb
-                              THEN '"CAD_BUILD"'::jsonb ELSE value END)
-          FROM jsonb_array_elements(capabilities) AS value)
- WHERE capabilities @> '["KOMPAS_BUILD"]'::jsonb;
+                              THEN '"CAD_BUILD"'::jsonb ELSE value END)::json
+          FROM jsonb_array_elements(capabilities::jsonb) AS value)
+ WHERE capabilities::jsonb @> '["KOMPAS_BUILD"]'::jsonb;
 
+-- Cast: the column is declared `json`, not `jsonb`, and the containment
+-- operator only exists on the latter.
 UPDATE jobs
    SET required_capabilities = (
         SELECT jsonb_agg(CASE WHEN value = '"KOMPAS_BUILD"'::jsonb
-                              THEN '"CAD_BUILD"'::jsonb ELSE value END)
-          FROM jsonb_array_elements(required_capabilities) AS value)
- WHERE required_capabilities @> '["KOMPAS_BUILD"]'::jsonb;
+                              THEN '"CAD_BUILD"'::jsonb ELSE value END)::json
+          FROM jsonb_array_elements(required_capabilities::jsonb) AS value)
+ WHERE required_capabilities::jsonb @> '["KOMPAS_BUILD"]'::jsonb;
 
 UPDATE resource_events SET stage = 'CAD_STARTUP' WHERE stage = 'KOMPAS_STARTUP';
 

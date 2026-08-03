@@ -36,7 +36,19 @@ fi
 
 # Migrations after 0001 have always been journalled, so they need no adoption
 # path: apply in order, skip what is already recorded.
-for version in 0002_resource_ledger 0003_scheduler_diagnostics 0004_model_provenance; do
+#
+# Read from the directory rather than from a list written here. The list was
+# hand-maintained, and a migration missing from it does not fail — it is silently
+# not applied, and the first sign is the API raising on a column that should
+# exist. That is exactly what happened to 0005 and 0006: both files were written,
+# both were committed, neither ran.
+#
+# The numeric prefix is what orders them, and `sort` on the filename is that
+# order. A migration whose name does not sort where it belongs is a naming
+# mistake, and one visible in a directory listing.
+for path in $(ls /migrations/*.up.sql | sort); do
+  version="$(basename "$path" .up.sql)"
+  [ "$version" = "0001_worker_protocol" ] && continue
   if ! is_applied "$version"; then
     apply "$version"
   fi
