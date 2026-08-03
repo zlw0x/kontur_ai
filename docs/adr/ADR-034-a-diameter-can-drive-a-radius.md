@@ -98,6 +98,30 @@ expectation that compares it against the built part, where it already was.
 - **The bushing document that shipped a Ø88 part is now refused**, with five
   `PARAMETER_DRIVES_NOTHING`.
 
+## What the first real document found in the rule
+
+The bushing drawing was re-run once 1.11 shipped, and the model did use the
+arithmetic: `{"divide": {"parameter": "param.main_outer_diameter"}, "by": 2}`.
+The bounding box came back **[44, 44, 44]** against yesterday's [88, 88, 44], and
+the part gained the through bore it had silently lost. The reading stage improved
+with it — two questions instead of one, both choices, the second asking whether
+the central opening goes through.
+
+And the document still passed while building almost nothing. Thirteen dimensions
+declared, two used by the geometry, and the other ten referenced from **eight
+construction circles that no constraint mentioned**. Every parameter technically
+driving something; every one of the ten driving nothing.
+
+So `PARAMETER_DRIVES_NOTHING` does not count construction. Construction exists to
+be referenced by a constraint and builds nothing itself, and excluding it is
+precise rather than blunt: no fixture in this repository has a parameter living
+only there, while refusing *unreferenced construction* outright would refuse three
+that legitimately carry an axis line nothing constrains.
+
+That sharpening was found by a run and not by reasoning, which is the third time
+this rule has been changed by measurement: written, reverted for want of
+arithmetic, restored with it, and now narrowed.
+
 ## What it does not fix
 
 The reading stage said `openings: []` for a bushing that is mostly bore. That is

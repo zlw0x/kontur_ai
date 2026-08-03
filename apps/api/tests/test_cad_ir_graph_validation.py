@@ -291,3 +291,62 @@ def test_every_issue_is_reported_rather_than_only_the_first():
     with pytest.raises(CadIrValidationError) as caught:
         validate_canonical(broken)
     assert len(caught.value.issues) >= 4
+
+
+# --- a dimension the document states must be one the document builds ---------
+
+
+def test_a_dimension_nothing_builds_with_is_refused():
+    """The number with the best provenance was the one nothing checked.
+
+    A flange document carried `outer_diameter: 80` from the reading stage, cited
+    to the callout it came from, drew the outline as a literal `radius: 40`, and
+    restated 80 in its own expectation. Three copies of one number, two of them
+    written by the same model call — so a slip landing in both agreed with itself,
+    and the copy that came from somewhere else was compared against nothing. A
+    later order shipped a Ø88 part from a Ø44 drawing exactly that way.
+    """
+    value = document(parameters=[
+        {"id": "param.width", "type": "length", "value": 60.0, "unit": "mm"},
+        {"id": "param.depth", "type": "length", "value": 8.0, "unit": "mm"},
+    ])
+
+    assert "PARAMETER_DRIVES_NOTHING" in codes(lambda: validate_canonical(value))
+
+
+def test_a_count_the_drawing_states_is_not_a_dimension_and_may_be_carried():
+    """Six holes is worth recording and no contour can be driven by it.
+
+    Refusing it would punish the honest act of writing down what the drawing
+    says, which is the opposite of what the rule is for.
+    """
+    value = document(parameters=[
+        {"id": "param.width", "type": "length", "value": 60.0, "unit": "mm"},
+        {"id": "param.holes", "type": "count", "value": 6.0},
+    ])
+
+    assert validate_canonical(value).schema_version == CAD_IR_VERSION
+
+
+def test_construction_geometry_is_not_somewhere_to_park_a_dimension():
+    """The first real document to meet this rule found the gap in it.
+
+    Thirteen dimensions declared, two built with, and the other ten referenced
+    from eight construction circles that no constraint mentioned — every
+    parameter technically used, every one of them driving nothing. The part
+    delivered was a plain tube where the drawing showed a flanged, stepped,
+    threaded bushing.
+
+    Construction exists to be referenced by a constraint (ADR-022) and builds
+    nothing itself, so it does not count as driving a dimension.
+    """
+    parked = document(parameters=[
+        {"id": "param.width", "type": "length", "value": 60.0, "unit": "mm"},
+        {"id": "param.flange", "type": "length", "value": 40.0, "unit": "mm"},
+    ])
+    parked["features"][0]["inputs"]["sketch"]["construction"] = [
+        {"type": "circle", "id": "construction.flange", "center": [0.0, 0.0],
+         "radius": {"divide": {"parameter": "param.flange"}, "by": 2}},
+    ]
+
+    assert "PARAMETER_DRIVES_NOTHING" in codes(lambda: validate_canonical(parked))

@@ -451,12 +451,27 @@ def _parameter_issues(document: CadIrDocument) -> list[ValidationIssue]:
     # Every feature, enabled or not. A feature turned off by a flag still names
     # the dimensions it would build with, so a rollback must not make a document
     # that was fine yesterday invalid today.
+    #
+    # Construction geometry does not count, and that is the whole of the rule's
+    # sharpness. Construction exists to be referenced by a constraint (ADR-022);
+    # it builds nothing itself. The first real document to meet this rule declared
+    # thirteen dimensions, built with two, and put the other **ten** into eight
+    # construction circles that no constraint mentioned — every parameter
+    # technically referenced, every one of them driving nothing. The document
+    # passed, and the part it delivered was a plain tube where the drawing shows a
+    # flanged, stepped, threaded bushing.
+    #
+    # Excluding construction is precise rather than blunt: no fixture in this
+    # repository has a parameter that lives *only* there, and refusing
+    # unreferenced construction outright would refuse three that legitimately
+    # carry an axis line nothing constrains.
     referenced: set[str] = {
         reference.parameter
         for index, feature in enumerate(document.features)
-        for _, reference in _references(
+        for path, reference in _references(
             feature.inputs, f"$.features[{index}].inputs", ParameterRef
         )
+        if ".construction[" not in path
     }
 
     for index, feature in enumerate(document.features):
