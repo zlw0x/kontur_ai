@@ -18,6 +18,10 @@ type OrderState = {
   job_id: string;
   status: string;
   waiting_reason: string | null;
+  // Present only when the order failed. Both are written by the worker and are
+  // safe to show: a typed code and text already stripped of paths and hosts.
+  failure_code?: string | null;
+  failure_message?: string | null;
   round: number;
   questions: Question[];
   artifacts: Artifact[];
@@ -247,6 +251,19 @@ export default function Home() {
     setError("");
     try {
       if (!token) {
+        // With no token this is a demonstration: nothing is sent anywhere, no
+        // drawing is read, and the "model" below is a fixed box written into this
+        // file. It exists to show the shape of the flow.
+        //
+        // It used to be indistinguishable from the real thing. The questions
+        // arrived pre-filled with 80 / 40 / 12 whatever the drawing showed, and
+        // the download button handed over a seven-line STEP file and a
+        // twelve-triangle STL — a fabricated part, presented as the customer's
+        // own. That is the one place in this service where a *result* was
+        // invented, and everything else here exists to stop exactly that.
+        //
+        // So it stays, and says what it is. `isDemo` marks the order; the banner
+        // and the disabled downloads are keyed off it.
         const localOrderId = `local-${Date.now()}`;
         setOrderId(localOrderId);
         setOrder({
@@ -355,10 +372,14 @@ export default function Home() {
     setError("");
     try {
       if (!token) {
-        const blob = new Blob([localArtifactContents(artifact.type)], {
-          type: mediaTypeFor(artifact.type),
-        });
-        triggerDownload(blob, `kontur-model.${extensionFor(artifact.type)}`);
+        // The demonstration hands over nothing. What it would hand over is a
+        // box written into this file, and a file named `kontur-model.step` is
+        // indistinguishable from a real one once it is on somebody's disk — at
+        // which point nothing about it says it was never built from a drawing.
+        setError(
+          "Это демонстрация: модель не строилась, скачивать нечего. " +
+          "Для настоящего построения нужен доступ к сервису.",
+        );
         return;
       }
       const response = await fetch(`${API_URL}${artifact.download_url}`, {
@@ -676,6 +697,53 @@ export default function Home() {
               )}
             </div>
           </div>
+
+          {/*
+            An order that failed says so, with the reason.
+
+            Until the worker could report a failure, this state was unreachable:
+            a build that gave up left its job in PENDING, which reads as "waiting
+            to start" — forever, and identical to a queue with no worker on it.
+            The copy for FAILED has been in `statusCopy` all along with nothing
+            able to select it.
+
+            `waiting_reason` is shown for the same reason. The scheduler has been
+            explaining why an order is stuck since POSTMVP-003A, into a field
+            nothing rendered.
+          */}
+          {/*
+            Unmistakable, and above everything else the order shows. A visitor
+            with no token gets the flow and not a part, and the one thing that
+            must never be ambiguous is which of the two they are looking at.
+          */}
+          {order && !token && (
+            <div className="notice-card notice-demo" role="status">
+              <span className="eyebrow">Демонстрация</span>
+              <p>
+                Чертёж <strong>не отправлялся</strong> и модель <strong>не строилась</strong>.
+                Всё, что показано ниже, — пример того, как выглядит работа сервиса,
+                а не ваша деталь. Скачивание отключено.
+              </p>
+            </div>
+          )}
+
+          {order?.status === "FAILED" && (
+            <div className="notice-card notice-failed" role="alert">
+              <span className="eyebrow">Не удалось построить</span>
+              <p>{order.failure_message ?? "Сборка остановлена."}</p>
+              {order.failure_code && <code>{order.failure_code}</code>}
+              <p className="notice-hint">
+                Чертёж сохранён. Загрузите его снова или уточните размеры — повторять
+                автоматически мы уже пробовали.
+              </p>
+            </div>
+          )}
+          {order?.waiting_reason && order.status !== "FAILED" && (
+            <div className="notice-card notice-waiting">
+              <span className="eyebrow">Заказ ждёт</span>
+              <p>{order.waiting_reason}</p>
+            </div>
+          )}
 
           {order?.questions.length ? (
             <form className="clarification-card" onSubmit={submitAnswers}>

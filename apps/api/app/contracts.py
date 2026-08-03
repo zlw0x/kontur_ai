@@ -120,6 +120,35 @@ class JobStatus(StrEnum):
     PENDING = "PENDING"
     LEASED = "LEASED"
     COMPLETED = "COMPLETED"
+    #: The worker tried and stopped trying.
+    #:
+    #: Until this existed there was no way to say so. A build that failed went
+    #: back to PENDING, was re-leased up to `max_attempts`, and then sat there —
+    #: indistinguishable, from the outside and forever, from a job waiting for a
+    #: worker. The customer's page said "waiting to start" for the rest of time.
+    #:
+    #: A retry is still the first answer: this is the *end* of retrying, reported
+    #: by the worker once it has decided the next attempt would fail the same way.
+    FAILED = "FAILED"
+
+
+class JobFailureRequest(StrictModel):
+    """A worker saying why it stopped, in words the customer may be shown."""
+
+    job_id: UUID
+    #: The typed code the engine or the pipeline raised. The worker decides what
+    #: is worth reporting using its own `BuildFeedback` split — a code about the
+    #: document is repairable and has already been retried by the time this is
+    #: sent; a code about the machine never was.
+    code: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[A-Z][A-Z0-9_]*$")]
+    #: Safe text only. Everything the worker sends here can reach a browser, so it
+    #: carries no path, no host and no stack.
+    message: Annotated[str, Field(min_length=1, max_length=400)]
+
+
+class JobFailureAck(StrictModel):
+    job_id: UUID
+    status: JobStatus
 
 
 class OrderSnapshot(StrictModel):
@@ -166,6 +195,10 @@ class ClaimedJob(StrictModel):
     order_id: UUID
     job_type: JobType
     attempt: Annotated[int, Field(ge=1)]
+    #: How many attempts this job gets in total, so the worker can tell that the
+    #: one it is holding is the last. A bound written down on both sides is a
+    #: bound that eventually disagrees with itself.
+    max_attempts: Annotated[int, Field(ge=1)]
     idempotency_key: str
     lease_expires_at: datetime
     manifest_url: str

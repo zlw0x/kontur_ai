@@ -44,6 +44,10 @@ class JobRow(Base):
     lease_owner: Mapped[str | None] = mapped_column(ForeignKey("local_workers.id"))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     completed_key: Mapped[str | None] = mapped_column(String(80))
+    # Why the worker gave up. Nullable because most jobs never do, and because
+    # every row written before FAILED existed has no answer to give.
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    failure_message: Mapped[str | None] = mapped_column(String(400))
 
 
 class ArtifactRow(Base):

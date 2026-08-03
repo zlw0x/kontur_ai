@@ -302,7 +302,7 @@ public static class ClaimLoop
                 failures = 0;
                 if (claim?.job is not null)
                 {
-                    await ExecuteClaimedJobAsync(client, claim.job, paths, selected, cancellation);
+                    await RunClaimedJobAsync(client, claim.job, paths, selected, cancellation);
                     if (runOnce) return 0;
                 }
                 else if (runOnce) return 0;
@@ -318,6 +318,92 @@ public static class ClaimLoop
             }
         }
         return 0;
+    }
+
+    /// <summary>
+    /// Run a claimed job, and if it will not be tried again, say so.
+    /// </summary>
+    /// <remarks>
+    /// **A retry is the first answer, not this.** Most failures are worth another
+    /// attempt: a container that would not start, an interpreter missing for a
+    /// moment, a machine under load. Those raise, the lease lapses, and the API
+    /// hands the job to whoever claims next. That is working as intended and this
+    /// method leaves it alone.
+    ///
+    /// What was missing is the end of it. When retrying stopped helping, nothing
+    /// said so — the job returned to PENDING for the last time and stayed there.
+    /// The customer's page reads that as "waiting to start", and it is
+    /// indistinguishable, forever, from a queue with no worker on it. A build that
+    /// failed and a build that has not begun looked exactly alike.
+    ///
+    /// Two cases end it, and both are decided from what is already known:
+    ///
+    /// **The failure is about the document.** `BuildFeedback` classifies those,
+    /// and by the time one reaches here the build-repair loop has already rewritten
+    /// the document twice and been refused twice. A fresh attempt re-runs the same
+    /// model calls on the same drawing and arrives at the same place, on somebody's
+    /// order. Reporting it is both truer and cheaper.
+    ///
+    /// **It was the last permitted attempt.** `max_attempts` now travels with the
+    /// claim precisely so this does not have to be a number written down twice.
+    ///
+    /// Anything else is left to lapse, unchanged.
+    ///
+    /// Reporting is itself allowed to fail, and quietly: the lease is the fallback
+    /// and it still works. Turning "the build failed and so did telling you about
+    /// it" into a crash would take out the claim loop for every later job.
+    ///
+    /// **A failed job is not a failed worker**, and it used to be. The claim loop
+    /// rethrows `WorkerException`, so a build that refused a document did not go
+    /// into the backoff — it ended `cad-worker run`, and the machine stopped taking
+    /// orders until somebody noticed. One customer's bad drawing took the queue
+    /// down. Handled here, so the loop goes on to the next job. Failures that are
+    /// about the *worker* rather than the job — a rejected credential — are raised
+    /// before a job is ever claimed and still stop it.
+    /// </remarks>
+    private static async Task RunClaimedJobAsync(
+        HttpClient client,
+        ClaimedJob job,
+        WorkerPaths paths,
+        WorkerEngine.EngineSelection selected,
+        CancellationToken cancellation)
+    {
+        try
+        {
+            await ExecuteClaimedJobAsync(client, job, paths, selected, cancellation);
+        }
+        catch (WorkerException error)
+        {
+            if (BuildFeedback.IsRepairable(error.Code) || job.attempt >= job.max_attempts)
+                await TryReportFailureAsync(client, job, error.Code, error.SafeMessage, cancellation);
+            Console.Error.WriteLine(
+                $"job {job.job_id} attempt {job.attempt}/{job.max_attempts} failed: {error.Code}");
+        }
+    }
+
+    /// <summary>Tell the API the job is over, or fail silently trying.</summary>
+    private static async Task TryReportFailureAsync(
+        HttpClient client,
+        ClaimedJob job,
+        string code,
+        string message,
+        CancellationToken cancellation)
+    {
+        try
+        {
+            using var response = await client.PostAsJsonAsync(
+                $"/api/v1/workers/jobs/{job.job_id}/fail",
+                new { job_id = job.job_id, code, message },
+                cancellation);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch
+        {
+            // The lease still expires and the job still stops being ours. Losing
+            // the reason is worse than not having it; losing the claim loop is
+            // worse than both.
+        }
     }
 
     /// <summary>
@@ -547,6 +633,7 @@ public static class ClaimLoop
         string job_id,
         string job_type,
         int attempt,
+        int max_attempts,
         string idempotency_key,
         string manifest_url);
     private sealed record JobManifest(

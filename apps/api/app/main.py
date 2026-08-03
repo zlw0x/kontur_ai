@@ -28,6 +28,8 @@ from .contracts import (
     WorkerClaimResponse,
     JobCompletionAck,
     JobCompletionRequest,
+    JobFailureAck,
+    JobFailureRequest,
     JobHeartbeatRequest,
     WorkerHeartbeatRequest,
     WorkerRegistrationRequest,
@@ -223,6 +225,12 @@ def claim_worker_job(request: WorkerClaimRequest, authorization: str | None = He
         return WorkerClaimResponse(protocol_version="1.0", job=None, retry_after_seconds=5)
     return WorkerClaimResponse(protocol_version="1.0", job={
         "job_id": job.id, "order_id": job.order_id, "job_type": job.job_type, "attempt": job.attempt,
+        # The worker needs to know when it is holding the last permitted attempt.
+        # Without it, "there will be no retry after this one" has to be a number
+        # written down on both sides, and two copies of a bound is how one of them
+        # drifts. A worker that knows says FAILED instead of letting the lease
+        # lapse into a job nobody will pick up again.
+        "max_attempts": job.max_attempts,
         "idempotency_key": job.idempotency_key, "lease_expires_at": job.lease_expires_at,
         "manifest_url": f"/api/v1/workers/jobs/{job.id}/manifest",
         "required_output_schema": f"cad-ir/{job.required_cad_ir}",
@@ -387,6 +395,10 @@ def get_drawing_job(
         raise HTTPException(status_code=404, detail="drawing order was not found")
     job_id = tracking["latest_job_id"]
     job = worker_protocol.get_job(job_id)
+    if job is None:
+        # The tracking file outlived the job row. A 500 here told the customer
+        # nothing and told us it was our fault, which is only half true.
+        raise HTTPException(status_code=404, detail="drawing order was not found")
     artifacts = worker_protocol.get_artifacts(job_id)
     questions = []
     if any(item["type"].upper() == "CLARIFICATION_QUESTIONS" for item in artifacts):
@@ -404,10 +416,10 @@ def get_drawing_job(
         else job.status.value
     )
     # Only while the order is genuinely waiting on the scheduler. Once it is
-    # ready or the user has been asked something, the ball is not here.
+    # ready, failed, or the user has been asked something, the ball is not here.
     waiting_reason = (
         scheduler_diagnostics().report(job).summary
-        if status not in ("READY", "WAITING_FOR_USER_ANSWERS")
+        if status not in ("READY", "WAITING_FOR_USER_ANSWERS", "FAILED")
         else None
     )
     return {
@@ -415,6 +427,11 @@ def get_drawing_job(
         "job_id": str(job_id),
         "status": status,
         "waiting_reason": waiting_reason,
+        # Present only on a failure, and safe to show: the worker sends a typed
+        # code and text it has already stripped of paths and hosts. A FAILED with
+        # no reason would be barely better than the silence it replaces.
+        "failure_code": job.failure_code if status == "FAILED" else None,
+        "failure_message": job.failure_message if status == "FAILED" else None,
         "round": tracking["round"],
         "questions": questions,
         "artifacts": [
@@ -702,6 +719,29 @@ def record_resource_events(
     worker_protocol.get_owned_active_job(worker, job_id)
     accepted, duplicates = resource_ledger.record(job_id, request.events)
     return ResourceEventBatchAck(job_id=job_id, accepted=accepted, duplicates=duplicates)
+
+
+@app.post("/api/v1/workers/jobs/{job_id}/fail", response_model=JobFailureAck)
+def fail_job(job_id: uuid.UUID, request: JobFailureRequest, authorization: str | None = Header(default=None)) -> JobFailureAck:
+    """A worker reporting that it has stopped trying, and why.
+
+    The counterpart to `complete`, and it did not exist. A build that failed
+    raised out of the worker's job handler, was swallowed into a backoff, lost its
+    lease, and came back round to be tried again — up to `max_attempts` and then
+    never again, sitting in PENDING for the rest of time. From the customer's page
+    that is "waiting to start", forever, with no way to tell it from a queue with
+    no worker on it.
+
+    Retrying stays the first answer. This is the *end* of retrying: the worker
+    sends it once it has decided the next attempt would fail the same way, using
+    the split it already makes between a failure about the document and one about
+    the machine.
+    """
+    if request.job_id != job_id:
+        raise HTTPException(status_code=400, detail="job_id path/body mismatch")
+    worker = authenticated_bearer(authorization)
+    job = worker_protocol.fail(worker, job_id, request.code, request.message)
+    return JobFailureAck(job_id=job_id, status=job.status)
 
 
 @app.post("/api/v1/workers/jobs/{job_id}/complete", response_model=JobCompletionAck)
