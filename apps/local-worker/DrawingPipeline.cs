@@ -40,6 +40,18 @@ public sealed class DrawingPipeline(
     private readonly ICadDocumentEngine? engine = engine;
 
     private readonly IReadOnlyCollection<string> disabled = disabledCapabilities ?? [];
+
+    /// <summary>What this pipeline will check the generated document against.</summary>
+    /// <remarks>
+    /// Exposed only so a test can see what a caller assembled. The claim loop once
+    /// assembled one with no engine, which turned every check above into a no-op
+    /// for online orders and was invisible to every test, because each test
+    /// supplies an engine of its own.
+    /// </remarks>
+    internal ICadDocumentEngine? ValidatingEngine => this.engine;
+
+    /// <summary>The operator's disabled capabilities, as this pipeline received them.</summary>
+    internal IReadOnlyCollection<string> DisabledCapabilities => this.disabled;
     /// <summary>
     /// Identifies the prompt text a run used. Token counts are only comparable
     /// between jobs that were asked the same question, so the version travels

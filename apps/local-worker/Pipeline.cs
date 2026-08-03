@@ -320,6 +320,41 @@ public static class ClaimLoop
         return 0;
     }
 
+    /// <summary>
+    /// The pipeline a claimed drawing job runs, with everything that checks it.
+    /// </summary>
+    /// <remarks>
+    /// Split out because leaving it inline is how it went wrong. The claim loop
+    /// built a <see cref="DrawingPipeline"/> with no engine and no feature flags,
+    /// and <c>ValidateAsync</c> opens with `if (engine is null) return;` — whose
+    /// own comment says a missing engine "is only ever the case in a test: every
+    /// real path passes one in". The claim loop is a real path, and it was the
+    /// one that did not.
+    ///
+    /// Silently, and for every online order: no trusted semantic gate over the
+    /// generated document, **no shape claim check at all** — the whole of
+    /// POSTMVP-015, twelve holes against six, a solid block against a housing —
+    /// no compile-stage repair loop, and operator feature flags not applied. All
+    /// of it worked when the same drawing went through `analyze-drawing` by hand,
+    /// which is why nine acceptance runs never saw it.
+    ///
+    /// The engine was already at the call site: the line below passes
+    /// `selected.Engine` to the build. Only the check was missing it.
+    ///
+    /// Assembled here rather than inline so a test can assert what an online job
+    /// is given, which is the thing no test could see before — every existing one
+    /// hands the pipeline a stub engine of its own and is therefore blind to the
+    /// wiring.
+    /// </remarks>
+    internal static DrawingPipeline CreateDrawingPipeline(
+        WorkerPaths paths,
+        WorkerEngine.EngineSelection selected,
+        ResourceLedger ledger) =>
+        new(new CadAi.CodexRunner.LocalCodexRunner(),
+            ledger: ledger,
+            engine: selected.Engine,
+            disabledCapabilities: [.. FeatureFlags.Load(paths).Disabled]);
+
     private static async Task ExecuteClaimedJobAsync(
         HttpClient client,
         ClaimedJob job,
@@ -379,8 +414,7 @@ public static class ClaimLoop
                     .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
                 var answersPath = Path.Combine(jobPath, "context", "user-answers.json");
-                var pipeline = new DrawingPipeline(
-                    new CadAi.CodexRunner.LocalCodexRunner(), ledger: ledger);
+                var pipeline = CreateDrawingPipeline(paths, selected, ledger);
                 var drawing = await pipeline.RunAsync(
                     jobPath,
                     images,
