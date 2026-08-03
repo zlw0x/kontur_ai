@@ -45,7 +45,7 @@ public sealed class DrawingPipeline(
     /// between jobs that were asked the same question, so the version travels
     /// with every AI measurement.
     /// </summary>
-    internal const string PromptVersion = "drawing-mvp-4";
+    internal const string PromptVersion = "drawing-mvp-5";
 
     /// <summary>
     /// The version the prompt asks for, taken from the one place that declares it.
@@ -424,6 +424,13 @@ public sealed class DrawingPipeline(
         Identifiers are lower-case and readable and must match ^[a-z][a-z0-9_.-]{1,63}$ — for example
         param.width, feature.base, sketch.base, body.main. Never invent random identifiers.
 
+        Two parameter ids are NOT yours to choose. Where the analysis names
+        "shape.thickness_parameter" or "shape.wall_parameter", the "parameters" array must contain a
+        parameter with exactly that id, holding exactly that dimension. Copy the id character for
+        character; do not rename it, prefix it, or spell it your own way. The analysis said what the
+        drawing was read as, and those two ids are how the reading and this document say they mean the
+        same thickness. Everything else you name yourself.
+
         A sketch is {"id", "plane", "outer", "inner", "construction"}. "plane" is
         {"on":"base","plane":"XY"}. "outer" is one closed contour and "inner" is the list of islands
         inside it; both lists are always present, empty when there is nothing in them. A contour is one of:
@@ -543,7 +550,9 @@ public sealed class DrawingPipeline(
         Repair the CAD-IR candidate below so it passes the supplied CAD-IR {{CadIrVersion}} output schema and the trusted
         adapter. Return the complete corrected CAD-IR JSON, not a patch. Preserve every confirmed and
         user-provided numeric value exactly. Do not weaken expectations, change schema or schema_version,
-        use tools, emit code, or add unsupported features. Allowed geometry is one XY "solid.extrude"
+        use tools, emit code, or add unsupported features. Where the analysis names shape.thickness_parameter or
+        shape.wall_parameter, keep a parameter with exactly that id: those two ids are how the reading and
+        this document say they mean the same dimension, and renaming one is what the claim refuses. Allowed geometry is one XY "solid.extrude"
         producing body.main, followed by XY "cut.extrude" features with direction "+Z", through_all true and
         source_body {"result":"body.main"}. A sketch is {"id","plane","outer","inner","construction"} with
         plane {"on":"base","plane":"XY"}; a contour is a rectangle, circle, slot, regular_polygon, or a path
