@@ -16,9 +16,13 @@ Three findings, in descending order of how much they matter:
 
 1. The Codex child inherited **the worker's own stdin**, so anything on it went
    into the prompt. Fixed in this pass (`35742c7`).
-2. Three of five declared parameters in run 5's document **drive nothing**, and
-   no check can see it, because size expectations are derived from the geometry
-   rather than from the parameters. Recorded, not fixed.
+2. Three of five declared parameters in run 5's document **drive nothing**. The
+   drawing's number arrives from the reading stage with a citation to the
+   callout, and the geometry ignores it and writes its own literal — so the copy
+   with the best provenance is the one nothing checks. The check for it was
+   written and reverted: a canonical `Scalar` has no arithmetic, so a diameter
+   cannot drive a radius and a parameter cannot drive a symmetric pair. The
+   blocker is the contract, not the effort.
 3. An operation can be offered, readable and **unnecessary** — a fourth kind of
    wall, alongside ADR-029's dialect, claim and vision.
 
@@ -392,23 +396,93 @@ valid: true
   positive_volume  38855.2179 mm3.
 ```
 
-Every check passes on a document that says the part is Ø100 and delivers Ø80,
-because **the expectation is derived from the geometry, not from the parameter.**
+Every check passes on a document that says the part is Ø100 and delivers Ø80 —
+which is what changing a parameter that drives nothing is *supposed* to do, and is
+the point rather than the surprise.
 
-The forward case is harmless — the drawing said Ø80 and the customer gets Ø80. The
-reverse case is not. Suppose the reading is right, `outer_diameter` is 80, and the
-compilation writes `radius: 35` by slip. The part comes out Ø70, the document
-still says 80, and **nothing catches it**: the bounding-box expectation is
-computed from the same literal 35 that built the part. The size checks find engine
-faults — the winding, the unit scale, the seam — and are blind to a compilation
-whose parameters and contours disagree.
+### Where each copy of "80" comes from
 
-The cheap enforceable half is a check in trusted code: **a document may not
-declare a parameter that nothing references.** It does not make the model put the
-right parameter in the right place, but it ends the split where a number is stated
-twice and only one copy matters. Recorded here; not implemented in this pass,
-because it is a contract change and these runs are the evidence for it rather than
-the place to make it.
+The document states the flange's outer size three times, and the three have
+different authors:
+
+| where | value | written by |
+|---|---|---|
+| `parameters[outer_diameter]` | 80 | the **reading** stage, carried into the document — its analysis records `"source": "Ø80 diameter callout"` |
+| `sketch.outer.radius` | 40 | the **compilation** stage, as a literal |
+| `expectations[bounding_box].size_mm.x` | 80 | the compilation stage, again as a literal |
+
+So the bounding-box expectation is not derived from the geometry — it is an
+independent restatement. That is worth knowing, because it means a compilation that
+slips in the contour alone *is* caught: `radius: 35` against an expectation of 80
+gives a part measured at Ø70 and a failed check.
+
+**The gap is that the two surviving copies share an author.** The contour and the
+expectation are written by the same model call in the same sitting, so a slip that
+lands in both agrees with itself — the pattern named in run 1, a check whose two
+sides come from one author. Meanwhile the copy that came from somewhere else, the
+parameter the *reading* stage put there with a citation to the callout, is compared
+against nothing at all.
+
+### So the fix is not "unused parameters are untidy"
+
+It is that the number with the best provenance is the one being ignored. Make the
+geometry **reference** the parameter instead of restating it, and the slip becomes
+unrepresentable: there is no second copy to get wrong, and the drawing's own number
+is what the kernel receives.
+
+The obvious enforceable half is small and lives in trusted code: **a document may
+not declare a dimensional parameter that nothing references.** It was written,
+measured against everything in the repository, and then **reverted** — because
+measuring it found the actual blocker, which is one layer down.
+
+### Why the check cannot ship: canonical scalars have no arithmetic
+
+The rule was implemented in `_parameter_issues` as `PARAMETER_DRIVES_NOTHING`,
+restricted to `length` and `angle` parameters — a `count` records something no
+contour can be driven by, and refusing that would punish the honest act of
+carrying the drawing's hole count. On the real flange document it named exactly
+the three parameters found by hand.
+
+It also refused four of the ten canonical fixtures, and **the reason each one
+fails is the same one**:
+
+| parameter | value | what the geometry needs |
+|---|---|---|
+| `outer_diameter` | 80 | the contour takes a **radius**, 40 |
+| `hole_diameter` | 6 | radius 3 |
+| `hole_pcd` | 60 | centres at 30, and at 15 / 25.98 |
+| `param.cap_radius` (lever-plate) | 15 | y = **+15 and −15**, a symmetric outline |
+| `param.length` (lever-plate) | 80 | nothing — it is 2 × (25 + 15), derived |
+
+A `Scalar` is `float | ParameterRef`. There is no negation and no expression, so a
+parameter can drive a **magnitude** and cannot drive a *half* of one, a *negative*
+of one, or a *trigonometric function* of one. Version 0.1.0 had `{"expr":
+"p_depth"}`; the canonical form replaced expressions with plain references, and
+that trade is why a diameter cannot drive a radius.
+
+So the parameters are not unused through carelessness. **They are unused because
+the contract gives them nowhere to go.** Shipping the check would force one of two
+worse documents: delete a dimension that was read off the drawing with a citation,
+or reference the parameter on one side of a symmetric outline and a literal on the
+other.
+
+One case resolves cleanly and is worth separating out. `param.length` = 80 is
+already stated where it is actually *checked* — `expectations.bounding_box.x` =
+80.0, compared against the built part. An **overall** dimension belongs in an
+expectation, not in a parameter nothing consumes; that copy is redundant rather
+than blocked.
+
+### What would unblock it
+
+A `Scalar` that can carry arithmetic over parameters — at minimum negation and
+division by a constant, which covers diameter-to-radius and symmetry, the two that
+account for most of the table. That is a CAD-IR version, an evaluator in trusted
+code, and a decision about how much expression language is safe to accept from a
+model. These runs are the evidence for it and not the place to do it.
+
+Until then the position is: the finding stands, the check is correct in principle,
+and it is **blocked by the contract rather than by effort**. Recording which of
+those it is was the point of trying.
 
 ---
 
