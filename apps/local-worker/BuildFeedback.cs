@@ -77,6 +77,20 @@ internal static class BuildFeedback
             "UNSUPPORTED_FEATURE_SET",
             "FEATURE_RESULT_UNAVAILABLE",
             "PARAMETER_UNRESOLVED",
+
+            // A dimension the document states that nothing builds with
+            // (CAD-IR 1.11, ADR-034). Repairable in the most literal sense: the
+            // fix is to reference the parameter from the geometry that should
+            // have used it, or to stop declaring it — both of which are edits to
+            // the document and to nothing else.
+            //
+            // Classified here after a real run needed it. The rule shipped, a
+            // bushing document was refused by it, and the loop did nothing:
+            // an unclassified code is not repairable by design, so the job
+            // neither healed nor failed, it simply waited to be tried again. The
+            // safe default is right and it is not free — a new code costs
+            // somebody a decision.
+            "PARAMETER_DRIVES_NOTHING",
         };
 
     /// <summary>Can the compiling agent do anything about this?</summary>

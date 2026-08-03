@@ -36,6 +36,11 @@ public sealed class BuildFeedbackTests
     [InlineData("SKETCH_NOT_CLOSED")]
     [InlineData("DIMENSION_DISAGREES_WITH_GEOMETRY")]
     [InlineData("CONSTRAINT_NOT_SATISFIED")]
+    // A dimension the document states and nothing builds with. Classified after a
+    // real order needed it: the rule shipped, a document was refused by it, and
+    // the loop did nothing at all — an unclassified code is not repairable, so
+    // the job neither healed nor failed.
+    [InlineData("PARAMETER_DRIVES_NOTHING")]
     public void AFailureAboutTheDocumentGoesBackToBeRewritten(string code)
     {
         Assert.True(BuildFeedback.IsRepairable(Failure(code)));
