@@ -62,7 +62,7 @@ public sealed class DrawingPipeline(
     /// between jobs that were asked the same question, so the version travels
     /// with every AI measurement.
     /// </summary>
-    internal const string PromptVersion = "drawing-mvp-7";
+    internal const string PromptVersion = "drawing-mvp-8";
 
     /// <summary>
     /// The version the prompt asks for, taken from the one place that declares it.
@@ -514,6 +514,10 @@ public sealed class DrawingPipeline(
                            all four corners is one entry, fillet, count 4; a "2x45" on a bore rim is one
                            entry, chamfer, count 1. Empty when the drawing marks none.
           note             what the outline is, in words, when profile is closed_profile.
+          steps            how many DISTINCT OUTSIDE SIZES the part has along its axis, off the section.
+                           A plain plate or cylinder is 1. A flanged bushing is 2. A flange, a body and a
+                           reduced nose is 3. Count outside sizes, not features and not diameters you can
+                           see through. Null when the drawing does not settle it.
 
         Extract every dimension in millimetres. Never invent a missing one. A directly legible dimension is
         confirmed; a geometric consequence may be inferred; everything else is unresolved.
@@ -793,6 +797,12 @@ public sealed class DrawingPipeline(
             if (shape.TryGetProperty("wall_parameter", out var wall) &&
                 wall.ValueKind == JsonValueKind.String)
                 claim["wall"] = wall.GetString();
+            // A count the reader could not settle stays absent rather than
+            // arriving as 1, which would say "this part is not stepped" on behalf
+            // of somebody who did not look.
+            if (shape.TryGetProperty("steps", out var steps) &&
+                steps.ValueKind == JsonValueKind.Number)
+                claim["steps"] = steps.GetInt32();
             if (shape.TryGetProperty("blends", out var blends) &&
                 blends.ValueKind == JsonValueKind.Array && blends.GetArrayLength() > 0)
                 claim["blends"] = blends.EnumerateArray().Select(item => new

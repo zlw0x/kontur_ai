@@ -2,33 +2,114 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cad.example.com/schemas/drawing-analysis/0.1.0",
   "type": "object",
-  "required": ["schema_version", "stage", "status", "confidence", "warnings", "result"],
+  "required": [
+    "schema_version",
+    "stage",
+    "status",
+    "confidence",
+    "warnings",
+    "result"
+  ],
   "properties": {
-    "schema_version": {"type": "string", "const": "0.1.0"},
-    "stage": {"type": "string", "const": "drawing_analysis"},
-    "status": {"type": "string", "enum": ["success", "need_user_input", "manual_review", "failed"]},
-    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-    "warnings": {"type": "array", "items": {"type": "string"}},
+    "schema_version": {
+      "type": "string",
+      "const": "0.1.0"
+    },
+    "stage": {
+      "type": "string",
+      "const": "drawing_analysis"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "need_user_input",
+        "manual_review",
+        "failed"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "result": {
       "type": "object",
-      "required": ["ready_for_cad", "summary", "parameters", "shape", "questions"],
+      "required": [
+        "ready_for_cad",
+        "summary",
+        "parameters",
+        "shape",
+        "questions"
+      ],
       "properties": {
-        "ready_for_cad": {"type": "boolean"},
-        "summary": {"type": "string", "maxLength": 2000},
+        "ready_for_cad": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 2000
+        },
         "parameters": {
           "type": "array",
           "maxItems": 50,
           "items": {
             "type": "object",
-            "required": ["id", "name", "value", "unit", "status", "confidence", "source"],
+            "required": [
+              "id",
+              "name",
+              "value",
+              "unit",
+              "status",
+              "confidence",
+              "source"
+            ],
             "properties": {
-              "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"},
-              "name": {"type": "string", "maxLength": 200},
-              "value": {"type": ["number", "null"]},
-              "unit": {"type": "string", "enum": ["mm", "deg", "count"]},
-              "status": {"type": "string", "enum": ["confirmed", "inferred", "unresolved"]},
-              "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-              "source": {"type": "string", "maxLength": 500}
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "mm",
+                  "deg",
+                  "count"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "confirmed",
+                  "inferred",
+                  "unresolved"
+                ]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 500
+              }
             },
             "additionalProperties": false
           }
@@ -36,12 +117,27 @@
         "shape": {
           "type": "object",
           "description": "What the part is, structurally: the outline, the openings, how many solids and which parameter is the thickness. Never where anything is - coordinates are the compilation stage's job. This is checked against the compiled CAD-IR by trusted code, so a misread outline is caught before a valid document that builds the wrong part reaches anyone.",
-          "required": ["profile", "openings", "solids", "thickness_parameter", "wall_parameter", "blends", "note"],
+          "required": [
+            "blends",
+            "note",
+            "openings",
+            "profile",
+            "solids",
+            "steps",
+            "thickness_parameter",
+            "wall_parameter"
+          ],
           "properties": {
             "profile": {
               "type": "string",
               "description": "The outline of the part. Use closed_profile when the outline is not one of the named shapes; never pick the nearest named one.",
-              "enum": ["rectangle", "circle", "slot", "regular_polygon", "closed_profile"]
+              "enum": [
+                "rectangle",
+                "circle",
+                "slot",
+                "regular_polygon",
+                "closed_profile"
+              ]
             },
             "openings": {
               "type": "array",
@@ -49,15 +145,32 @@
               "description": "Holes and cut-outs, grouped by the shape of the opening and by whether they go through. Count every one the drawing shows. Empty when the part has none.",
               "items": {
                 "type": "object",
-                "required": ["kind", "count", "through"],
+                "required": [
+                  "kind",
+                  "count",
+                  "through"
+                ],
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "enum": ["round", "slot", "rectangular", "polygonal", "profiled"]
+                    "enum": [
+                      "round",
+                      "slot",
+                      "rectangular",
+                      "polygonal",
+                      "profiled"
+                    ]
                   },
-                  "count": {"type": "integer", "minimum": 1, "maximum": 1000},
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
                   "through": {
-                    "type": ["boolean", "null"],
+                    "type": [
+                      "boolean",
+                      "null"
+                    ],
                     "description": "true when the drawing shows these going all the way through, false when they stop inside the material, null when it does not say. Guessing is worse than null: a depth nobody stated is the one thing no later check can recover."
                   }
                 },
@@ -71,12 +184,18 @@
               "description": "How many separate solid bodies of material the part is made of: one for a plain plate, two for a plate with a boss standing on it."
             },
             "thickness_parameter": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "maxLength": 64,
               "description": "The id of the parameter above that holds the part's depth, or null when the drawing does not give one. Naming it is what keeps the dimension a name rather than a number."
             },
             "wall_parameter": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "maxLength": 64,
               "description": "The id of the parameter holding the wall thickness when the part is hollow - a box, a housing, a cover with a wall rather than solid material - and null when it is solid or the drawing does not say. A hollow part and a solid one of the same size agree on every other field here and differ by several times the material, so this is the only thing that catches a part built solid."
             },
@@ -86,18 +205,43 @@
               "description": "Rounded and chamfered edges the drawing marks, grouped by kind and counted. A corner radius note that applies to all four corners is one entry with count 4. Empty when the drawing marks none.",
               "items": {
                 "type": "object",
-                "required": ["kind", "count"],
+                "required": [
+                  "kind",
+                  "count"
+                ],
                 "properties": {
-                  "kind": {"type": "string", "enum": ["fillet", "chamfer"]},
-                  "count": {"type": "integer", "minimum": 1, "maximum": 1000}
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fillet",
+                      "chamfer"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
                 },
                 "additionalProperties": false
               }
             },
             "note": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "maxLength": 500,
               "description": "What the outline is, in words, when profile is closed_profile. Read by a person, never by a check."
+            },
+            "steps": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 32,
+              "description": "How many distinct outside sizes the part has along its axis, read off a sectional view. A plain plate or cylinder is 1; a flanged bushing is 2; a bushing with a flange and a reduced nose is 3. Null when the drawing does not settle it - silence agrees with whatever gets built. A count, never a size."
             }
           },
           "additionalProperties": false
@@ -107,23 +251,41 @@
           "maxItems": 10,
           "items": {
             "type": "object",
-            "required": ["id", "parameter_id", "text", "answer_kind", "choices"],
+            "required": [
+              "id",
+              "parameter_id",
+              "text",
+              "answer_kind",
+              "choices"
+            ],
             "properties": {
-              "id": {"type": "string", "pattern": "^q_[A-Za-z0-9_.-]{1,61}$"},
+              "id": {
+                "type": "string",
+                "pattern": "^q_[A-Za-z0-9_.-]{1,61}$"
+              },
               "parameter_id": {
                 "type": "string",
                 "description": "The parameter this question is about, or the literal \"shape\" when the question is about the outline or the openings rather than a number."
               },
-              "text": {"type": "string", "maxLength": 500},
+              "text": {
+                "type": "string",
+                "maxLength": 500
+              },
               "answer_kind": {
                 "type": "string",
-                "enum": ["number", "choice"],
+                "enum": [
+                  "number",
+                  "choice"
+                ],
                 "description": "What an answer to this question is. A question the reading stage can ask but the customer cannot answer is a dead end, and until this existed every question was rendered as a number field with a mm suffix — so \"is this opening through or blind?\" had no answer that would be accepted. Ask one question per value: two numbers are two questions, not one answer."
               },
               "choices": {
                 "type": "array",
                 "maxItems": 5,
-                "items": {"type": "string", "maxLength": 120},
+                "items": {
+                  "type": "string",
+                  "maxLength": 120
+                },
                 "description": "The answers offered, for answer_kind \"choice\". Empty for \"number\". Required rather than optional because the Codex dialect has no optional properties (ADR-029 rule 4); an empty array is how a number question says it offers none."
               }
             },
