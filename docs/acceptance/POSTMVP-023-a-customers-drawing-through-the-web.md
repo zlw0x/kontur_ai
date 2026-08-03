@@ -113,6 +113,46 @@ model call, a build repair is a model call plus a container start and a kernel
 run. Three because this order needed all three, and stopping at two is the most
 expensive place to stop — everything paid for and nothing delivered.
 
+## Run D — three repairs, and the claim earns its keep
+
+With `MaxCompileRepairs = 3` the loop used all three, and what it did with them is
+the clearest illustration of the layering this service is built on.
+
+| | |
+|---|---|
+| compilation | 3 features — refused, `PARAMETER_DRIVES_NOTHING` |
+| repair 1 | 5 features — refused, `FEATURE_DEPENDENCY_MISSING` |
+| repair 2 | 5 features — **canonically valid, and it builds** |
+| repair 3 | 2 features — refused, `PARAMETER_DRIVES_NOTHING` |
+
+Repair 2 is worth stopping on. Run it through the engine alone and it comes back
+`COMPLETED`: bounding box [44, 44, 44], genus 1 by both the B-rep and the mesh, a
+closed manifold, 60130.0834 mm³. A document that passes the trusted gate and
+builds a valid solid.
+
+The claim refused it:
+
+```text
+SOLID_COUNT     claimed 2, built 1
+OPENING_COUNT   claimed 1 through round, built 4 through round
+```
+
+Three of its five features are named `*_reference_cut`. The model had been told
+every dimension must drive something, could not find geometry for three of them,
+and cut holes to use them up — the same evasion as run C's construction circles,
+in a form the parameter rule cannot see because a cut is real geometry.
+
+**And the claim caught it, which is exactly the division of labour.** The
+validator asks whether the document is coherent; the claim asks whether it is the
+part somebody read off the drawing. A part with four openings where the reading
+saw one is not that part, however well it builds.
+
+So the loop was right to spend the third attempt, and there is no defect here. It
+was briefly recorded as one — `run-job` does not check the claim, so building
+repair 2 by hand succeeded and looked like a good document thrown away. It is not:
+`ValidateAsync` checks the claim and `run-job` does not, and the difference is the
+whole point of the claim existing.
+
 ## Where the drawing stands
 
 Yesterday it produced a Ø88 cylinder with every check green. Today the cycle
