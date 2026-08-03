@@ -183,7 +183,7 @@ public sealed class ResourceLedgerTests
             var image = CreateImagePlaceholder(workspace);
             var ledger = new ResourceLedger("job-1");
             var valid = await File.ReadAllTextAsync(
-                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_10.json"));
+                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
             var runner = new FakeRunner(ReadyAnalysis(), valid);
 
             var result = await new DrawingPipeline(runner, ledger: ledger, engine: new StubValidatingEngine()).RunAsync(workspace, [image]);
@@ -218,7 +218,7 @@ public sealed class ResourceLedgerTests
             var image = CreateImagePlaceholder(workspace);
             var ledger = new ResourceLedger("job-1");
             var valid = await File.ReadAllTextAsync(
-                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_10.json"));
+                Path.Combine(FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
             var invalid = valid.Replace(
                 @"""type"": ""solid.extrude""", @"""type"": ""cut.extrude""", StringComparison.Ordinal);
             var runner = new FakeRunner(ReadyAnalysis(), invalid, valid);

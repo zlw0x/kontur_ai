@@ -88,7 +88,7 @@ def codes(report) -> set[ClaimBlockerCode]:
 
 
 def test_capability_versions_compare_numerically_not_alphabetically():
-    assert capability_version_tuple("1.10") > capability_version_tuple("1.9")
+    assert capability_version_tuple("1.11") > capability_version_tuple("1.9")
     assert capability_version_tuple("2") > capability_version_tuple("1.99.99")
     assert capability_version_tuple("1.0") == capability_version_tuple("1.0.0")
 
@@ -111,7 +111,7 @@ def test_requirement_matching_covers_maturity_and_version():
         name=SOLID_RECTANGULAR_PRISM, stability=CapabilityStatus.BETA, min_version="1.2"
     )
     assert requirement.satisfied_by(CapabilityDeclaration(status="stable", version="1.2"))
-    assert requirement.satisfied_by(CapabilityDeclaration(status="beta", version="1.10"))
+    assert requirement.satisfied_by(CapabilityDeclaration(status="beta", version="1.11"))
     assert not requirement.satisfied_by(CapabilityDeclaration(status="beta", version="1.1"))
     assert not requirement.satisfied_by(CapabilityDeclaration(status="experimental", version="9.0"))
     assert not requirement.satisfied_by(CapabilityDeclaration(status="disabled", version="9.0"))

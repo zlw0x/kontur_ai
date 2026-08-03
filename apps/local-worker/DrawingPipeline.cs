@@ -62,7 +62,7 @@ public sealed class DrawingPipeline(
     /// between jobs that were asked the same question, so the version travels
     /// with every AI measurement.
     /// </summary>
-    internal const string PromptVersion = "drawing-mvp-6";
+    internal const string PromptVersion = "drawing-mvp-7";
 
     /// <summary>
     /// The version the prompt asks for, taken from the one place that declares it.
@@ -640,9 +640,21 @@ public sealed class DrawingPipeline(
         them, and counting it would fail a check that measures the finished solid.
 
         Every parameter is {"id","type":"length","value","unit":"mm","status"} and may carry
-        "provenance":{"confidence"}. There is no expression language: a numeric slot is either a
-        number or {"parameter":"param.something"}. Create an explicit positive radius parameter for every
-        hole and reference it; never put arithmetic anywhere.
+        "provenance":{"confidence"}.
+
+        State each dimension the drawing gives ONCE, as a parameter holding exactly the number that is
+        written on the drawing, and let the geometry reference it. A numeric slot is one of:
+          a number
+          {"parameter":"param.something"}
+          {"divide":<slot>,"by":<number>}     the slot, divided by a constant
+          {"negate":<slot>}                   the same slot, with the opposite sign
+        A drawing that says "Ø44" gives you outer_diameter = 44, and the contour's radius is then
+        {"divide":{"parameter":"param.outer_diameter"},"by":2} - never a second parameter holding 22, and
+        never the literal 22. The opposite side of a symmetric outline is {"negate":...} of the same slot,
+        not a second number. There is no other arithmetic: no multiplication, no addition, no sine.
+
+        Every length or angle parameter you declare MUST be referenced by some feature. A parameter nothing
+        references is refused: it means the number you read off the drawing is not the number being built.
 
         Expectations must include a bounding_box with size_mm {x,y,z} and a non-negative tolerance_mm
         (use 0 when exact), a body_count of 1, and a through_hole_count. Expectations describe what the
@@ -680,8 +692,9 @@ public sealed class DrawingPipeline(
         producing body.main, followed by XY "cut.extrude" features with direction "+Z", through_all true and
         source_body {"result":"body.main"}. A sketch is {"id","plane","outer","inner","construction"} with
         plane {"on":"base","plane":"XY"}; a contour is a rectangle, circle, slot, regular_polygon, or a path
-        of line and arc segments that closes exactly. There is no expression language: a numeric slot is a
-        number or {"parameter":"..."}. Keep metadata.prompt_version exactly as it is.
+        of line and arc segments that closes exactly. A numeric slot is a number, {"parameter":"..."},
+        {"divide":<slot>,"by":<number>} or {"negate":<slot>} - and every length parameter you declare must
+        be referenced by some feature. Keep metadata.prompt_version exactly as it is.
 
         VALIDATOR_ERROR:
         {{errorCode}}: {{safeMessage}}

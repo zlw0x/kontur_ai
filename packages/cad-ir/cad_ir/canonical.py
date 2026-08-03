@@ -102,11 +102,11 @@ from .sweep import (  # re-exported alongside the document
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.10"
+CAD_IR_VERSION = "1.11"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.10",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.11",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -125,6 +125,7 @@ MIGRATABLE_VERSIONS: tuple[str, ...] = (
     "1.7",
     "1.8",
     "1.9",
+    "1.10",
 )
 
 class ParameterType(StrEnum):

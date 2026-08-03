@@ -310,7 +310,7 @@ def duct() -> dict:
     import json
 
     fixtures = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
-    return json.loads((fixtures / "transition-duct.v1_10.json").read_text("utf-8"))
+    return json.loads((fixtures / "transition-duct.v1_11.json").read_text("utf-8"))
 
 
 def test_the_transition_duct_is_the_arithmetic_of_its_drawing():

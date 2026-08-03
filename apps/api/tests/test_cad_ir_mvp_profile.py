@@ -28,7 +28,7 @@ def profile() -> Draft202012Validator:
 
 
 def canonical_fixture(name: str) -> dict:
-    return json.loads((FIXTURES / f"{name}.v1_10.json").read_text(encoding="utf-8"))
+    return json.loads((FIXTURES / f"{name}.v1_11.json").read_text(encoding="utf-8"))
 
 
 def profile_shaped_document() -> dict:

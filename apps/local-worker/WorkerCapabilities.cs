@@ -31,7 +31,7 @@ public static class WorkerCapabilities
     /// reports its own, and a mismatch between the two is caught the first time a
     /// document reaches it.
     /// </remarks>
-    public const string CadIrVersion = "1.10";
+    public const string CadIrVersion = "1.11";
 
     /// <summary>The manifest of a worker, from the engine it builds with.</summary>
     public static WorkerCapabilityManifestPayload ManifestFor(

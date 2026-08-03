@@ -858,7 +858,7 @@ CapabilityVersion = Annotated[str, Field(pattern=CAPABILITY_VERSION_PATTERN)]
 
 
 def capability_version_tuple(version: str) -> tuple[int, ...]:
-    """Compare versions numerically; "1.10" is newer than "1.9", not older."""
+    """Compare versions numerically; "1.11" is newer than "1.9", not older."""
     parts = tuple(int(part) for part in version.split("."))
     return parts + (0,) * (3 - len(parts))
 
