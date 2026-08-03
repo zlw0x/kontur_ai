@@ -135,4 +135,28 @@ internal static class BuildFeedback
     /// going to reason its way out of, and failing is more useful than looping.
     /// </remarks>
     public const int MaxBuildRepairs = 2;
+
+    /// <summary>
+    /// How many times a *refused document* may be rewritten before compilation
+    /// gives up.
+    /// </summary>
+    /// <remarks>
+    /// Three, and separate from <see cref="MaxBuildRepairs"/> because the two
+    /// cost different things. A compile repair is one model call. A build repair
+    /// is a model call **plus** a container start and a kernel run, which is why
+    /// that one stays at two.
+    ///
+    /// Three because a real order needed all three. A flanged bushing was refused
+    /// for dimensions parked in construction, the first rewrite was refused for
+    /// the same, the second broke the dependency graph — and the third produced a
+    /// document the gate accepted, four features and six parameters with none of
+    /// them idle. At two the order would have ended one rewrite short of a valid
+    /// document, which is the most expensive place to stop: everything has been
+    /// paid for and nothing delivered.
+    ///
+    /// It was also a literal `2` written into the loop rather than a name, which
+    /// is the second bound today to have been kept in two places — the first cost
+    /// the worker its ability to tell that an attempt was the last.
+    /// </remarks>
+    public const int MaxCompileRepairs = 3;
 }

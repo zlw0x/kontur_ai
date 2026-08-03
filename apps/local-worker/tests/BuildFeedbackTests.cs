@@ -92,4 +92,22 @@ public sealed class BuildFeedbackTests
     {
         Assert.Equal(2, BuildFeedback.MaxBuildRepairs);
     }
+
+    /// <summary>
+    /// Rewriting a refused document is cheaper than rebuilding, and gets one more try.
+    /// </summary>
+    /// <remarks>
+    /// A compile repair is one model call; a build repair is a model call plus a
+    /// container start and a kernel run. Three because a real order needed all
+    /// three — refused, rewritten and refused, rewritten into a broken dependency
+    /// graph, and valid on the third. At two it would have stopped one rewrite
+    /// short of a document the gate accepts, which is the most expensive place to
+    /// stop: everything paid for and nothing delivered.
+    /// </remarks>
+    [Fact]
+    public void RewritingARefusedDocumentGetsOneMoreTryThanRebuilding()
+    {
+        Assert.Equal(3, BuildFeedback.MaxCompileRepairs);
+        Assert.True(BuildFeedback.MaxCompileRepairs > BuildFeedback.MaxBuildRepairs);
+    }
 }

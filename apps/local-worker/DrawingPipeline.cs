@@ -355,7 +355,8 @@ public sealed class DrawingPipeline(
             // rejected document, and a real run spent two repairs rewriting a
             // document that was never the problem.
             catch (CadAdapterException error)
-                when (repairAttempt < 2 && BuildFeedback.IsRepairable(error.Code))
+                when (repairAttempt < BuildFeedback.MaxCompileRepairs
+                      && BuildFeedback.IsRepairable(error.Code))
             {
                 budgetState.Reserve(CodexStage.Repair, budgetPolicy);
                 var previous = await ReadBoundedAsync(candidatePath, 1_000_000, cancellationToken);
