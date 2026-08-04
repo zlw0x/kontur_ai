@@ -161,3 +161,13 @@ needs "extend to the next face", which is `extrude(until=…)` — probed and fa
 first attempt with `Extrusion is None`, so it needs its own investigation rather than a
 guess. The thread callout is a manufacturing note rather than geometry and belongs with
 the annotation work in P3.4.
+
+> **That investigation is done** (`docs/TASK-POSTMVP-P3-2-up-to-a-face.md`, 2026-08-04) and
+> it ends by dropping `until=` altogether. `Extrusion is None` turned out to be one geometry
+> rather than a general failure — two of sixteen cases are plainly correct — but three others
+> are worse than an exception: a profile inside the material spikes 62.45 mm into open space
+> and reports success. The design instead **names the terminating face with a selector and
+> computes the reach in trusted code**, which reproduces the kernel's own answer to
+> 0.000e+00 on the case where `until=` works and turns each of its failures into either a
+> refusal or something `body_count` already catches. Still designed rather than built: it is
+> a CAD-IR version.

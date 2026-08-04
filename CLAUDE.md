@@ -308,8 +308,20 @@ inherited the worker's own stdin**, so a pipe nobody closed made a stage fail wi
 events at all — indistinguishable from the model failing — and any bytes that did arrive
 would have been appended to the prompt. Redirected and closed at start.
 
-**What is next**: rib (P3.2, which needs `extrude(until=…)` investigating — it fails on
-the first attempt), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the order.
+**What is next**: rib (P3.2), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the
+order.
+
+**Rib is designed and not built** (`docs/TASK-POSTMVP-P3-2-up-to-a-face.md`), and the
+investigation it was blocked on ends by dropping `extrude(until=…)` altogether. Sixteen
+cases: two are correct, three raise, and three succeed wrongly — a profile inside the
+material spikes 62.45 mm into open space and reports one valid solid, a cut to the next
+surface can remove nothing. `until` is also the first operation that would state **no
+number**, so the post-check pattern that caught the last three defects has nothing to
+compare against. So an up-to-face extrusion **names the terminating face with a selector**
+(ADR-019's rule, again) and trusted code computes the reach — `((p − o)·n)/(d·n)`, which
+reproduces the kernel's own answer to 0.000e+00 where `until=` works, gives the corpus a
+closed form the kernel used to keep to itself, and turns each failure into a refusal or into
+two solids that `body_count` already sees. Building it is a CAD-IR version.
 
 One thing is left over from the migration, named in
 `docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,
