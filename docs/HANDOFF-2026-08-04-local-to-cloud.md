@@ -110,3 +110,38 @@ Both were probed and neither needs an operation:
 Three milestones have now reached the same conclusion from three directions —
 holes, ribs, draft — and it is worth treating as a rule: **an operation earns its
 place in CAD-IR only when it says something composition cannot.**
+
+## A fourth finding, from the last run of the day
+
+The run that was meant to close the bushing did not reach the model at all:
+
+```text
+{"type":"error","message":"You've hit your usage limit … try again at
+ Aug 8th, 2026 8:44 AM"}
+{"type":"turn.failed"}
+```
+
+**The Codex quota is exhausted until 8 August.** Every drawing run is blocked
+until then, here and anywhere — that CLI is the only path to the model the service
+has, and by rule the only one it may have.
+
+The interesting part is what the service did with it. The job stayed `LEASED`,
+`output/` was empty, and the order page says "waiting" — the same silence that
+`JobStatus.FAILED` was added today to end.
+
+The reason is a gap in the split `BuildFeedback` makes. A quota failure is *about
+the machine*, so it is correctly not repairable — but the worker only reports a
+failure when the code is repairable **or** the attempt was the last. A machine
+failure on attempt 1 of 3 goes back for a retry, which is right for a container
+that would not start and wrong for a quota that returns in four days.
+
+So the split needs a third case, and it is a real one rather than a tidy-up: a
+failure that is neither repairable by rewriting nor worth retrying, because
+nothing changes until a date. `CODEX_BUDGET_EXHAUSTED` is the first member.
+Reporting it immediately would put the reason on the customer's page — which is
+the whole point of today's failure work — instead of three silent retries and a
+job that waits forever.
+
+Doable without containers or Codex: it is a decision in `BuildFeedback` and a
+branch in `RunClaimedJobAsync`, and the test is the same shape as the ones already
+there.
