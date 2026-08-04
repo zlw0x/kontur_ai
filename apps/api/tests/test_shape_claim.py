@@ -19,11 +19,13 @@ import pytest
 from cad_ir.canonical_validator import validate_canonical
 from cad_ir.shape_claim import ShapeClaim, disagreements
 
-FIXTURES = Path(__file__).parents[3] / "tests" / "fixtures" / "cad-ir"
+from cad_ir.canonical import CAD_IR_VERSION
+from cad_ir_fixtures import fixture
 
 
 def document(name: str):
-    return validate_canonical(json.loads((FIXTURES / name).read_text("utf-8")))
+    """The named fixture, validated. `name` carries no version (`cad_ir_fixtures`)."""
+    return validate_canonical(fixture(name))
 
 
 def codes(name: str, **claim) -> list[str]:
@@ -36,9 +38,9 @@ def codes(name: str, **claim) -> list[str]:
 @pytest.mark.parametrize(
     ("name", "claim"),
     [
-        ("plate.v1_10.json", {"profile": "rectangle", "thickness": "p_depth"}),
+        ("plate", {"profile": "rectangle", "thickness": "p_depth"}),
         (
-            "plate-with-hole.v1_10.json",
+            "plate-with-hole",
             {
                 "profile": "rectangle",
                 "openings": [{"kind": "round", "count": 1}],
@@ -46,7 +48,7 @@ def codes(name: str, **claim) -> list[str]:
             },
         ),
         (
-            "constrained-plate.v1_10.json",
+            "constrained-plate",
             {
                 "profile": "rectangle",
                 "openings": [{"kind": "round", "count": 2}],
@@ -54,7 +56,7 @@ def codes(name: str, **claim) -> list[str]:
             },
         ),
         (
-            "lever-plate.v1_10.json",
+            "lever-plate",
             {
                 "profile": "closed_profile",
                 "openings": [{"kind": "round", "count": 2}],
@@ -62,11 +64,11 @@ def codes(name: str, **claim) -> list[str]:
             },
         ),
         (
-            "bushing.v1_10.json",
+            "bushing",
             {"profile": "closed_profile", "openings": [{"kind": "profiled", "count": 1}]},
         ),
         (
-            "blended-bracket.v1_10.json",
+            "blended-bracket",
             {
                 "profile": "rectangle",
                 "openings": [{"kind": "round", "count": 1}],
@@ -93,7 +95,7 @@ def test_a_blend_is_not_part_of_what_the_part_is():
     `surface_face_count` expectation, which is a statement about a measurement and
     belongs on the other side of the boundary.
     """
-    value = json.loads((FIXTURES / "blended-bracket.v1_10.json").read_text("utf-8"))
+    value = fixture("blended-bracket")
     claim = ShapeClaim(
         profile="rectangle",
         openings=[{"kind": "round", "count": 1}],
@@ -120,11 +122,11 @@ def test_a_named_shape_written_the_long_way_is_still_that_shape():
     the part.
     """
     assert codes(
-        "constrained-plate.v1_10.json",
+        "constrained-plate",
         profile="rectangle",
         openings=[{"kind": "round", "count": 2}],
     ) == []
-    assert codes("plate.v1_10.json", profile="rectangle") == []
+    assert codes("plate", profile="rectangle") == []
 
 
 # --- and disagree with a misreading ----------------------------------------
@@ -138,7 +140,7 @@ def test_a_stadium_outline_read_as_a_rectangle_is_caught():
     sides; the lever plate's outline is two sides and two end caps.
     """
     found = disagreements(
-        document("lever-plate.v1_10.json"),
+        document("lever-plate"),
         ShapeClaim(profile="rectangle", openings=[{"kind": "round", "count": 2}], solids=3),
     )
     assert [item.code for item in found] == ["PROFILE_KIND"]
@@ -146,26 +148,26 @@ def test_a_stadium_outline_read_as_a_rectangle_is_caught():
 
 
 def test_a_different_named_shape_is_caught_outright():
-    assert codes("plate.v1_10.json", profile="circle") == ["PROFILE_KIND"]
-    assert codes("plate.v1_10.json", profile="slot") == ["PROFILE_KIND"]
+    assert codes("plate", profile="circle") == ["PROFILE_KIND"]
+    assert codes("plate", profile="slot") == ["PROFILE_KIND"]
 
 
 def test_a_hole_that_was_not_read_off_the_drawing_is_caught():
     assert codes(
-        "constrained-plate.v1_10.json",
+        "constrained-plate",
         profile="rectangle",
         openings=[{"kind": "round", "count": 3}],
     ) == ["OPENING_COUNT"]
     # And the other way: the drawing was read as having none, and the document
     # drills two.
-    assert codes("constrained-plate.v1_10.json", profile="rectangle") == ["OPENING_COUNT"]
+    assert codes("constrained-plate", profile="rectangle") == ["OPENING_COUNT"]
 
 
 def test_an_opening_of_the_wrong_kind_is_caught():
     """Two round holes read as two slots is a document that builds the wrong part
     and passes every measurement it declares."""
     assert codes(
-        "constrained-plate.v1_10.json",
+        "constrained-plate",
         profile="rectangle",
         openings=[{"kind": "slot", "count": 2}],
     ) == ["OPENING_COUNT"]
@@ -178,10 +180,10 @@ def test_a_hole_counts_whether_it_is_an_island_or_a_cut():
     distinguished them would contradict a document that was right.
     """
     assert codes(
-        "plate-with-hole.v1_10.json", profile="rectangle", openings=[{"kind": "round", "count": 1}]
+        "plate-with-hole", profile="rectangle", openings=[{"kind": "round", "count": 1}]
     ) == []
     assert codes(
-        "constrained-plate.v1_10.json",
+        "constrained-plate",
         profile="rectangle",
         openings=[{"kind": "round", "count": 2}],
     ) == []
@@ -189,7 +191,7 @@ def test_a_hole_counts_whether_it_is_an_island_or_a_cut():
 
 def test_a_boss_nobody_read_is_caught():
     assert codes(
-        "lever-plate.v1_10.json",
+        "lever-plate",
         profile="closed_profile",
         openings=[{"kind": "round", "count": 2}],
     ) == ["SOLID_COUNT"]
@@ -198,11 +200,11 @@ def test_a_boss_nobody_read_is_caught():
 def test_a_thickness_that_lost_its_name_is_caught():
     """A literal where a parameter was read is a part nobody can change later
     without editing geometry."""
-    assert codes("plate.v1_10.json", profile="rectangle", thickness="p_width") == [
+    assert codes("plate", profile="rectangle", thickness="p_width") == [
         "THICKNESS_PARAMETER"
     ]
 
-    literal = json.loads((FIXTURES / "plate.v1_10.json").read_text("utf-8"))
+    literal = fixture("plate")
     literal["features"][0]["inputs"]["distance"] = 10.0
     found = disagreements(
         validate_canonical(literal), ShapeClaim(profile="rectangle", thickness="p_depth")
@@ -213,7 +215,7 @@ def test_a_thickness_that_lost_its_name_is_caught():
 
 def test_a_thickness_claimed_for_a_revolve_says_so_rather_than_being_ignored():
     found = disagreements(
-        document("bushing.v1_10.json"),
+        document("bushing"),
         ShapeClaim(
             profile="closed_profile",
             openings=[{"kind": "profiled", "count": 1}],
@@ -227,7 +229,7 @@ def test_a_thickness_claimed_for_a_revolve_says_so_rather_than_being_ignored():
 def test_a_claim_that_names_no_thickness_checks_nothing_about_it():
     """A reader that could not find the depth on the drawing says nothing, and
     saying nothing must not be read as saying the document is wrong."""
-    assert codes("plate.v1_10.json", profile="rectangle") == []
+    assert codes("plate", profile="rectangle") == []
 
 
 # --- what it deliberately does not do -------------------------------------
@@ -235,7 +237,7 @@ def test_a_claim_that_names_no_thickness_checks_nothing_about_it():
 
 def test_a_disabled_feature_is_not_part_of_the_shape():
     """A document saying "not this one" is not building it."""
-    value = json.loads((FIXTURES / "lever-plate.v1_10.json").read_text("utf-8"))
+    value = fixture("lever-plate")
     for feature in value["features"]:
         if feature["id"] == "feature.pin":
             feature["enabled"] = False
@@ -255,7 +257,7 @@ def test_nothing_measured_is_compared():
     document checking itself — the bounding-box expectation is where a size is
     checked, against a number the drawing stated.
     """
-    value = json.loads((FIXTURES / "plate.v1_10.json").read_text("utf-8"))
+    value = fixture("plate")
     for parameter in value["parameters"]:
         parameter["value"] *= 2
     assert disagreements(
@@ -264,7 +266,7 @@ def test_nothing_measured_is_compared():
 
 
 def test_a_document_that_builds_nothing_is_named_as_such():
-    value = json.loads((FIXTURES / "plate.v1_10.json").read_text("utf-8"))
+    value = fixture("plate")
     value["features"][0]["enabled"] = False
     found = disagreements(validate_canonical(value), ShapeClaim(profile="rectangle"))
     assert [item.code for item in found] == ["NO_SOLID"]
@@ -282,7 +284,7 @@ def plate_with(hole: dict, **extra) -> dict:
     """A 60 × 40 × 8 plate with one opening, however the document spells it."""
     return {
         "schema": "cad-ai/cad-ir",
-        "schema_version": "1.10",
+        "schema_version": CAD_IR_VERSION,
         "document": {"units": "mm"},
         "parameters": [
             {"id": "thickness", "type": "length", "value": 8.0, "unit": "mm",

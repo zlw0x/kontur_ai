@@ -214,10 +214,12 @@ In order of value:
 
 1. ~~**The symmetry rule for loft sections.**~~ Done.
 2. ~~**Topology on the six derivable sweep/loft cases.**~~ Done.
-3. **The version out of test sources.** Not part of P4, but it is what let a fixture
-   rename hide inside four skipped container tests. Deriving the fixture filename from
-   `CAD_IR_VERSION` and `WorkerCapabilities.CadIrVersion` makes a version bump a rename of
-   files and nothing else.
+3. ~~**The version out of test sources.**~~ Done. Not part of P4, but it is what let a
+   fixture rename hide inside skipped container tests. A version bump is now a rename of
+   files and nothing else: `tests/cad_ir_fixtures.py` derives the filename from
+   `CAD_IR_VERSION`, `CadAi.CadEngine.CadIr` does the same for .NET, and
+   `apps/api/tests/test_fixture_versions.py` refuses a version literal in any source
+   file — in a test that always runs rather than one that might be skipped.
 
 Not actionable here: anything in P4.3 or P4.4 (design work first, and a large contract
 addition), and anything that needs the image built.
@@ -230,6 +232,8 @@ above was wrong about why: a version bump does **not** touch `golden_corpus.py` 
 `CAD_IR_VERSION`) and does not touch `cad_ir/loft.py` at all, so both are additions that
 merge rather than collide, and both are done.
 
-Item 3 is the one that genuinely collides. Taking the version out of test sources means
-editing the nineteen files a bump renames, which is exactly the set 1.11 has already
-rewritten locally. It waits for the push.
+Item 3 does collide — it edits the nineteen files a bump renames, which is exactly the
+set 1.11 has rewritten locally — and it was done anyway, deliberately, because the merge
+resolves in one direction: this side has **no** version literal at all, so every conflict
+is "take the version out" plus whatever else that file changed. And after it, no future
+bump touches a test source again.

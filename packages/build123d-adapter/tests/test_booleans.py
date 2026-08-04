@@ -26,17 +26,17 @@ import pytest
 pytest.importorskip("build123d", reason="the CAD engine is not installed")
 
 from cad_ir.canonical import CAD_IR_VERSION  # noqa: E402
+from cad_ir_fixtures import fixture  # noqa: E402
 from cad_ir.canonical_validator import validate_canonical  # noqa: E402
 
 from cad_engine_build123d.adapter import build_part  # noqa: E402
 from cad_engine_build123d.errors import CadEngineError  # noqa: E402
 from cad_engine_build123d.verify import Expectations, verify  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "boolean-bracket.v1_10.json").read_text("utf-8"))
+    return fixture("boolean-bracket")
 
 
 def built(value: dict):

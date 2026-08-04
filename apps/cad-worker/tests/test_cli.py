@@ -22,7 +22,8 @@ pytest.importorskip("build123d", reason="the CAD engine is not installed")
 
 from cad_worker.__main__ import main  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
+from cad_ir.canonical import CAD_IR_VERSION
+from cad_ir_fixtures import fixture, fixture_path
 
 
 def run(capsys, *argv: str) -> tuple[int, dict]:
@@ -30,10 +31,11 @@ def run(capsys, *argv: str) -> tuple[int, dict]:
     return code, json.loads(capsys.readouterr().out)
 
 
-def job(tmp_path: Path, fixture: str) -> Path:
+def job(tmp_path: Path, name: str) -> Path:
+    """A job directory holding the named fixture, at whatever version this build is."""
     directory = tmp_path / "job"
     directory.mkdir()
-    shutil.copyfile(FIXTURES / fixture, directory / "cad-ir.json")
+    shutil.copyfile(fixture_path(name), directory / "cad-ir.json")
     return directory
 
 
@@ -44,7 +46,7 @@ def test_describe_states_the_engine_and_everything_it_builds(capsys):
     code, described = run(capsys, "describe")
     assert code == 0
     assert described["engine_id"] == "build123d"
-    assert described["cad_ir_version"] == "1.10"
+    assert described["cad_ir_version"] == CAD_IR_VERSION
     assert [item["kind"] for item in described["artifacts"]] == ["STEP", "STL"]
     # No M3D, from the engine that no longer produces one (ADR-023).
     assert "M3D" not in {item["kind"] for item in described["artifacts"]}
@@ -88,7 +90,7 @@ def test_a_fixture_builds_and_the_flags_of_the_run_are_echoed_back(capsys, tmp_p
     the key would produce a perfectly successful build of exactly the thing it
     was trying to stop.
     """
-    directory = job(tmp_path, "plate.v1_10.json")
+    directory = job(tmp_path, "plate")
     code, result = run(capsys, "build", "--job", str(directory))
     assert code == 0
     assert result["status"] == "COMPLETED"
@@ -101,7 +103,7 @@ def test_a_fixture_builds_and_the_flags_of_the_run_are_echoed_back(capsys, tmp_p
 def test_a_disabled_operation_stops_the_build_before_any_file_is_written(
     capsys, tmp_path
 ):
-    directory = job(tmp_path, "lever-plate.v1_10.json")
+    directory = job(tmp_path, "lever-plate")
     code, failure = run(capsys, "build", "--job", str(directory), "--disable", "sketch.arc")
     assert code == 1
     assert failure["code"] == "CAPABILITY_DISABLED"
@@ -113,7 +115,7 @@ def test_a_disabled_operation_stops_the_build_before_any_file_is_written(
 def test_turning_off_an_operation_the_document_does_not_use_does_not_stop_it(
     capsys, tmp_path
 ):
-    directory = job(tmp_path, "plate.v1_10.json")
+    directory = job(tmp_path, "plate")
     code, result = run(capsys, "build", "--job", str(directory), "--disable", "sketch.slot")
     assert code == 0
     assert result["disabled_capabilities"] == ["sketch.slot"]
@@ -125,7 +127,7 @@ def test_a_revolve_builds_even_though_it_is_declared_experimental(capsys, tmp_pa
     Conflating the two would make `experimental` mean "refuses to run", and then
     nothing could ever be exercised into being beta.
     """
-    directory = job(tmp_path, "bushing.v1_10.json")
+    directory = job(tmp_path, "bushing")
     code, result = run(capsys, "build", "--job", str(directory))
     assert code == 0
     assert result["status"] == "COMPLETED"
@@ -170,7 +172,7 @@ def test_a_document_of_an_older_version_is_refused_rather_than_migrated(capsys, 
     """
     directory = tmp_path / "job"
     directory.mkdir()
-    value = json.loads((FIXTURES / "plate.v1_10.json").read_text("utf-8"))
+    value = fixture("plate")
     value["schema_version"] = "1.3"
     (directory / "cad-ir.json").write_text(json.dumps(value), encoding="utf-8")
     code, failure = run(capsys, "build", "--job", str(directory))
@@ -188,7 +190,7 @@ def claim(tmp_path: Path, **value) -> str:
 
 
 def test_a_document_that_matches_the_reading_validates(capsys, tmp_path):
-    directory = job(tmp_path, "lever-plate.v1_10.json")
+    directory = job(tmp_path, "lever-plate")
     code, result = run(
         capsys, "validate", "--job", str(directory),
         "--claim", claim(tmp_path, profile="closed_profile", solids=3,
@@ -206,7 +208,7 @@ def test_a_misread_outline_fails_validation_and_names_both_sides(capsys, tmp_pat
     drawing, and the only reason that is visible is that something said what the
     part was before the document existed.
     """
-    directory = job(tmp_path, "lever-plate.v1_10.json")
+    directory = job(tmp_path, "lever-plate")
     code, failure = run(
         capsys, "validate", "--job", str(directory),
         "--claim", claim(tmp_path, profile="rectangle", solids=3,
@@ -222,14 +224,14 @@ def test_a_misread_outline_fails_validation_and_names_both_sides(capsys, tmp_pat
 
 def test_a_document_with_no_claim_is_still_validated(capsys, tmp_path):
     """Nothing but a drawing produces a claim, and a manual document has none."""
-    directory = job(tmp_path, "bushing.v1_10.json")
+    directory = job(tmp_path, "bushing")
     code, result = run(capsys, "validate", "--job", str(directory))
     assert code == 0
     assert result["status"] == "VALID"
 
 
 def test_a_claim_file_that_is_not_one_is_a_typed_failure(capsys, tmp_path):
-    directory = job(tmp_path, "plate.v1_10.json")
+    directory = job(tmp_path, "plate")
     path = tmp_path / "claim.json"
     path.write_text("""{"profile": "trapezoid"}""", encoding="utf-8")
     code, failure = run(capsys, "validate", "--job", str(directory), "--claim", str(path))
@@ -238,7 +240,7 @@ def test_a_claim_file_that_is_not_one_is_a_typed_failure(capsys, tmp_path):
 
 
 def test_a_claim_file_that_is_not_there_is_a_typed_failure(capsys, tmp_path):
-    directory = job(tmp_path, "plate.v1_10.json")
+    directory = job(tmp_path, "plate")
     code, failure = run(
         capsys, "validate", "--job", str(directory), "--claim", str(tmp_path / "absent.json"))
     assert code == 1
@@ -251,7 +253,7 @@ def test_the_capability_gate_is_checked_before_the_claim(capsys, tmp_path):
     Reporting a shape disagreement for a document the worker would not build
     either way would send a repair loop after the wrong problem.
     """
-    directory = job(tmp_path, "lever-plate.v1_10.json")
+    directory = job(tmp_path, "lever-plate")
     code, failure = run(
         capsys, "validate", "--job", str(directory), "--disable", "sketch.arc",
         "--claim", claim(tmp_path, profile="rectangle"))

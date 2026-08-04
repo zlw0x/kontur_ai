@@ -157,3 +157,21 @@ docker compose --env-file .env -f infra/docker-compose.yml down
 Do not add `-v` unless PostgreSQL and artifact volumes are intentionally being
 deleted.
 
+## Bumping the CAD-IR version
+
+Three edits and a rename, and nothing in any test:
+
+1. `CAD_IR_VERSION` in `packages/cad-ir/cad_ir/canonical.py`, and the previous version
+   added to `MIGRATABLE_VERSIONS`.
+2. `CadIr.Version` in `packages/cad-engine-contracts/CadIr.cs`.
+3. `git mv tests/fixtures/cad-ir/*.vOLD.json` to the new suffix, and the
+   `"schema_version"` line inside each.
+
+Then `python scripts/generate_schemas.py` and `python scripts/generate_output_profile.py`.
+
+**No test source names a version.** Python asks `cad_ir_fixtures.fixture("plate")`, .NET
+uses `CadIr.FileSuffix`, and CI derives the suffix from the contract.
+`apps/api/tests/test_fixture_versions.py` fails if a literal appears anywhere in a `.py`,
+`.cs` or `.yml` file — which is the check that exists because the last bump left three
+container tests naming a file that no longer existed, and those tests skip themselves
+unless `CAD_ENGINE_IMAGE` is set. A skip in the summary line looks exactly like a pass.

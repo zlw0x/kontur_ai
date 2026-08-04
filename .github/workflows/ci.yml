@@ -100,7 +100,13 @@ jobs:
       # installed; this proves the kernel runs.
       - run: |
           mkdir -p job
-          cp tests/fixtures/cad-ir/lever-plate.v1_10.json job/cad-ir.json
+          # The version comes from the contract, not from this file: a fixture
+          # rename used to mean editing every place that named one, and the last
+          # bump left three of them behind (see tests/cad_ir_fixtures.py).
+          suffix=$(python3 -c "import sys; sys.path.insert(0, 'packages/cad-ir'); \
+            from cad_ir.canonical import CAD_IR_VERSION; \
+            print('v' + CAD_IR_VERSION.replace('.', '_'))")
+          cp "tests/fixtures/cad-ir/lever-plate.$suffix.json" job/cad-ir.json
           # The uid the launcher passes in production, for the same reason: the
           # job directory is a bind mount owned by whoever runs the worker, and a
           # container running as anyone else cannot write the results into it.

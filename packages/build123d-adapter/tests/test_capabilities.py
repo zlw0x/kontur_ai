@@ -17,24 +17,26 @@ import re
 from pathlib import Path
 
 import pytest
+from cad_ir_fixtures import fixture
+
 from cad_ir.canonical_validator import validate_canonical
 
 from cad_engine_build123d import capabilities as caps
 from cad_engine_build123d.errors import CadEngineError
 
 ROOT = Path(__file__).resolve().parents[3]
-FIXTURES = ROOT / "tests" / "fixtures" / "cad-ir"
 
 
 def document(name: str):
-    return validate_canonical(json.loads((FIXTURES / name).read_text("utf-8")))
+    """The named fixture, validated. `name` carries no version (`cad_ir_fixtures`)."""
+    return validate_canonical(fixture(name))
 
 
 # --- what a document asks for ---------------------------------------------
 
 
 def test_a_plain_plate_asks_for_the_plainest_things():
-    needed = caps.requirements(document("plate.v1_10.json"))
+    needed = caps.requirements(document("plate"))
     assert set(needed) == {
         caps.SOLID_RECTANGULAR_PRISM,
         caps.SKETCH_PLANE_BASE,
@@ -50,7 +52,7 @@ def test_a_plain_plate_asks_for_the_plainest_things():
 
 def test_the_lever_plate_asks_for_everything_it_actually_uses():
     """The hardest fixture: contours, arcs, islands, a datum plane, a selector."""
-    needed = caps.requirements(document("lever-plate.v1_10.json"))
+    needed = caps.requirements(document("lever-plate"))
     assert set(needed) == {
         caps.SOLID_RECTANGULAR_PRISM,
         caps.SOLID_CONTOUR_PROFILE,
@@ -77,12 +79,12 @@ def test_a_second_additive_feature_is_a_boss_and_the_first_is_not():
     Making the first solid and adding to one that already exists are different
     operations, and only the second can leave a part in two pieces.
     """
-    assert caps.FEATURE_BOSS_ADDITIVE not in caps.requirements(document("plate.v1_10.json"))
-    assert caps.FEATURE_BOSS_ADDITIVE in caps.requirements(document("lever-plate.v1_10.json"))
+    assert caps.FEATURE_BOSS_ADDITIVE not in caps.requirements(document("plate"))
+    assert caps.FEATURE_BOSS_ADDITIVE in caps.requirements(document("lever-plate"))
 
 
 def test_the_bushing_asks_for_revolve_and_for_the_revolved_cut():
-    needed = caps.requirements(document("bushing.v1_10.json"))
+    needed = caps.requirements(document("bushing"))
     assert caps.SOLID_REVOLVE in needed
     assert caps.CUT_REVOLVE in needed
     assert needed[caps.SOLID_REVOLVE] == "the revolve feature.bush"
@@ -90,7 +92,7 @@ def test_the_bushing_asks_for_revolve_and_for_the_revolved_cut():
 
 def test_a_disabled_feature_asks_for_nothing():
     """A document saying "not this one" is not asking for the operation."""
-    value = json.loads((FIXTURES / "bushing.v1_10.json").read_text("utf-8"))
+    value = fixture("bushing")
     value["features"][1]["enabled"] = False
     assert caps.CUT_REVOLVE not in caps.requirements(validate_canonical(value))
 
@@ -103,7 +105,7 @@ def test_the_bracket_asks_for_each_blend_separately():
     decide which face its first distance belongs to — without stopping every
     chamfer, and without stopping fillets that have nothing to do with it.
     """
-    needed = caps.requirements(document("blended-bracket.v1_10.json"))
+    needed = caps.requirements(document("blended-bracket"))
     assert caps.FEATURE_FILLET_CONSTANT in needed
     assert caps.FEATURE_CHAMFER_EQUAL in needed
     assert caps.FEATURE_CHAMFER_ASYMMETRIC in needed
@@ -116,7 +118,7 @@ def test_the_bracket_asks_for_each_blend_separately():
 
 
 def test_a_document_with_no_convexity_predicate_does_not_ask_for_one():
-    value = json.loads((FIXTURES / "blended-bracket.v1_10.json").read_text("utf-8"))
+    value = fixture("blended-bracket")
     for feature in value["features"]:
         feature["inputs"].get("edges", {}).get("where", {}).pop("convexity", None)
     assert caps.SELECTOR_EDGE_CONVEXITY not in caps.requirements(validate_canonical(value))
@@ -125,7 +127,7 @@ def test_a_document_with_no_convexity_predicate_does_not_ask_for_one():
 def test_turning_off_convexity_refuses_the_document_before_any_geometry():
     gate = caps.CapabilityGate.disabling([caps.SELECTOR_EDGE_CONVEXITY])
     with pytest.raises(CadEngineError) as refused:
-        gate.require_all(caps.requirements(document("blended-bracket.v1_10.json")))
+        gate.require_all(caps.requirements(document("blended-bracket")))
     assert refused.value.code == "CAPABILITY_DISABLED"
     assert "selector.edge.convexity" in refused.value.safe_message
 
@@ -137,7 +139,7 @@ def test_the_boolean_bracket_asks_for_a_key_per_operation():
     meant is a different kind of wrong from a misplaced boss, and an operator may want
     to stop only that.
     """
-    needed = caps.requirements(document("boolean-bracket.v1_10.json"))
+    needed = caps.requirements(document("boolean-bracket"))
     assert caps.BOOLEAN_UNION in needed
     assert caps.BOOLEAN_SUBTRACT in needed
     assert caps.FEATURE_BODY_NEW in needed
@@ -152,9 +154,9 @@ def test_a_feature_that_starts_a_body_is_not_a_boss():
     They were one key while there was one body, and conflating them now would mean
     turning off bosses stopped a document that never had one.
     """
-    needed = caps.requirements(document("boolean-bracket.v1_10.json"))
+    needed = caps.requirements(document("boolean-bracket"))
     assert caps.FEATURE_BOSS_ADDITIVE not in needed
-    assert caps.FEATURE_BOSS_ADDITIVE in caps.requirements(document("lever-plate.v1_10.json"))
+    assert caps.FEATURE_BOSS_ADDITIVE in caps.requirements(document("lever-plate"))
 
 
 def test_the_flange_asks_for_each_kind_of_pattern_separately():
@@ -164,7 +166,7 @@ def test_the_flange_asks_for_each_kind_of_pattern_separately():
     and an operator who has seen a bolt circle come out wrong wants to stop that
     without stopping the mounting holes.
     """
-    needed = caps.requirements(document("patterned-flange.v1_10.json"))
+    needed = caps.requirements(document("patterned-flange"))
     assert caps.FEATURE_PATTERN_LINEAR in needed
     assert caps.FEATURE_PATTERN_CIRCULAR in needed
     assert caps.FEATURE_MIRROR in needed
@@ -174,16 +176,16 @@ def test_the_flange_asks_for_each_kind_of_pattern_separately():
 def test_turning_off_one_kind_of_pattern_refuses_the_document_whole():
     gate = caps.CapabilityGate.disabling([caps.FEATURE_MIRROR])
     with pytest.raises(CadEngineError) as refused:
-        gate.require_all(caps.requirements(document("patterned-flange.v1_10.json")))
+        gate.require_all(caps.requirements(document("patterned-flange")))
     assert refused.value.code == "CAPABILITY_DISABLED"
     assert "feature.mirror" in refused.value.safe_message
 
 
 @pytest.mark.parametrize(
     "name",
-    ["plate.v1_10.json", "plate-with-hole.v1_10.json", "constrained-plate.v1_10.json",
-     "lever-plate.v1_10.json", "bushing.v1_10.json", "blended-bracket.v1_10.json",
-     "patterned-flange.v1_10.json", "boolean-bracket.v1_10.json"],
+    ["plate", "plate-with-hole", "constrained-plate",
+     "lever-plate", "bushing", "blended-bracket",
+     "patterned-flange", "boolean-bracket"],
 )
 def test_no_fixture_asks_for_a_capability_this_engine_does_not_declare(name):
     """The invariant that makes a manifest honest.
@@ -200,7 +202,7 @@ def test_no_fixture_asks_for_a_capability_this_engine_does_not_declare(name):
 def test_a_document_needing_a_disabled_operation_is_refused_whole():
     gate = caps.CapabilityGate.disabling([caps.SKETCH_ARC])
     with pytest.raises(CadEngineError) as refused:
-        gate.require_all(caps.requirements(document("lever-plate.v1_10.json")))
+        gate.require_all(caps.requirements(document("lever-plate")))
     assert refused.value.code == "CAPABILITY_DISABLED"
     assert refused.value.stage == "cad-ir"
     assert "sketch.arc" in refused.value.safe_message
@@ -212,14 +214,14 @@ def test_every_blocked_capability_is_named_not_only_the_first():
         [caps.SKETCH_ARC, caps.SKETCH_ISLANDS, caps.SKETCH_REGULAR_POLYGON]
     )
     with pytest.raises(CadEngineError) as refused:
-        gate.require_all(caps.requirements(document("lever-plate.v1_10.json")))
+        gate.require_all(caps.requirements(document("lever-plate")))
     for key in ("sketch.arc", "sketch.islands", "sketch.regular_polygon"):
         assert key in refused.value.safe_message
 
 
 def test_turning_off_something_the_document_does_not_use_changes_nothing():
     gate = caps.CapabilityGate.disabling([caps.SKETCH_SLOT])
-    gate.require_all(caps.requirements(document("plate.v1_10.json")))
+    gate.require_all(caps.requirements(document("plate")))
 
 
 def test_an_unknown_capability_is_refused_rather_than_ignored():

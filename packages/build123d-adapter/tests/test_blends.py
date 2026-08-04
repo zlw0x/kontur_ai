@@ -28,6 +28,7 @@ import pytest
 
 pytest.importorskip("build123d", reason="the CAD engine is not installed")
 
+from cad_ir_fixtures import fixture  # noqa: E402
 from cad_ir.canonical_validator import validate_canonical  # noqa: E402
 
 from cad_engine_build123d.adapter import build_part  # noqa: E402
@@ -35,7 +36,6 @@ from cad_engine_build123d.errors import CadEngineError  # noqa: E402
 from cad_engine_build123d.topology import read_edges  # noqa: E402
 from cad_engine_build123d.verify import Expectations, verify  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
 
 PLATE = (60.0, 40.0, 10.0)
 CORNER_RADIUS = 6.0
@@ -43,7 +43,7 @@ BORE_RADIUS = 5.0
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "blended-bracket.v1_10.json").read_text("utf-8"))
+    return fixture("blended-bracket")
 
 
 def built(value: dict):
@@ -165,7 +165,7 @@ def test_convexity_tells_a_corner_from_the_root_of_a_boss():
       ask the kernel to round something already round.
     - **nothing at all**: the three seams.
     """
-    part = built(json.loads((FIXTURES / "lever-plate.v1_10.json").read_text("utf-8")))
+    part = built(fixture("lever-plate"))
     edges = read_edges(part)
     found = collections.Counter(edge.convexity for edge in edges)
     assert found["concave"] == 7

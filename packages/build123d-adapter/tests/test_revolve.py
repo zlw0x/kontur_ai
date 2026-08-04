@@ -24,6 +24,7 @@ import pytest
 
 pytest.importorskip("build123d", reason="the CAD engine is not installed")
 
+from cad_ir_fixtures import fixture  # noqa: E402
 from cad_ir.canonical_validator import validate_canonical  # noqa: E402
 
 from cad_engine_build123d.adapter import build, build_part  # noqa: E402
@@ -31,7 +32,6 @@ from cad_engine_build123d.errors import CadEngineError  # noqa: E402
 from cad_engine_build123d.topology import read_edges, read_faces  # noqa: E402
 from cad_engine_build123d.verify import Expectations, verify  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
 
 #: The flanged bushing, dimension by dimension, as the fixture states it.
 BORE, BODY, FLANGE = 8.0, 12.0, 18.0
@@ -44,7 +44,7 @@ def ring(outer: float, inner: float, height: float) -> float:
 
 
 def bushing() -> dict:
-    return json.loads((FIXTURES / "bushing.v1_10.json").read_text("utf-8"))
+    return fixture("bushing")
 
 
 def document(value: dict):

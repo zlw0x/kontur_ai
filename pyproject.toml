@@ -13,4 +13,7 @@ pythonpath = [
     "apps/cad-worker",
     "packages/cad-ir",
     "packages/build123d-adapter",
+    # `cad_ir_fixtures`, which is where a fixture's filename is derived from the
+    # contract version instead of being written into nineteen test files.
+    "tests",
 ]

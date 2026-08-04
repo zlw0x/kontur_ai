@@ -16,9 +16,10 @@ from cad_ir.canonical import CAD_IR_VERSION
 from cad_ir.canonical_validator import validate_canonical
 from cad_ir.errors import CadIrValidationError
 
+from cad_ir_fixtures import fixture
+
 ROOT = Path(__file__).parents[3]
 PROFILE = json.loads((ROOT / "schemas" / "cad-ir-mvp-output.schema.json").read_text(encoding="utf-8"))
-FIXTURES = ROOT / "tests" / "fixtures" / "cad-ir"
 
 
 @pytest.fixture(scope="module")
@@ -28,7 +29,8 @@ def profile() -> Draft202012Validator:
 
 
 def canonical_fixture(name: str) -> dict:
-    return json.loads((FIXTURES / f"{name}.v1_10.json").read_text(encoding="utf-8"))
+    """The named fixture, at whatever version this build speaks."""
+    return fixture(name)
 
 
 def profile_shaped_document() -> dict:

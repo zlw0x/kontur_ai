@@ -298,11 +298,9 @@ def test_the_shell_is_applied_to_the_part_as_it_is_when_the_feature_runs():
 
 
 def enclosure_fixture() -> dict:
-    import json
-    from pathlib import Path
+    from cad_ir_fixtures import fixture
 
-    fixtures = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
-    return json.loads((fixtures / "enclosure.v1_10.json").read_text("utf-8"))
+    return fixture("enclosure")
 
 
 def test_the_enclosure_fixture_is_the_arithmetic_of_its_drawing():

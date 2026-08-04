@@ -80,7 +80,7 @@ public sealed class ContainerEngineTests
     [ContainerFact]
     public async Task AJobBuildsInsideTheContainerAndTheResultsComeBackOutOfTheMount()
     {
-        var job = JobWith("lever-plate.v1_10.json");
+        var job = JobWith("lever-plate");
 
         var result = await new Build123dProcessEngine(Options()).BuildAsync(
             new CadDocumentBuildRequest(job, []), CancellationToken.None);
@@ -99,7 +99,7 @@ public sealed class ContainerEngineTests
     [ContainerFact]
     public async Task AShapeClaimReachesTheEngineThroughItsOwnReadOnlyMount()
     {
-        var job = JobWith("lever-plate.v1_10.json");
+        var job = JobWith("lever-plate");
         var claim = Path.Combine(Directory.CreateTempSubdirectory("cad-claim-").FullName,
                                  "shape-claim.json");
         File.WriteAllText(claim, """{"profile":"rectangle","solids":3}""");
@@ -117,7 +117,7 @@ public sealed class ContainerEngineTests
     [ContainerFact]
     public async Task AFlagTheOperatorSetIsObeyedInsideTheContainer()
     {
-        var job = JobWith("lever-plate.v1_10.json");
+        var job = JobWith("lever-plate");
 
         var refused = await Assert.ThrowsAsync<CadAdapterException>(() =>
             new Build123dProcessEngine(Options()).BuildAsync(
