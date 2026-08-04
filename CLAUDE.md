@@ -321,6 +321,27 @@ so nothing can reach it yet, and one test asserts that on purpose. Sums and trig
 refused for stated reasons — the sum belongs in an expectation, and a bolt circle belongs in
 `pattern.circular`, which is already there and already not being taken.
 
+**A failure can be worth neither repairing nor retrying** (POSTMVP-025). `BuildFeedback`
+split failures in two — repairable by rewriting the document, or about the machine — and the
+cases are three: a quota that returns on a stated date is not repairable *and* not worth
+another attempt, so a machine failure on attempt 1 of 3 went quietly back to the queue.
+`WillBeTheSameNextTime` is the third answer, and the distinction is that **a retry cannot
+observe a change**: a container that would not start may start, and this service has one
+locally authenticated CLI on one machine, so a quota has no second account to find.
+
+The run that asked for it found the larger half. `RunClaimedJobAsync` caught
+`WorkerException`, and a Codex failure raises `CodexRunnerException` — same shape, neither
+deriving from the other — so it went past the reporting branch into the claim loop's blanket
+backoff. **No report on any attempt, for every Codex failure there is.** That is why the job
+stayed leased with an empty `output/` and the page said "waiting". `ClaimLoop.Typed` names a
+failure from either type; anything without a code still falls through, because an exception
+this worker did not name is a bug in the worker rather than a verdict about the drawing.
+
+One correction worth keeping: `CODEX_BUDGET_EXHAUSTED` is the worker's **own per-order run
+counter** and never comes from the CLI. An exhausted account quota arrives as
+`CODEX_CAPACITY_LIMIT`, because `MapExit` reads "limit" out of the message text. Classifying
+only the first would have left the measured failure retrying exactly as before.
+
 One defect outside the geometry was found by the runs and fixed: **the Codex child
 inherited the worker's own stdin**, so a pipe nobody closed made a stage fail with no
 events at all — indistinguishable from the model failing — and any bytes that did arrive

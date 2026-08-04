@@ -49,6 +49,42 @@ public sealed class CodexEventParserTests
         Assert.Contains("rate limit", parser.ErrorText);
     }
 
+    /// <summary>
+    /// An exhausted account quota, exactly as the CLI reported one.
+    /// </summary>
+    /// <remarks>
+    /// Recorded verbatim from a real run, because the code it maps to is what the
+    /// worker decides from and it is not the code the failure looks like:
+    /// `CODEX_BUDGET_EXHAUSTED` is this worker's own per-order run counter and never
+    /// comes from the CLI. The quota arrives as `CODEX_CAPACITY_LIMIT`, and a worker
+    /// classifying only the other one would retry the quota exactly as before.
+    /// </remarks>
+    [Fact]
+    public void AnExhaustedQuotaIsACapacityLimitAndNotABudget()
+    {
+        var parser = new CodexEventParser();
+        parser.Accept(
+            """{"type":"error","message":"You've hit your usage limit. Try again at Aug 8th, 2026 8:44 AM."}""");
+        parser.Accept("""{"type":"turn.failed"}""");
+
+        Assert.True(parser.Failed);
+        Assert.Equal("CODEX_CAPACITY_LIMIT", LocalCodexRunner.MapExit(parser));
+    }
+
+    /// <remarks>
+    /// The other side of the same mapping, and the reason the retry stays the default:
+    /// a failure whose text says nothing about limits is one another attempt may get
+    /// past.
+    /// </remarks>
+    [Fact]
+    public void AFailureThatSaysNothingAboutLimitsIsWorthAnotherAttempt()
+    {
+        var parser = new CodexEventParser();
+        parser.Accept("""{"type":"error","message":"connection reset by peer"}""");
+
+        Assert.Equal("CODEX_RUN_FAILED", LocalCodexRunner.MapExit(parser));
+    }
+
     [Fact]
     public void BudgetRejectsRunsBeforeStartingAnotherProcess()
     {

@@ -82,6 +82,78 @@ public sealed class BuildFeedbackTests
         Assert.False(BuildFeedback.IsRepairable(Failure("SOMETHING_NEW")));
     }
 
+    // --- the third case: worth reporting rather than retrying -------------------
+
+    /// <summary>
+    /// A quota that returns on a date is not worth three silent retries.
+    /// </summary>
+    /// <remarks>
+    /// The failure this case was written for, and the assertion that would have caught
+    /// it: a run reported `You've hit your usage limit … try again at Aug 8th`, which
+    /// is neither repairable nor the last attempt, so the job went back to the queue
+    /// and the order page said "waiting" with no reason on it.
+    ///
+    /// `CODEX_CAPACITY_LIMIT` is the code that carries it —
+    /// `LocalCodexRunner.MapExit` maps any error text mentioning a rate or a limit
+    /// there, and `CODEX_BUDGET_EXHAUSTED` is this worker's own per-order counter,
+    /// which the CLI never reports. Both are here; only the first was measured.
+    /// </remarks>
+    [Theory]
+    [InlineData("CODEX_CAPACITY_LIMIT")]
+    [InlineData("CODEX_BUDGET_EXHAUSTED")]
+    public void AFailureThatWillNotBeDifferentIsReportedRatherThanRetried(string code)
+    {
+        Assert.False(BuildFeedback.IsRepairable(Failure(code)));
+        Assert.True(BuildFeedback.WillBeTheSameNextTime(code));
+    }
+
+    /// <summary>
+    /// A machine failure another attempt may get past is still left to lapse.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the third case rests on, and the reason it is a list rather
+    /// than "everything about the machine": a container that would not start may
+    /// start, an interpreter may be installed, and on a fleet the next worker may
+    /// already have one. Report those and an order that would have succeeded on the
+    /// next attempt is told it failed.
+    /// </remarks>
+    [Theory]
+    [InlineData("ENGINE_NOT_AVAILABLE")]
+    [InlineData("CONTAINER_START_FAILED")]
+    [InlineData("CODEX_NOT_INSTALLED")]
+    [InlineData("CODEX_RUN_FAILED")]
+    [InlineData("CODEX_TIMEOUT")]
+    [InlineData("ARTIFACT_UPLOAD_FAILED")]
+    public void AMachineFailureAnotherAttemptMayGetPastIsLeftToLapse(string code)
+    {
+        Assert.False(BuildFeedback.WillBeTheSameNextTime(code));
+    }
+
+    /// <remarks>
+    /// The safe default, in the direction that costs least: an unclassified code
+    /// keeps the retry every failure had before this existed.
+    /// </remarks>
+    [Fact]
+    public void ACodeNobodyHasClassifiedIsStillWorthRetrying()
+    {
+        Assert.False(BuildFeedback.WillBeTheSameNextTime("SOMETHING_NEW"));
+    }
+
+    /// <summary>
+    /// The two questions are asked of disjoint sets, and that is not an accident.
+    /// </summary>
+    /// <remarks>
+    /// A repairable failure already ends the job with a reason, so asking whether it
+    /// is worth retrying would be a second answer to a settled question. If a code
+    /// ever needed to be in both, one of the two classifications is wrong.
+    /// </remarks>
+    [Fact]
+    public void NoCodeIsBothRepairableAndNotWorthRetrying()
+    {
+        foreach (var code in new[] { "CODEX_CAPACITY_LIMIT", "CODEX_BUDGET_EXHAUSTED" })
+            Assert.False(BuildFeedback.IsRepairable(code));
+    }
+
     /// <remarks>
     /// A build costs a container start and a kernel run, so the bound is not
     /// decoration. Pinned because raising it is a decision about money rather
