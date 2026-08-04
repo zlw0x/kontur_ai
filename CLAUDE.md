@@ -252,6 +252,18 @@ is a sign somebody else chose. Both have closed-form arithmetic (the prismatoid 
 taper, exact to six decimal places), and neither is offered to the drawing cycle, because
 neither is something a drawing states in words the reading stage has.
 
+**The claim has since gained the word for a draft** (ADR-033's amendment,
+`docs/acceptance/POSTMVP-021-draft-in-the-claim.md`). `ShapeClaim.draft` names the parameter
+holding the angle, and it is the worst-hidden omission found so far: a *narrowing* draft
+keeps the sketch as the widest section, so a document that dropped it agrees with the
+drawing on the outline, the openings, the solid count **and the bounding box**, and holds a
+third less material — 20 × 20 × 10 comes back 2 720.752 mm³ against 4 000. The claim says
+the name and not the direction, measured rather than assumed: a positive taper narrows away
+from the sketch plane whichever way the extrusion travels, so `direction` cannot flip it and
+a `Scalar` with no arithmetic cannot negate it. A named angle holding **0°** is refused, as
+the one place the id and the value can be made to disagree. The offer is still held back —
+now by vision rather than by vocabulary.
+
 **The kernel's failure mode is a plausible answer**, and that is now three findings of one
 shape: a shell with no room returns the original solid, a sweep round too tight a bend
 returns a self-intersecting one, a draft past the closing point returns a stump 10 mm tall

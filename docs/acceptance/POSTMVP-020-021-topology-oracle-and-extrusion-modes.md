@@ -145,6 +145,13 @@ and a draft angle is a note the claim has no word for. Offering them would be th
 ADR-029 forbids. The oracle needs no offer at all: it runs on every build, including
 every build the cycle already produces.
 
+> **Half of that is no longer true.** Two days later the claim gained the word:
+> `ShapeClaim.draft` names the parameter holding the angle
+> (`docs/acceptance/POSTMVP-021-draft-in-the-claim.md`, ADR-033's amendment). The offer is
+> still held back, now by ADR-029's vision wall rather than by the claim's vocabulary.
+> `both_directions` stands as written — a symmetric extrusion is a choice about where the
+> part sits, and nothing on a drawing states it.
+
 **It is not Gate P4 complete.** The oracle checks the genus two ways and the corpus checks
 face, edge and vertex counts against closed-form arithmetic on sixteen cases. What Gate P4
 also wants is that check on *every* golden model, and there are 59 rather than 100.
