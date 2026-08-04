@@ -1,16 +1,18 @@
 # Gate P4: what it asks, what is there, and what is checkable without a run
 
-**Date:** 2026-08-04 · **Status:** analysis. Nothing here changes behaviour; every number
-in it was measured on `origin/master` (CAD-IR 1.10) in an environment with the engine but
-no container and no Codex.
+**Date:** 2026-08-04 · **Status:** analysis, and both halves it named are now closed.
+Every number was measured on CAD-IR 1.10 in an environment with the engine but no
+container and no Codex. The two "reachable today" items at the bottom were done in the
+commit after this one; what remains is P4.3 and everything that needs it.
 
 The roadmap states the gate in one line:
 
 > **Gate P4:** loft/sweep имеют topology oracle; неоднозначное сопоставление сечений
 > отклоняется.
 
-Two clauses. Both are **half done**, and the two halves that are missing are not the ones
-the phrasing suggests.
+Two clauses. Each was **half done**, and in neither case was the missing half the one the
+phrasing suggests. Both halves are closed now; the sections below say what was there,
+what was not, and what closed it.
 
 ---
 
@@ -45,24 +47,36 @@ stated. The document is ambiguous, which is precisely what the gate says must be
 It reports itself valid, the topology is unremarkable, and the volume is exactly that of a
 correct part — the same failure shape as the three findings of POSTMVP-017/018/021.
 
-### Where the fix belongs
+### What closed it
 
-**In the contract, not the engine.** The sections are sketches with explicit contours, so
-the relative rotation is arithmetic on coordinates the document already states — the same
-class of check as `_require_corresponding` in `cad_ir/loft.py`. The rule:
+**The contract, not the engine.** A section is a sketch with an explicit contour, so the
+rotation between two of them is arithmetic on numbers the document already states — the
+same class of check as `_require_corresponding`, and it landed beside it as
+`_require_unambiguous_rotation` in `cad_ir/loft.py`.
 
-> A loft is refused when the rotation between two consecutive sections is a symmetry of
-> their contour — `k · 360/n` for a regular n-gon or a rectangle with equal sides, and
-> `k · 180` for a rectangle — because then two different pairings of the same vertices
-> describe two different solids and the document does not say which.
+> The rotation between two sections, normalised to `[0, 360)`, must be **less than the
+> contour's own symmetry**.
+
+One condition rather than a modulo test, and the difference matters: it catches 135° on a
+square as well as 90°, because a square at 135° has the vertex set of one at 45°. In every
+refused case the document states one angle and the sections record another, so the kernel
+is left choosing.
+
+The symmetry is the contour's own — a square repeats every 90°, an oblong every 180°, a
+hexagon every 60°. That is why it is not a constant: an oblong turned 90° is a genuinely
+different pair of sections and a single threshold would have refused a correct document. A
+circle is exempt, having no vertices to pair. A rotation stated as a parameter is left
+alone, because the check reads numbers rather than guessing at names, and so is a rectangle
+whose sides are parameters — there the guaranteed symmetry of *every* rectangle is used,
+which refuses the half turn and lets a quarter through rather than refusing a document that
+may be correct.
 
 A drawing that genuinely means a quarter-turn twist has to say so as a twist, which is
-P4.1's `controlled twist` and is a different input from a rotated section.
+P4.1's `controlled twist` and a different input from a rotated section.
 
-Cost: one function in `cad_ir/loft.py`, one corpus negative, no engine change, no version
-bump (it narrows what is accepted rather than widening it — though it would need a review
-of whether any existing fixture relies on it; none of the eight sweep/loft corpus cases
-rotates a section).
+Cost, as built: one function, one corpus negative, seven contract tests, no engine change
+and no version bump — it narrows what is accepted rather than widening it, and none of the
+eight sweep/loft corpus cases rotates a section.
 
 ---
 
@@ -80,9 +94,9 @@ operations: the STEP reports a tidy genus-0 solid of four faces and `is_valid` t
 STL reports genus −45 with 69 open edges, and only the disagreement says the solid is not
 one.
 
-### What is open, and it is exactly the operations the clause names
+### What was open, and it was exactly the operations the clause names
 
-The corpus states `(faces, edges, vertices)` for **16 of 59** cases. Which sixteen:
+The corpus stated `(faces, edges, vertices)` for **16 of 59** cases. Which sixteen:
 
 ```
 plates (3)   islands/cuts (6)   blind-hole   extrude modes (4)   shell-box (2)
@@ -96,9 +110,10 @@ loft-truncated-cone  loft-truncated-pyramid  loft-three-sections-ruled
 loft-cut-tapered-pocket
 ```
 
-So the clause reads "loft and sweep have a topology oracle" and those are the two
-operations for which the *stated* half of the oracle is absent. The genus cross-check
-covers them; the structure does not.
+So the clause reads "loft and sweep have a topology oracle" and those were the two
+operations for which the *stated* half of the oracle was absent. The genus cross-check
+covered them; the structure did not. Six of the eight state one now — **22 of 59** — and
+the two that do not are named at the end of this section.
 
 ### The arithmetic, derived and verified
 
@@ -158,12 +173,15 @@ make a test pass". Either leave them unstated, or state them with the intersecti
 reasoning written out. The former is honest and cheap; the latter is a small essay per
 case.
 
-### Cost
+### Cost, as built
 
-Six of the eight cases: one `topology=(f, e, v)` argument each, with the formula above in
-the docstring that already explains the volume. No engine change. The corpus gate already
-has the assertion — `test_a_case_that_states_its_topology_is_made_of_what_the_drawing_says`
-picks up any case that states one.
+Six of the eight cases now state a topology, and each states it as the **formula** rather
+than the number: `round_topology(n)`, `square_topology(n)` and `topology_of(k, m)` sit
+beside the volume arithmetic in the same docstrings. The corpus gate needed no change —
+`test_a_case_that_states_its_topology_is_made_of_what_the_drawing_says` picks up any case
+that states one, and the corpus went from 122 to 128 assertions.
+
+The two cut cases stay unstated, for the reason above.
 
 ---
 
@@ -194,11 +212,8 @@ thread — the thing the roadmap wants most from P4.4 — is a helical sweep.
 
 In order of value:
 
-1. **The symmetry rule for loft sections** — closes the open half of clause 2, in the
-   contract, with a corpus negative. The measurement that justifies it is in this
-   document.
-2. **Topology on the six derivable sweep/loft cases** — closes the open half of clause 1
-   for the operations it names, with the formulas above.
+1. ~~**The symmetry rule for loft sections.**~~ Done.
+2. ~~**Topology on the six derivable sweep/loft cases.**~~ Done.
 3. **The version out of test sources.** Not part of P4, but it is what let a fixture
    rename hide inside four skipped container tests. Deriving the fixture filename from
    `CAD_IR_VERSION` and `WorkerCapabilities.CadIrVersion` makes a version bump a rename of
@@ -207,10 +222,14 @@ In order of value:
 Not actionable here: anything in P4.3 or P4.4 (design work first, and a large contract
 addition), and anything that needs the image built.
 
-## Why the corpus edit is not in this commit
+## What was deferred, and what was not
 
 CAD-IR 1.11 is not on `origin/master` — `steps`, POSTMVP-022 through 024 and the container
-fix are still local on the machine the runs were done on. Both actionable items above
-touch `golden_corpus.py` and `cad_ir/loft.py`, and 1.11 renames every fixture and extends
-the claim. Doing them now would be a conflict across roughly twenty files for no gain: the
-analysis is what was missing, and it is what this commit is.
+fix are still local on the machine the runs were done on. The first deferral of both items
+above was wrong about why: a version bump does **not** touch `golden_corpus.py` (it derives
+`CAD_IR_VERSION`) and does not touch `cad_ir/loft.py` at all, so both are additions that
+merge rather than collide, and both are done.
+
+Item 3 is the one that genuinely collides. Taking the version out of test sources means
+editing the nineteen files a bump renames, which is exactly the set 1.11 has already
+rewritten locally. It waits for the push.

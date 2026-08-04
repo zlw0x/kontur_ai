@@ -800,7 +800,27 @@ def _sweeps() -> list[Case]:
     Exact, not approximate, and exact for the bends too — the profile's centroid sits
     on the path, so the distance its centroid travels *is* the path length. That is
     what makes a sweep checkable by arithmetic rather than by a previous run.
+
+    The topology is closed-form as well, and it is what Gate P4 asks of this operation
+    (`docs/GATE-P4-ANALYSIS.md`). A **circular** section over `n` path segments is two
+    caps and one lateral face per segment, one circle at every section boundary plus one
+    seam per lateral face, and one vertex per circle:
+
+        faces = 2 + n        edges = 2n + 1        vertices = n + 1
+
+    A **rectangular** section is not the naive `2 + 4n`. The two faces whose normals are
+    perpendicular to the bend plane stay planar *and coplanar* over every segment — a
+    planar path never tilts them — so `clean()` merges each into one face spanning the
+    whole sweep, and only the two that bend are split per segment:
+
+        faces = 4 + 2n       edges = 4(n + 1) + (2n + 2)      vertices = 4(n + 1)
     """
+
+    def round_topology(segments: int) -> tuple[int, int, int]:
+        return (2 + segments, 2 * segments + 1, segments + 1)
+
+    def square_topology(segments: int) -> tuple[int, int, int]:
+        return (4 + 2 * segments, 4 * (segments + 1) + 2 * segments + 2, 4 * (segments + 1))
 
     def path(*segments: dict, plane: str = "XZ") -> dict[str, Any]:
         return {"id": "path.spine", "plane": plane, "segments": list(segments)}
@@ -836,6 +856,7 @@ def _sweeps() -> list[Case]:
             (2 * radius, 2 * radius, length_mm), holes=0),
         volume_mm3=math.pi * radius**2 * length_mm,
         arithmetic=f"π × {radius:g}² × {length_mm:g} — a sweep along a line is an extrusion",
+        topology=round_topology(1),
     ))
 
     straight, bend = 50.0, 30.0
@@ -851,6 +872,7 @@ def _sweeps() -> list[Case]:
             (bend + radius, 2 * radius, straight + bend + radius), holes=0),
         volume_mm3=math.pi * radius**2 * (straight + bend * math.pi / 2),
         arithmetic=f"π × {radius:g}² × ({straight:g} + {bend:g}·π/2)",
+        topology=round_topology(2),
     ))
 
     across, along, run, turn = 20.0, 10.0, 40.0, 25.0
@@ -864,6 +886,7 @@ def _sweeps() -> list[Case]:
             (turn + across / 2, along, run + turn + across / 2), holes=0),
         volume_mm3=across * along * (run + turn * math.pi / 2),
         arithmetic=f"{across:g}·{along:g} × ({run:g} + {turn:g}·π/2)",
+        topology=square_topology(2),
     ))
 
     # A half-round channel milled across the top of a plate: the tool's axis lies in
@@ -892,7 +915,22 @@ def _lofts() -> list[Case]:
     Exact for a linear transition, which is what a loft between two sections of the
     same kind is. Three sections lofted `ruled` are two of those end to end; three
     lofted smooth are not, and that difference is a case of its own.
+
+    The topology is closed-form too, and is the other half of what Gate P4 asks
+    (`docs/GATE-P4-ANALYSIS.md`). For `m` sections of a contour with `k` vertices there
+    are two caps and one lateral face per vertex per gap, one edge round every section
+    plus one running along each vertex, and one vertex per corner per section:
+
+        faces = 2 + k(m − 1)     edges = km + k(m − 1)     vertices = km
+
+    A circle counts as `k = 1`: its seam is the one longitudinal edge, which is why a
+    truncated cone comes out at 3 faces rather than 2.
     """
+
+    def topology_of(vertices: int, sections: int) -> tuple[int, int, int]:
+        return (2 + vertices * (sections - 1),
+                vertices * sections + vertices * (sections - 1),
+                vertices * sections)
 
     def section(name: str, outer: dict, plane: dict | None = None) -> dict[str, Any]:
         return sketch(name, outer, plane=plane)
@@ -931,6 +969,7 @@ def _lofts() -> list[Case]:
             (2 * big, 2 * big, tall), holes=0),
         volume_mm3=prismatoid(a1, a2, tall),
         arithmetic=f"{tall:g}/3 × (π{big:g}² + √(π{big:g}²·π{small:g}²) + π{small:g}²)",
+        topology=topology_of(1, 2),
     ))
 
     base_side, top_side = 40.0, 16.0
@@ -947,6 +986,7 @@ def _lofts() -> list[Case]:
             (base_side, base_side, tall), holes=0),
         volume_mm3=prismatoid(a1, a2, tall),
         arithmetic=f"{tall:g}/3 × ({base_side:g}² + {base_side:g}·{top_side:g} + {top_side:g}²)",
+        topology=topology_of(4, 2),
     ))
 
     on_waist = {"on": "datum", "plane": {"result": "plane.waist"}}
@@ -965,6 +1005,7 @@ def _lofts() -> list[Case]:
         # Ruled means straight between neighbours, so it is two of the case above.
         volume_mm3=2 * prismatoid(a1, a2, tall),
         arithmetic=f"2 × the truncated pyramid — ruled is straight between sections",
+        topology=topology_of(4, 3),
     ))
 
     # A tapered pocket: the mouth sits in the top face and the floor 15 mm below it.
@@ -1175,6 +1216,21 @@ def _sweep_and_loft_refusals(plate: dict, with_features) -> list[Refusal]:
                 holes=0),
             code="SCHEMA_INVALID",
             why="round to square is the correspondence the kernel invents and never states",
+            by_contract=True,
+        ),
+        Refusal(
+            id="loft-between-sections-turned-by-their-own-symmetry",
+            document=with_features(
+                [datum_top,
+                 lofted([section("base", rectangle(40.0, 40.0)),
+                         section("tip", {**rectangle(40.0, 40.0), "rotation_deg": 90.0},
+                                 top)], ["feature.top"])],
+                holes=0),
+            code="SCHEMA_INVALID",
+            # Measured before the rule was written: the kernel builds a prism with no
+            # twist at all, 48 000.0000 mm³ — the same digits as the un-rotated case.
+            why="a square turned a quarter is the same square, so which point meets which "
+                "is undecided and the kernel silently chooses no twist",
             by_contract=True,
         ),
         Refusal(
