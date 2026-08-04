@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 from cad_ir.canonical_validator import validate_canonical
+from cad_ir.errors import CadIrValidationError
 from cad_ir.shape_claim import ShapeClaim, disagreements
 
 from cad_ir.canonical import CAD_IR_VERSION
@@ -109,6 +110,15 @@ def test_a_blend_is_not_part_of_what_the_part_is():
     ]
     without_blends["expectations"] = [
         item for item in value["expectations"] if item["type"] != "surface_face_count"
+    ]
+    # The blends' own dimensions go with them. Since CAD-IR 1.11 a document that
+    # kept `corner_radius` after deleting the fillet that used it is refused, and
+    # rightly — the claim is what this test is about, so the document it is given
+    # has to be one the gate would let through.
+    kept = json.dumps(without_blends["features"])
+    without_blends["parameters"] = [
+        parameter for parameter in value["parameters"]
+        if f'"{parameter["id"]}"' in kept
     ]
     assert disagreements(validate_canonical(without_blends), claim) == []
 
@@ -206,11 +216,9 @@ def test_a_thickness_that_lost_its_name_is_caught():
 
     literal = fixture("plate")
     literal["features"][0]["inputs"]["distance"] = 10.0
-    found = disagreements(
-        validate_canonical(literal), ShapeClaim(profile="rectangle", thickness="p_depth")
-    )
-    assert [item.code for item in found] == ["THICKNESS_PARAMETER"]
-    assert "lost its name" in found[0].detail
+    with pytest.raises(CadIrValidationError) as refused:
+        validate_canonical(literal)
+    assert "PARAMETER_DRIVES_NOTHING" in str(refused.value)
 
 
 def test_a_thickness_claimed_for_a_revolve_says_so_rather_than_being_ignored():
@@ -518,3 +526,54 @@ def test_a_blend_leaves_every_other_field_of_the_claim_satisfied():
 
     assert disagreements(validate_canonical(blended(blend("feature.fillet", 4))), stated) == []
     assert disagreements(validate_canonical(blended(None)), stated) == []
+
+
+# --- how many distinct outside sizes the part has ---------------------------
+
+
+def test_a_stepped_part_read_as_plain_is_caught():
+    """The word the claim was missing, and what its absence cost.
+
+    Told every dimension must drive geometry and having no way to say "this part
+    has three diameters", a model put the dimensions it could not place into
+    construction circles no constraint mentioned, and then into cut features named
+    `*_reference_cut`. The first was invisible. The second was caught only by the
+    opening count noticing four holes where the drawing showed one — a diagnosis
+    arrived at sideways.
+    """
+    plain = fixture("plate")
+    found = disagreements(
+        validate_canonical(plain),
+        ShapeClaim(profile="rectangle", thickness="p_depth", steps=2),
+    )
+
+    assert [item.code for item in found] == ["STEP_COUNT"]
+    assert (found[0].claimed, found[0].built) == ("2", "1")
+
+
+def test_a_reader_who_did_not_count_the_steps_contradicts_nothing():
+    """Silence is not a claim, here as everywhere else in it."""
+    plain = fixture("plate")
+
+    assert disagreements(
+        validate_canonical(plain),
+        ShapeClaim(profile="rectangle", thickness="p_depth"),
+    ) == []
+
+
+def test_two_features_drawn_the_same_size_are_one_step():
+    """What a reader would say looking at a section, not what the document lists.
+
+    A boss the same size as the plate under it does not read as a second diameter,
+    and counting features instead of sizes would make the claim a statement about
+    how the document is written.
+    """
+    lever = fixture("lever-plate")
+    stated = ShapeClaim(
+        profile="closed_profile",
+        openings=[{"kind": "round", "count": 2}],
+        solids=3,
+        steps=3,
+    )
+
+    assert [item.code for item in disagreements(validate_canonical(lever), stated)] == []

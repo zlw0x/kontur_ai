@@ -31,13 +31,14 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.10** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.11** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
   and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
   (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`), 1.9 sweep and loft
-  (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`).
+  (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`), 1.11
+  scalar arithmetic (`docs/adr/ADR-034-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -340,10 +341,22 @@ reproduces the kernel's own answer to 0.000e+00 where `until=` works, gives the 
 closed form the kernel used to keep to itself, and turns each failure into a refusal or into
 two solids that `body_count` already sees. Building it is a CAD-IR version.
 
-One thing is left over from the migration, named in
-`docs/acceptance/ENGINE-MIG-008-kompas-removed.md`: `WorkerCapability.KOMPAS_BUILD`,
-`ResourceStage.KOMPAS_STARTUP` and the manifest's `kompas_version` still exist
-because stored rows carry them, and they leave when none do.
+**The migration's last leftovers are gone.** `WorkerCapability.KOMPAS_BUILD`,
+`ResourceStage.KOMPAS_STARTUP`, the manifest's `kompas_version` and the `M3D`
+artifact type stayed parseable because stored rows carried them — deleting a name
+rows still hold turns a rename into an outage. Migration 0006 rewrote the rows
+first and the names went second, which is the order that matters. Nothing in the
+vocabulary names which program does the work.
+
+Two things were kept on purpose. `_COARSE_ALIASES` is now empty and still there:
+it is the seam a rename goes through, and `canonical_capabilities` being the only
+way anything compares capabilities is what made the last one a one-line change.
+And every comment explaining *why* something is the way it is — a seam edge
+OpenCascade carries and KOMPAS did not, constraints a STEP cannot hold — stays.
+Those are the record of how the current behaviour was arrived at, not leftovers.
+Artifact rows of type `M3D` are also left alone: such a row is a file really
+delivered to a customer, and rewriting its type would make the record claim a
+STEP was delivered when one was not.
 
 The image is no longer merely defined: it has been **built and run on a real daemon**
 (`docs/acceptance/ENGINE-MIG-DEPLOY-*.md`) — `describe` under `--read-only --network none`,

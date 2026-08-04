@@ -1267,6 +1267,77 @@ svg {
   font-size: 8px;
 }
 
+/* A question that is not a dimension. The reading stage has always been able to
+   ask one — "is this opening through, or blind?" — and until it could say so,
+   every question was rendered as a number field with a millimetre suffix, which
+   such a question has no answer for. */
+.choice-field {
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 11px;
+  padding: 11px 13px;
+  display: grid;
+  gap: 8px;
+  min-inline-size: 0;
+}
+
+.choice-field legend {
+  padding: 0 4px;
+  font-size: 13px;
+  opacity: .82;
+}
+
+.choice-field label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.choice-field input { accent-color: #65d8d0; }
+
+/* Three things an order can need to say before it says anything else: it
+   failed, it is stuck waiting, or it was never real. Same card, three tempers —
+   the demonstration is the loudest deliberately, because mistaking it for a
+   delivered part is the only one of the three that costs anything. */
+.notice-card {
+  border-radius: 15px;
+  padding: 15px 18px;
+  display: grid;
+  gap: 6px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .16);
+}
+
+.notice-card p { margin: 0; line-height: 1.5; }
+.notice-card code {
+  justify-self: start;
+  font-size: 12px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .06);
+  opacity: .8;
+}
+.notice-card .notice-hint { font-size: 13px; opacity: .72; }
+
+.notice-failed {
+  border: 1px solid rgba(240, 122, 106, .34);
+  background:
+    radial-gradient(circle at 0 0, rgba(240, 122, 106, .12), transparent 36%),
+    rgba(28, 20, 20, .9);
+}
+
+.notice-waiting {
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(18, 23, 27, .9);
+}
+
+.notice-demo {
+  border: 1px solid rgba(240, 196, 92, .42);
+  background:
+    radial-gradient(circle at 0 0, rgba(240, 196, 92, .14), transparent 38%),
+    rgba(30, 26, 17, .92);
+}
+
 .clarification-card {
   display: grid;
   grid-template-columns: minmax(230px, .7fr) minmax(360px, 1.3fr);

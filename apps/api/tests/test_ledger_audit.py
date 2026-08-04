@@ -70,7 +70,7 @@ def healthy_job() -> list[ResourceEvent]:
         ai("job:x:ai:analysis:1", AgentRole.DRAWING_EXTRACTION, 0, 40),
         ai("job:x:ai:compile:1", AgentRole.CAD_IR_COMPILATION, 45, 30),
         span("job:x:validate:cad_ir:1", ResourceEventType.VALIDATION, ResourceStage.SEMANTIC_VALIDATION, 80, 1),
-        span("job:x:cad:session:1", ResourceEventType.CAD_SESSION, ResourceStage.KOMPAS_STARTUP, 90, 120),
+        span("job:x:cad:session:1", ResourceEventType.CAD_SESSION, ResourceStage.CAD_STARTUP, 90, 120),
         span("job:x:cad:operation:prism", ResourceEventType.CAD_OPERATION, ResourceStage.FEATURE_BUILD, 100, 6),
         span("job:x:cad:operation:hole_001", ResourceEventType.CAD_OPERATION, ResourceStage.FEATURE_BUILD, 110, 4),
         span("job:x:validate:geometry:1", ResourceEventType.VALIDATION, ResourceStage.GEOMETRY_VALIDATION, 215, 8),
@@ -166,7 +166,7 @@ def test_an_interval_that_never_closed_is_flagged_and_excluded_from_billing():
         ResourceEvent(
             event_key="job:x:cad:session:2",
             event_type=ResourceEventType.CAD_SESSION,
-            stage=ResourceStage.KOMPAS_STARTUP,
+            stage=ResourceStage.CAD_STARTUP,
             started_at=START + timedelta(seconds=400),
             success=False,
             failure_code="WORKER_TERMINATED",
@@ -216,7 +216,7 @@ def test_a_provoked_repair_shows_the_expected_counter_shape():
             1,
         ),
         ai("job:x:ai:repair:1", AgentRole.REPAIR, 84, 20),
-        span("job:x:cad:session:2", ResourceEventType.CAD_SESSION, ResourceStage.KOMPAS_STARTUP, 230, 60),
+        span("job:x:cad:session:2", ResourceEventType.CAD_SESSION, ResourceStage.CAD_STARTUP, 230, 60),
     ]
 
     counters = derive_counters(events)

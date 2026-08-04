@@ -1,0 +1,303 @@
+{
+ "schema": "cad-ai/cad-ir",
+ "schema_version": "1.11",
+ "document": {
+  "units": "mm",
+  "part_type": "single_part",
+  "coordinate_system": "right_handed",
+  "name": "constrained plate"
+ },
+ "parameters": [
+  {
+   "id": "base_width",
+   "type": "length",
+   "value": 60.0,
+   "unit": "mm",
+   "name": "Plate width",
+   "status": "confirmed"
+  },
+  {
+   "id": "base_height",
+   "type": "length",
+   "value": 30.0,
+   "unit": "mm",
+   "name": "Plate height",
+   "status": "confirmed"
+  },
+  {
+   "id": "wall_thickness",
+   "type": "length",
+   "value": 8.0,
+   "unit": "mm",
+   "name": "Plate thickness",
+   "status": "confirmed"
+  },
+  {
+   "id": "hole_radius",
+   "type": "length",
+   "value": 4.0,
+   "unit": "mm",
+   "name": "Hole radius",
+   "status": "confirmed"
+  },
+  {
+   "id": "hole_pitch_x",
+   "type": "length",
+   "value": 20.0,
+   "unit": "mm",
+   "name": "Hole pitch",
+   "status": "confirmed"
+  }
+ ],
+ "reference_geometry": [],
+ "features": [
+  {
+   "id": "feature.plate",
+   "type": "solid.extrude",
+   "enabled": true,
+   "depends_on": [],
+   "produces": [
+    {
+     "id": "body.main",
+     "kind": "solid_body"
+    }
+   ],
+   "inputs": {
+    "direction": "+Z",
+    "distance": {
+     "parameter": "wall_thickness"
+    },
+    "sketch": {
+     "id": "sketch.plate",
+     "plane": {
+      "on": "base",
+      "plane": "XY"
+     },
+     "outer": {
+      "type": "path",
+      "id": "contour.plate",
+      "segments": [
+       {
+        "type": "line",
+        "id": "edge.top",
+        "start": [
+         -30.0,
+         15.0
+        ],
+        "end": [
+         30.0,
+         15.0
+        ]
+       },
+       {
+        "type": "line",
+        "id": "edge.right",
+        "start": [
+         30.0,
+         15.0
+        ],
+        "end": [
+         30.0,
+         -15.0
+        ]
+       },
+       {
+        "type": "line",
+        "id": "edge.bottom",
+        "start": [
+         30.0,
+         -15.0
+        ],
+        "end": [
+         -30.0,
+         -15.0
+        ]
+       },
+       {
+        "type": "line",
+        "id": "edge.left",
+        "start": [
+         -30.0,
+         -15.0
+        ],
+        "end": [
+         -30.0,
+         15.0
+        ]
+       }
+      ]
+     },
+     "inner": [
+      {
+       "type": "circle",
+       "id": "hole.left",
+       "center": [
+        {
+         "negate": {
+          "parameter": "hole_pitch_x"
+         }
+        },
+        0.0
+       ],
+       "radius": {
+        "parameter": "hole_radius"
+       }
+      },
+      {
+       "type": "circle",
+       "id": "hole.right",
+       "center": [
+        {
+         "parameter": "hole_pitch_x"
+        },
+        0.0
+       ],
+       "radius": {
+        "parameter": "hole_radius"
+       }
+      }
+     ],
+     "construction": [
+      {
+       "type": "line",
+       "id": "axis.horizontal",
+       "start": [
+        -40.0,
+        0.0
+       ],
+       "end": [
+        40.0,
+        0.0
+       ]
+      },
+      {
+       "type": "line",
+       "id": "axis.vertical",
+       "start": [
+        0.0,
+        -25.0
+       ],
+       "end": [
+        0.0,
+        25.0
+       ]
+      }
+     ],
+     "constraints": [
+      {
+       "id": "c.top_horizontal",
+       "kind": "horizontal",
+       "of": "edge.top"
+      },
+      {
+       "id": "c.bottom_horizontal",
+       "kind": "horizontal",
+       "of": "edge.bottom"
+      },
+      {
+       "id": "c.left_vertical",
+       "kind": "vertical",
+       "of": "edge.left"
+      },
+      {
+       "id": "c.right_vertical",
+       "kind": "vertical",
+       "of": "edge.right"
+      },
+      {
+       "id": "c.sides_equal",
+       "kind": "equal_length",
+       "of": "edge.left",
+       "to": "edge.right"
+      },
+      {
+       "id": "c.spans_equal",
+       "kind": "equal_length",
+       "of": "edge.top",
+       "to": "edge.bottom"
+      },
+      {
+       "id": "c.holes_equal",
+       "kind": "equal_radius",
+       "of": "hole.left",
+       "to": "hole.right"
+      },
+      {
+       "id": "c.holes_symmetric",
+       "kind": "symmetric",
+       "of": "hole.left",
+       "to": "hole.right",
+       "axis": "axis.vertical"
+      },
+      {
+       "id": "c.holes_aligned",
+       "kind": "aligned_horizontally",
+       "of": "hole.left",
+       "to": "hole.right"
+      },
+      {
+       "id": "c.corner_bottom_left",
+       "kind": "coincident",
+       "of": "edge.left",
+       "to": "edge.bottom",
+       "to_point": "end"
+      }
+     ],
+     "dimensions": [
+      {
+       "id": "base_width",
+       "kind": "length",
+       "of": "edge.top",
+       "value": {
+        "parameter": "base_width"
+       }
+      },
+      {
+       "id": "base_height",
+       "kind": "length",
+       "of": "edge.left",
+       "value": {
+        "parameter": "base_height"
+       }
+      },
+      {
+       "id": "hole_radius",
+       "kind": "radius",
+       "of": "hole.left",
+       "value": {
+        "parameter": "hole_radius"
+       }
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "expectations": [
+  {
+   "id": "expect.bounds",
+   "type": "bounding_box",
+   "size_mm": {
+    "x": 60.0,
+    "y": 30.0,
+    "z": 8.0
+   },
+   "tolerance_mm": 0.05
+  },
+  {
+   "id": "expect.bodies",
+   "type": "body_count",
+   "value": 1
+  },
+  {
+   "id": "expect.holes",
+   "type": "through_hole_count",
+   "value": 2
+  }
+ ],
+ "metadata": {
+  "generator": "acceptance-fixture",
+  "generator_version": "1.0",
+  "prompt_version": "manual"
+ }
+}

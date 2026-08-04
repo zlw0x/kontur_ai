@@ -25,6 +25,7 @@ import pytest
 pytest.importorskip("build123d", reason="the CAD engine is not installed")
 
 from cad_ir_fixtures import fixture  # noqa: E402
+from conftest import pruned  # noqa: E402
 from cad_ir.canonical_validator import validate_canonical  # noqa: E402
 
 from cad_engine_build123d.adapter import build, build_part  # noqa: E402
@@ -125,7 +126,18 @@ def test_the_bushing_exports_and_verifies(tmp_path):
 
 
 def revolved(angle: float, both: bool = False, **inputs) -> dict:
-    """A plain tube, so a volume is a fraction of a turn and nothing else."""
+    """A plain tube, so a volume is a fraction of a turn and nothing else.
+
+    Every dimension is a literal and `pruned` takes the fixture's nine away, because
+    this keeps one feature of five and states its own section: the parameters would
+    then drive nothing, which CAD-IR 1.11 refuses, and a cut-down document is a
+    different document.
+
+    The centre line goes literal with them. It is the feature's axis, so it cannot be
+    dropped — and it names `bush_height`, which would leave that one parameter alive
+    *only in construction*, which is precisely the case ADR-034 refuses. Its length
+    says nothing about the part anyway; there is a test below for that.
+    """
     value = bushing()
     value["features"] = [value["features"][0]]
     feature = value["features"][0]
@@ -136,10 +148,11 @@ def revolved(angle: float, both: bool = False, **inputs) -> dict:
         "width": BODY - BORE,
         "height": HEIGHT,
     }
+    feature["inputs"]["sketch"]["construction"][0]["end"] = [0.0, HEIGHT]
     feature["inputs"]["angle_deg"] = angle
     feature["inputs"]["both_directions"] = both
     feature["inputs"].update(inputs)
-    return value
+    return pruned(value)
 
 
 @pytest.mark.parametrize("angle", [90.0, 180.0, 270.0, 360.0])
@@ -255,6 +268,10 @@ def test_an_axis_whose_points_coincide_once_resolved_is_refused():
     """The contract compares the two points as written; parameters can still
     collapse them, and a zero-length axis is not an axis."""
     value = revolved(360.0)
+    value["parameters"].append(
+        {"id": "groove_lower_z", "type": "length", "unit": "mm", "value": 15.0,
+         "status": "confirmed"}
+    )
     value["features"][0]["inputs"]["axis"] = {
         "kind": "points",
         "axis": {"start": [{"parameter": "groove_lower_z"}, 0.0], "end": [15.0, 0.0]},

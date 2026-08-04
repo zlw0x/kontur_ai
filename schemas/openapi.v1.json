@@ -1250,6 +1250,83 @@
         }
       }
     },
+    "/api/v1/workers/jobs/{job_id}/fail": {
+      "post": {
+        "summary": "Fail Job",
+        "description": "A worker reporting that it has stopped trying, and why.\n\nThe counterpart to `complete`, and it did not exist. A build that failed\nraised out of the worker's job handler, was swallowed into a backoff, lost its\nlease, and came back round to be tried again — up to `max_attempts` and then\nnever again, sitting in PENDING for the rest of time. From the customer's page\nthat is \"waiting to start\", forever, with no way to tell it from a queue with\nno worker on it.\n\nRetrying stays the first answer. This is the *end* of retrying: the worker\nsends it once it has decided the next attempt would fail the same way, using\nthe split it already makes between a failure about the document and one about\nthe machine.",
+        "operationId": "fail_job_api_v1_workers_jobs__job_id__fail_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobFailureRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobFailureAck"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workers/jobs/{job_id}/complete": {
       "post": {
         "summary": "Complete Job",
@@ -1844,6 +1921,11 @@
             "minimum": 1.0,
             "title": "Attempt"
           },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Max Attempts"
+          },
           "idempotency_key": {
             "type": "string",
             "title": "Idempotency Key"
@@ -1872,6 +1954,7 @@
           "order_id",
           "job_type",
           "attempt",
+          "max_attempts",
           "idempotency_key",
           "lease_expires_at",
           "manifest_url",
@@ -1889,12 +1972,28 @@
             "title": "Question Id"
           },
           "value": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              }
+            ],
             "title": "Value"
           },
           "unit": {
-            "type": "string",
-            "const": "mm",
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "mm"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Unit"
           }
         },
@@ -1902,10 +2001,10 @@
         "type": "object",
         "required": [
           "question_id",
-          "value",
-          "unit"
+          "value"
         ],
-        "title": "ClarificationAnswer"
+        "title": "ClarificationAnswer",
+        "description": "One answer, in the shape its question asked for.\n\nThis was `{question_id, value: float, unit: \"mm\"}` and nothing else, which\nmade most of what the reading stage actually asks unanswerable. Of the six\nquestions the acceptance runs produced, four could not be sent: two asked for\na pair of distances, and two asked whether an opening went through — which is\na choice, and has no millimetre value at all. The order was a dead end: the\nAPI refuses an answer set that is not a complete match, so a question with no\nexpressible answer stops the job forever.\n\nA number still carries `unit`, because a dimension without one is a number\nsomebody has to guess the meaning of. A choice carries none, because \"through\"\nis not measured in millimetres.\n\nWhich shape is valid is not decided here — it is decided by the question, and\nchecked against the question when the answers arrive (`_answer_matches`). The\nreading stage says how each of its questions is answered, so the customer is\nnever offered a field that cannot hold the answer."
       },
       "DrawingAnswersRequest": {
         "properties": {
@@ -2105,6 +2204,56 @@
         ],
         "title": "JobCompletionRequest"
       },
+      "JobFailureAck": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "JobFailureAck"
+      },
+      "JobFailureRequest": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 400,
+            "minLength": 1,
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "code",
+          "message"
+        ],
+        "title": "JobFailureRequest",
+        "description": "A worker saying why it stopped, in words the customer may be shown."
+      },
       "JobHeartbeatRequest": {
         "properties": {
           "job_id": {
@@ -2162,6 +2311,16 @@
         ],
         "title": "JobPolicy"
       },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "LEASED",
+          "COMPLETED",
+          "FAILED"
+        ],
+        "title": "JobStatus"
+      },
       "JobType": {
         "type": "string",
         "enum": [
@@ -2183,7 +2342,6 @@
             "items": {
               "type": "string",
               "enum": [
-                "m3d",
                 "step",
                 "stl"
               ]
@@ -2694,7 +2852,7 @@
           "CAD_IR_COMPILATION",
           "SCHEMA_VALIDATION",
           "SEMANTIC_VALIDATION",
-          "KOMPAS_STARTUP",
+          "CAD_STARTUP",
           "DOCUMENT_BUILD",
           "FEATURE_BUILD",
           "SELECTOR_RESOLUTION",
@@ -2795,9 +2953,10 @@
         "type": "string",
         "enum": [
           "AI_DRAWING",
-          "KOMPAS_BUILD"
+          "CAD_BUILD"
         ],
-        "title": "WorkerCapability"
+        "title": "WorkerCapability",
+        "description": "What kind of work a worker will take, coarsely.\n\n`CAD_BUILD` replaced `KOMPAS_BUILD` at ENGINE-MIG-008: the coarse capability\nnamed an engine, and the engine is gone. The old name stayed parseable for a\nwhile because it is *stored* — in `worker.capabilities` and in\n`order.required_capabilities`, as JSON written by every release before that\none — and deleting a name that rows still carry turns a rename into an outage.\n\nMigration 0006 rewrote those rows, so the name is gone rather than waiting to\nage out. What it meant did not change on the way: a worker that declared\n`KOMPAS_BUILD` could build CAD, and can."
       },
       "WorkerCapabilityManifest": {
         "properties": {
@@ -2813,17 +2972,15 @@
             "minLength": 1,
             "title": "Worker Version"
           },
-          "kompas_version": {
+          "engine": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 50
+                "$ref": "#/components/schemas/WorkerEngineDeclaration"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Kompas Version"
+            ]
           },
           "codex_cli_version": {
             "anyOf": [
@@ -2962,6 +3119,49 @@
           "job"
         ],
         "title": "WorkerClaimResponse"
+      },
+      "WorkerEngineDeclaration": {
+        "properties": {
+          "engine_id": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Engine Id"
+          },
+          "engine_version": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Engine Version"
+          },
+          "kernel_id": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Kernel Id"
+          },
+          "kernel_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kernel Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "engine_id",
+          "engine_version",
+          "kernel_id"
+        ],
+        "title": "WorkerEngineDeclaration",
+        "description": "Which CAD engine a worker builds with, and on what kernel.\n\nAdded by ENGINE-MIG-007 rather than reusing the `kompas_version` field that\nstood here, which named one engine and reported a version only that engine\nhad. An OpenCascade version in a field called `kompas_version` would make\nevery reader of a manifest wrong about what produced the model. That field is\ngone; this one says which engine, and says it in terms of the engine.\n\nOptional, because a worker older than this build does not send it and being\nunable to say which engine it uses is not a reason to refuse its work."
       },
       "WorkerHeartbeatRequest": {
         "properties": {

@@ -27,7 +27,6 @@ def manifest(**overrides) -> dict:
     return {
         "schema_version": "1.0",
         "worker_version": "0.4.0",
-        "kompas_version": "22.0",
         "cad_ir_versions": [CAD_IR_VERSION],
         "capabilities": {
             key: {"status": CapabilityStatus.STABLE.value, "version": "1.0"}
@@ -57,7 +56,7 @@ def enrol(client, protocol, name="local-pc", app_version="0.4.0"):
 def heartbeat(client, headers, worker_id, capability_manifest=None, slots=1):
     body = {
         "worker_id": worker_id,
-        "capabilities": ["AI_DRAWING", "KOMPAS_BUILD"],
+        "capabilities": ["AI_DRAWING", "CAD_BUILD"],
         "supported_cad_ir": [CAD_IR_VERSION],
         "available_slots": slots,
     }
@@ -151,7 +150,7 @@ def test_diagnosis_does_not_consume_the_job(monkeypatch, tmp_path):
         json={
             "protocol_version": "1.0",
             "worker_id": registered["worker_id"],
-            "capabilities": ["KOMPAS_BUILD"],
+            "capabilities": ["CAD_BUILD"],
             "supported_cad_ir": [CAD_IR_VERSION],
             "available_slots": 1,
             "capability_manifest": manifest(),

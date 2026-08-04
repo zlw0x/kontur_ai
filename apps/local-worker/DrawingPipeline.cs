@@ -9,7 +9,12 @@ public sealed record DrawingPipelineResult(
     string AnalysisPath,
     string QuestionsPath,
     string? CadIrPath,
-    CodexStageResult AnalysisRun,
+    /// <summary>
+    /// The vision call, or null when a clarification round reused the reading
+    /// carried in with the answers. Nullable because reporting a call that was
+    /// not made would put a cost in the ledger that nobody paid.
+    /// </summary>
+    CodexStageResult? AnalysisRun,
     CodexStageResult? CompilationRun);
 
 public sealed class DrawingPipeline(
@@ -40,12 +45,24 @@ public sealed class DrawingPipeline(
     private readonly ICadDocumentEngine? engine = engine;
 
     private readonly IReadOnlyCollection<string> disabled = disabledCapabilities ?? [];
+
+    /// <summary>What this pipeline will check the generated document against.</summary>
+    /// <remarks>
+    /// Exposed only so a test can see what a caller assembled. The claim loop once
+    /// assembled one with no engine, which turned every check above into a no-op
+    /// for online orders and was invisible to every test, because each test
+    /// supplies an engine of its own.
+    /// </remarks>
+    internal ICadDocumentEngine? ValidatingEngine => this.engine;
+
+    /// <summary>The operator's disabled capabilities, as this pipeline received them.</summary>
+    internal IReadOnlyCollection<string> DisabledCapabilities => this.disabled;
     /// <summary>
     /// Identifies the prompt text a run used. Token counts are only comparable
     /// between jobs that were asked the same question, so the version travels
     /// with every AI measurement.
     /// </summary>
-    internal const string PromptVersion = "drawing-mvp-5";
+    internal const string PromptVersion = "drawing-mvp-8";
 
     /// <summary>
     /// The version the prompt asks for, taken from the one place that declares it.
@@ -139,6 +156,41 @@ public sealed class DrawingPipeline(
         var analysisSchema = Path.Combine(workspace, "schemas", "drawing-analysis.schema.json");
         var cadIrSchema = Path.Combine(workspace, "schemas", "cad-ir-mvp-output.schema.json");
 
+        // A clarification round reuses the reading that asked the questions.
+        //
+        // The vision call used to run unconditionally, before anything looked at
+        // whether answers had arrived. So round two read the drawing again — a
+        // second billed call on the same image — and produced a *fresh* set of
+        // question ids. The answers already in hand are keyed by the old ones, so
+        // what reached the compiling agent was a set of values referring to
+        // questions that no longer existed, next to an analysis nobody had
+        // answered.
+        //
+        // The prior reading travels with the answers as a job input, because a
+        // round is a new job directory and there is otherwise nothing here to
+        // reuse. Absent — an older API, or an order whose analysis could not be
+        // found — the drawing is read again, which is what always happened.
+        //
+        // **Only when the reading settled what the part is.** A question tagged
+        // `parameter_id: "shape"` says the reader could not: on a real order the
+        // drawing showed two parts, the only question was which to model, and the
+        // shape it recorded meanwhile was a stub — `openings: []` for a bushing
+        // that is mostly bore. Reusing that carried the stub into the round that
+        // had the answer, and the claim agreed with the compilation because both
+        // were wrong the same way. A missing *number* leaves the shape intact and
+        // is what this is for; a missing *shape* has to be read again.
+        var carried = Path.Combine(workspace, "context", "drawing-analysis.json");
+        var reusingPriorReading =
+            !string.IsNullOrWhiteSpace(answersPath) && File.Exists(answersPath)
+            && File.Exists(carried) && ShapeWasSettled(carried);
+        if (reusingPriorReading)
+        {
+            File.Copy(carried, analysisPath, overwrite: true);
+            return await CompileAsync(
+                workspace, output, imagePaths, analysisPath, questionsPath, cadIrSchema,
+                answersPath, analysisRun: null, cancellationToken);
+        }
+
         budgetState.Reserve(CodexStage.DrawingExtraction, budgetPolicy);
         var analysisRoute = router.Route(CodexStage.DrawingExtraction, "drawing_analyzer");
         var analysisPrompt = AnalysisPrompt();
@@ -159,6 +211,64 @@ public sealed class DrawingPipeline(
                 CodexProvenance.PromptBundleSha256(PromptVersion, analysisPrompt)),
             cancellationToken);
 
+        return await CompileAsync(
+            workspace, output, imagePaths, analysisPath, questionsPath, cadIrSchema,
+            answersPath, analysisRun, cancellationToken);
+    }
+
+    /// <summary>
+    /// Everything after the drawing has been read: ask, or compile and check.
+    /// </summary>
+    /// <remarks>
+    /// Split out because a clarification round arrives here with the reading
+    /// already done — it was carried in with the answers rather than produced by
+    /// a second look at the same image. `analysisRun` is null on that path, and
+    /// the ledger says so: a round that read nothing must not report a vision
+    /// call it did not make.
+    /// </remarks>
+    /// <summary>
+    /// Did this reading settle what the part is, or only what size it is?
+    /// </summary>
+    /// <remarks>
+    /// A question naming `parameter_id: "shape"` is the reader saying it could
+    /// not decide the outline or the openings. Whatever shape it recorded beside
+    /// such a question is a placeholder, and carrying it into the round that
+    /// answers the question is how a stub becomes the delivered part.
+    ///
+    /// Unreadable is treated as unsettled: reading the drawing again costs a
+    /// vision call, and building the wrong part costs the order.
+    /// </remarks>
+    private static bool ShapeWasSettled(string analysisPath)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(analysisPath));
+            var questions = document.RootElement.GetProperty("result").GetProperty("questions");
+            foreach (var question in questions.EnumerateArray())
+            {
+                if (question.TryGetProperty("parameter_id", out var parameter) &&
+                    parameter.GetString() == "shape")
+                    return false;
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<DrawingPipelineResult> CompileAsync(
+        string workspace,
+        string output,
+        IReadOnlyList<string> imagePaths,
+        string analysisPath,
+        string questionsPath,
+        string cadIrSchema,
+        string? answersPath,
+        CodexStageResult? analysisRun,
+        CancellationToken cancellationToken)
+    {
         using var analysisDocument = JsonDocument.Parse(await File.ReadAllBytesAsync(analysisPath, cancellationToken));
         var result = analysisDocument.RootElement.GetProperty("result");
         var questions = result.GetProperty("questions").Clone();
@@ -245,7 +355,8 @@ public sealed class DrawingPipeline(
             // rejected document, and a real run spent two repairs rewriting a
             // document that was never the problem.
             catch (CadAdapterException error)
-                when (repairAttempt < 2 && BuildFeedback.IsRepairable(error.Code))
+                when (repairAttempt < BuildFeedback.MaxCompileRepairs
+                      && BuildFeedback.IsRepairable(error.Code))
             {
                 budgetState.Reserve(CodexStage.Repair, budgetPolicy);
                 var previous = await ReadBoundedAsync(candidatePath, 1_000_000, cancellationToken);
@@ -403,6 +514,10 @@ public sealed class DrawingPipeline(
                            all four corners is one entry, fillet, count 4; a "2x45" on a bore rim is one
                            entry, chamfer, count 1. Empty when the drawing marks none.
           note             what the outline is, in words, when profile is closed_profile.
+          steps            how many DISTINCT OUTSIDE SIZES the part has along its axis, off the section.
+                           A plain plate or cylinder is 1. A flanged bushing is 2. A flange, a body and a
+                           reduced nose is 3. Count outside sizes, not features and not diameters you can
+                           see through. Null when the drawing does not settle it.
 
         Extract every dimension in millimetres. Never invent a missing one. A directly legible dimension is
         confirmed; a geometric consequence may be inferred; everything else is unresolved.
@@ -411,6 +526,14 @@ public sealed class DrawingPipeline(
         Otherwise ask the smallest set of concrete questions. A question about a number names its parameter;
         a question about the outline or the openings uses parameter_id "shape" - ask one when the drawing
         genuinely does not settle it, rather than guessing.
+
+        Every question states how it is answered, and asks for exactly one value.
+          answer_kind "number"  a single dimension in millimetres. choices is [].
+          answer_kind "choice"  choices lists the answers offered, 2 to 5 of them, each a short phrase.
+        Two dimensions are two questions. "What are the X and Y distances to the centre?" cannot be
+        answered, because an answer is one value; ask for X, then ask for Y. A question that is not
+        a number is a choice: "Is the opening through, or blind?" with choices ["through", "blind"].
+        Never ask something the customer cannot answer from the drawing or from what they ordered.
 
         Return only JSON matching the supplied schema.
         """;
@@ -522,9 +645,21 @@ public sealed class DrawingPipeline(
         them, and counting it would fail a check that measures the finished solid.
 
         Every parameter is {"id","type":"length","value","unit":"mm","status"} and may carry
-        "provenance":{"confidence"}. There is no expression language: a numeric slot is either a
-        number or {"parameter":"param.something"}. Create an explicit positive radius parameter for every
-        hole and reference it; never put arithmetic anywhere.
+        "provenance":{"confidence"}.
+
+        State each dimension the drawing gives ONCE, as a parameter holding exactly the number that is
+        written on the drawing, and let the geometry reference it. A numeric slot is one of:
+          a number
+          {"parameter":"param.something"}
+          {"divide":<slot>,"by":<number>}     the slot, divided by a constant
+          {"negate":<slot>}                   the same slot, with the opposite sign
+        A drawing that says "Ø44" gives you outer_diameter = 44, and the contour's radius is then
+        {"divide":{"parameter":"param.outer_diameter"},"by":2} - never a second parameter holding 22, and
+        never the literal 22. The opposite side of a symmetric outline is {"negate":...} of the same slot,
+        not a second number. There is no other arithmetic: no multiplication, no addition, no sine.
+
+        Every length or angle parameter you declare MUST be referenced by some feature. A parameter nothing
+        references is refused: it means the number you read off the drawing is not the number being built.
 
         Expectations must include a bounding_box with size_mm {x,y,z} and a non-negative tolerance_mm
         (use 0 when exact), a body_count of 1, and a through_hole_count. Expectations describe what the
@@ -562,8 +697,9 @@ public sealed class DrawingPipeline(
         producing body.main, followed by XY "cut.extrude" features with direction "+Z", through_all true and
         source_body {"result":"body.main"}. A sketch is {"id","plane","outer","inner","construction"} with
         plane {"on":"base","plane":"XY"}; a contour is a rectangle, circle, slot, regular_polygon, or a path
-        of line and arc segments that closes exactly. There is no expression language: a numeric slot is a
-        number or {"parameter":"..."}. Keep metadata.prompt_version exactly as it is.
+        of line and arc segments that closes exactly. A numeric slot is a number, {"parameter":"..."},
+        {"divide":<slot>,"by":<number>} or {"negate":<slot>} - and every length parameter you declare must
+        be referenced by some feature. Keep metadata.prompt_version exactly as it is.
 
         VALIDATOR_ERROR:
         {{errorCode}}: {{safeMessage}}
@@ -661,6 +797,12 @@ public sealed class DrawingPipeline(
             if (shape.TryGetProperty("wall_parameter", out var wall) &&
                 wall.ValueKind == JsonValueKind.String)
                 claim["wall"] = wall.GetString();
+            // A count the reader could not settle stays absent rather than
+            // arriving as 1, which would say "this part is not stepped" on behalf
+            // of somebody who did not look.
+            if (shape.TryGetProperty("steps", out var steps) &&
+                steps.ValueKind == JsonValueKind.Number)
+                claim["steps"] = steps.GetInt32();
             if (shape.TryGetProperty("blends", out var blends) &&
                 blends.ValueKind == JsonValueKind.Array && blends.GetArrayLength() > 0)
                 claim["blends"] = blends.EnumerateArray().Select(item => new

@@ -12,6 +12,7 @@ working and there is still one obvious place to read the document from.
 from __future__ import annotations
 
 from enum import StrEnum
+from math import isfinite
 from typing import Annotated, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -84,60 +85,98 @@ class Provenance(StrictModel):
 
 
 class ParameterRef(StrictModel):
-    """A reference to a named parameter, the only indirection CAD-IR allows."""
+    """A reference to a named parameter."""
 
     parameter: Id
 
 
-class ScaledParameterRef(StrictModel):
-    """A parameter multiplied by a constant: a diameter driving a radius.
+class ScalarQuotient(StrictModel):
+    """A scalar divided by a constant — `{"divide": <scalar>, "by": 2.0}`.
 
-    **Not yet part of `Scalar`, and deliberately so** — adding it is a CAD-IR
-    version. It is here, with a resolver in the engine and tests for both, because
-    the design was decided by measurement and the arithmetic is worth proving
-    before the version that carries it. `docs/TASK-POSTMVP-scalar-arithmetic.md`
-    has the argument and what wiring costs.
+    Almost every mechanical drawing dimensions **diameters**, and almost every
+    contour takes a **radius**. Until this existed the two could not be the same
+    number: a `Scalar` was `float | ParameterRef` with no arithmetic, so a
+    document that read "Ø44" off a drawing had to write `44` into a parameter and
+    then write `22` — or, as one real order did, write `44` again — as a literal
+    beside it.
 
-    The problem it exists for was found by a real run
-    (`docs/acceptance/POSTMVP-016-runs-2-6-*`): a flange document carried
-    `outer_diameter: 80` cited to the Ø80 callout, drew a literal `radius: 40`, and
-    restated 80 in its expectation. Change the parameter to 100 and the part stays
-    Ø80 — every check passes, because the copy with the best provenance is the one
-    nothing reads. A `Scalar` of `float | ParameterRef` gives a diameter nowhere to
-    go: it can drive a magnitude and not a half of one, so the parameter is unused
-    because the contract has no way to use it.
-
-    One node rather than an expression, and that is the whole design. A free-text
-    `{"expr": "outer_diameter / 2"}` — which CAD-IR 0.1.0 had, and whose parser is
-    still in `cad_ir.expression` — cannot be canonical: `"d/2"` and `"d / 2"` are
-    the same part with two byte-stable hashes, and ADR-018 traded expressions away
-    for exactly that reason. A scaled reference has one spelling per part, needs no
-    parser, and covers every case the runs turned up: a diameter driving a radius
-    (`times: 0.5`) and one parameter driving both sides of a symmetric outline
-    (`times: -1`).
+    That order is why this is here. It declared `bushing_outer_radius: 44`, the
+    *diameter* value under a radius name, extruded a circle of radius 44, and
+    restated 88 in its own expectation so the check agreed. A Ø88 part, delivered,
+    with every measurement green — because the number that built it and the number
+    that checked it were the same copy, and the copy that came off the drawing was
+    compared against nothing.
     """
 
-    parameter: Id
-    #: Bounded because an unbounded factor turns a 40 mm plate into a kilometre of
-    #: one, and the bound is the same 1e6 the expression evaluator has always used
-    #: for its result.
-    times: Annotated[float, Field(gt=-1_000_000.0, lt=1_000_000.0)]
+    divide: "Scalar"
+    #: A constant, never a parameter. One dimension divided by another is a
+    #: relationship the drawing did not state, and a document that computes one is
+    #: inventing geometry rather than recording it.
+    by: float
 
     @model_validator(mode="after")
-    def validate_factor(self) -> "ScaledParameterRef":
-        if self.times == 1.0:
-            # A plain `ParameterRef` already says this, and two spellings of one part
-            # is what canonical form exists to prevent (ADR-018).
-            raise ValueError("a factor of 1 is a plain parameter reference; use one")
-        if self.times == 0.0:
-            # Zero drives nothing, which is the defect this form was added to fix.
-            raise ValueError("a factor of 0 is the literal 0 wearing a parameter's name")
+    def validate_divisor(self) -> "ScalarQuotient":
+        if not isfinite(self.by) or self.by == 0:
+            raise ValueError("a scalar may only be divided by a finite, non-zero constant")
+        if _depth(self) > _MAX_SCALAR_DEPTH:
+            raise ValueError(
+                f"a scalar may not nest deeper than {_MAX_SCALAR_DEPTH} operations")
         return self
 
 
-#: Not `ScaledParameterRef` yet: see that class, and
-#: `docs/TASK-POSTMVP-scalar-arithmetic.md`.
-Scalar = Union[float, ParameterRef]
+class ScalarNegation(StrictModel):
+    """The same scalar, the other way — `{"negate": <scalar>}`.
+
+    The second thing one parameter could not do: drive both sides of a symmetric
+    outline. `lever-plate`'s cap radius is 15 and its profile needs y = +15 *and*
+    y = −15, so one of the two had to be a literal, and a document half-driven by
+    its parameters is one where changing a dimension moves half the part.
+    """
+
+    negate: "Scalar"
+
+    @model_validator(mode="after")
+    def validate_depth(self) -> "ScalarNegation":
+        if _depth(self) > _MAX_SCALAR_DEPTH:
+            raise ValueError(
+                f"a scalar may not nest deeper than {_MAX_SCALAR_DEPTH} operations")
+        return self
+
+
+#: How far a scalar may be derived from the parameter underneath it.
+#:
+#: Three covers everything the drawing cases need — `divide(negate(p), 2)` is two —
+#: with one to spare. A bound exists at all because the nodes are recursive and a
+#: document is written by a model: nothing else stops a tower a thousand deep from
+#: being schema-valid, and every reader of it would recurse the same way.
+_MAX_SCALAR_DEPTH = 3
+
+
+def _depth(value: object) -> int:
+    """How many operations sit between this scalar and its numbers."""
+    if isinstance(value, ScalarQuotient):
+        return 1 + _depth(value.divide)
+    if isinstance(value, ScalarNegation):
+        return 1 + _depth(value.negate)
+    return 0
+
+
+#: A number, a parameter, or one of two ways of deriving one from a parameter.
+#:
+#: Deliberately two operations and not four. Multiplication and addition were
+#: considered and left out: the cases that were *measured* are a diameter driving
+#: a radius and a parameter driving a symmetric pair, and every further operation
+#: is another thing to validate, another line in the prompt, and another way for a
+#: document to state a relationship nobody drew.
+#:
+#: Structured nodes rather than the string form 0.1.0 had (`{"expr": "d / 2"}`).
+#: ADR-018 removed that on purpose: a string makes the trust boundary parse text
+#: written by the model, and once it does the schema guarantees nothing about what
+#: is inside. These are checked by the schema itself, and there is no parser.
+Scalar = Union[float, ParameterRef, ScalarQuotient, ScalarNegation]
+
+ScalarQuotient.model_rebuild()
+ScalarNegation.model_rebuild()
 
 
 class FeatureResult(StrictModel):

@@ -41,7 +41,6 @@ def manifest(**overrides) -> WorkerCapabilityManifest:
     capabilities.update(overrides)
     return WorkerCapabilityManifest(
         worker_version="0.4.0",
-        kompas_version="22.0",
         cad_ir_versions=[CAD_IR_VERSION],
         capabilities=capabilities,
     )

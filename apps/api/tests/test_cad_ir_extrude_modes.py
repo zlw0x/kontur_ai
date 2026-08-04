@@ -155,15 +155,22 @@ def test_a_part_read_as_drafted_and_built_square_is_caught():
     openings are right, the solid count is right, and — because a narrowing taper keeps
     the sketch as the widest section — the bounding box is right too. The part holds a
     third less material than the drawing says.
+
+    The document drops the *parameter* with the taper, which is what a real one does:
+    CAD-IR 1.11 refuses a dimension nothing drives (`PARAMETER_DRIVES_NOTHING`), so a
+    compilation that ignores the draft cannot keep the angle in its parameter list. That
+    rule and this check overlap and neither replaces the other — the validator sees a
+    declared angle driving nothing, and the claim sees a drawing that stated an angle
+    the document does not mention at all.
     """
-    disagreement = found(document([pad()], parameters=[DRAFT]), draft="p_draft")
+    disagreement = found(document([pad()]), draft="p_draft")
 
     assert [item.code for item in disagreement] == ["DRAFT_PARAMETER"]
     assert disagreement[0].built == "no taper"
 
 
 def test_a_draft_built_from_a_literal_has_lost_the_name_the_drawing_gave_it():
-    disagreement = found(document([pad(taper=5.0)], parameters=[DRAFT]), draft="p_draft")
+    disagreement = found(document([pad(taper=5.0)]), draft="p_draft")
 
     assert [item.code for item in disagreement] == ["DRAFT_PARAMETER"]
     assert "literal" in disagreement[0].detail
@@ -172,8 +179,8 @@ def test_a_draft_built_from_a_literal_has_lost_the_name_the_drawing_gave_it():
 def test_a_draft_built_from_the_wrong_parameter_is_named():
     value = document(
         [pad(taper={"parameter": "p_other"})],
-        parameters=[DRAFT, {"id": "p_other", "type": "angle", "unit": "deg",
-                            "value": 3.0, "status": "assumed"}],
+        parameters=[{"id": "p_other", "type": "angle", "unit": "deg",
+                     "value": 3.0, "status": "assumed"}],
     )
     disagreement = found(value, draft="p_draft")
 
@@ -233,7 +240,7 @@ def test_a_draft_changes_nothing_else_the_claim_counts():
     satisfied by the square part."""
     drafted = validate_canonical(document([pad(taper={"parameter": "p_draft"})],
                                           parameters=[DRAFT]))
-    square = validate_canonical(document([pad()], parameters=[DRAFT]))
+    square = validate_canonical(document([pad()]))
     stated = claim(thickness=None)
 
     assert disagreements(drafted, stated) == disagreements(square, stated) == []

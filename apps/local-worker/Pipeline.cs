@@ -302,7 +302,7 @@ public static class ClaimLoop
                 failures = 0;
                 if (claim?.job is not null)
                 {
-                    await ExecuteClaimedJobAsync(client, claim.job, paths, selected, cancellation);
+                    await RunClaimedJobAsync(client, claim.job, paths, selected, cancellation);
                     if (runOnce) return 0;
                 }
                 else if (runOnce) return 0;
@@ -319,6 +319,135 @@ public static class ClaimLoop
         }
         return 0;
     }
+
+    /// <summary>
+    /// Run a claimed job, and if it will not be tried again, say so.
+    /// </summary>
+    /// <remarks>
+    /// **A retry is the first answer, not this.** Most failures are worth another
+    /// attempt: a container that would not start, an interpreter missing for a
+    /// moment, a machine under load. Those raise, the lease lapses, and the API
+    /// hands the job to whoever claims next. That is working as intended and this
+    /// method leaves it alone.
+    ///
+    /// What was missing is the end of it. When retrying stopped helping, nothing
+    /// said so — the job returned to PENDING for the last time and stayed there.
+    /// The customer's page reads that as "waiting to start", and it is
+    /// indistinguishable, forever, from a queue with no worker on it. A build that
+    /// failed and a build that has not begun looked exactly alike.
+    ///
+    /// Two cases end it, and both are decided from what is already known:
+    ///
+    /// **The failure is about the document.** `BuildFeedback` classifies those,
+    /// and by the time one reaches here the build-repair loop has already rewritten
+    /// the document twice and been refused twice. A fresh attempt re-runs the same
+    /// model calls on the same drawing and arrives at the same place, on somebody's
+    /// order. Reporting it is both truer and cheaper.
+    ///
+    /// **It was the last permitted attempt.** `max_attempts` now travels with the
+    /// claim precisely so this does not have to be a number written down twice.
+    ///
+    /// Anything else is left to lapse, unchanged.
+    ///
+    /// Reporting is itself allowed to fail, and quietly: the lease is the fallback
+    /// and it still works. Turning "the build failed and so did telling you about
+    /// it" into a crash would take out the claim loop for every later job.
+    ///
+    /// **A failed job is not a failed worker**, and it used to be. The claim loop
+    /// rethrows `WorkerException`, so a build that refused a document did not go
+    /// into the backoff — it ended `cad-worker run`, and the machine stopped taking
+    /// orders until somebody noticed. One customer's bad drawing took the queue
+    /// down. Handled here, so the loop goes on to the next job. Failures that are
+    /// about the *worker* rather than the job — a rejected credential — are raised
+    /// before a job is ever claimed and still stop it.
+    /// </remarks>
+    private static async Task RunClaimedJobAsync(
+        HttpClient client,
+        ClaimedJob job,
+        WorkerPaths paths,
+        WorkerEngine.EngineSelection selected,
+        CancellationToken cancellation)
+    {
+        try
+        {
+            await ExecuteClaimedJobAsync(client, job, paths, selected, cancellation);
+        }
+        catch (WorkerException error)
+        {
+            if (BuildFeedback.IsRepairable(error.Code) || job.attempt >= job.max_attempts)
+                await TryReportFailureAsync(client, job, error.Code, error.SafeMessage, cancellation);
+            Console.Error.WriteLine(
+                $"job {job.job_id} attempt {job.attempt}/{job.max_attempts} failed: {error.Code}");
+        }
+    }
+
+    /// <summary>Tell the API the job is over, or fail silently trying.</summary>
+    private static async Task TryReportFailureAsync(
+        HttpClient client,
+        ClaimedJob job,
+        string code,
+        string message,
+        CancellationToken cancellation)
+    {
+        try
+        {
+            using var response = await client.PostAsJsonAsync(
+                $"/api/v1/workers/jobs/{job.job_id}/fail",
+                new { job_id = job.job_id, code, message },
+                cancellation);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch
+        {
+            // The lease still expires and the job still stops being ours. Losing
+            // the reason is worse than not having it; losing the claim loop is
+            // worse than both.
+        }
+    }
+
+    /// <summary>
+    /// The pipeline a claimed drawing job runs, with everything that checks it.
+    /// </summary>
+    /// <remarks>
+    /// Split out because leaving it inline is how it went wrong. The claim loop
+    /// built a <see cref="DrawingPipeline"/> with no engine and no feature flags,
+    /// and <c>ValidateAsync</c> opens with `if (engine is null) return;` — whose
+    /// own comment says a missing engine "is only ever the case in a test: every
+    /// real path passes one in". The claim loop is a real path, and it was the
+    /// one that did not.
+    ///
+    /// Silently, and for every online order: no trusted semantic gate over the
+    /// generated document, **no shape claim check at all** — the whole of
+    /// POSTMVP-015, twelve holes against six, a solid block against a housing —
+    /// no compile-stage repair loop, and operator feature flags not applied. All
+    /// of it worked when the same drawing went through `analyze-drawing` by hand,
+    /// which is why nine acceptance runs never saw it.
+    ///
+    /// The engine was already at the call site: the line below passes
+    /// `selected.Engine` to the build. Only the check was missing it.
+    ///
+    /// Assembled here rather than inline so a test can assert what an online job
+    /// is given, which is the thing no test could see before — every existing one
+    /// hands the pipeline a stub engine of its own and is therefore blind to the
+    /// wiring.
+    ///
+    /// <paramref name="runner"/> is injectable for the same reason the engine is
+    /// selectable: constructing a <see cref="CadAi.CodexRunner.LocalCodexRunner"/>
+    /// searches the machine for the CLI and throws when it is absent, so a wiring
+    /// test that built one could only run where Codex is installed. What is being
+    /// asserted is that an engine and the operator's flags arrive — not that this
+    /// machine can reach a model.
+    /// </remarks>
+    internal static DrawingPipeline CreateDrawingPipeline(
+        WorkerPaths paths,
+        WorkerEngine.EngineSelection selected,
+        ResourceLedger ledger,
+        CadAi.CodexRunner.ICodexRunner? runner = null) =>
+        new(runner ?? new CadAi.CodexRunner.LocalCodexRunner(),
+            ledger: ledger,
+            engine: selected.Engine,
+            disabledCapabilities: [.. FeatureFlags.Load(paths).Disabled]);
 
     private static async Task ExecuteClaimedJobAsync(
         HttpClient client,
@@ -361,6 +490,11 @@ public static class ClaimLoop
                     Path.Combine(jobPath, "input", input.local_name),
                 "user_answers" when input.local_name == "user-answers.json" =>
                     Path.Combine(jobPath, "context", input.local_name),
+                // The reading that produced the questions these answers reply to.
+                // Without it a clarification round re-reads the drawing and gets
+                // fresh question ids, which the answers no longer refer to.
+                "prior_analysis" when input.local_name == "drawing-analysis.json" =>
+                    Path.Combine(jobPath, "context", input.local_name),
                 _ => throw new WorkerException("MANIFEST_INVALID", "Job input kind or local name is invalid.")
             };
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -379,8 +513,7 @@ public static class ClaimLoop
                     .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
                 var answersPath = Path.Combine(jobPath, "context", "user-answers.json");
-                var pipeline = new DrawingPipeline(
-                    new CadAi.CodexRunner.LocalCodexRunner(), ledger: ledger);
+                var pipeline = CreateDrawingPipeline(paths, selected, ledger);
                 var drawing = await pipeline.RunAsync(
                     jobPath,
                     images,
@@ -513,6 +646,7 @@ public static class ClaimLoop
         string job_id,
         string job_type,
         int attempt,
+        int max_attempts,
         string idempotency_key,
         string manifest_url);
     private sealed record JobManifest(

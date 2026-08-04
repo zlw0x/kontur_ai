@@ -55,6 +55,9 @@ class Job:
     lease_owner: UUID | None = None
     lease_expires_at: datetime | None = None
     completed_key: str | None = None
+    #: Why the worker stopped, once it has. Both are set together or not at all.
+    failure_code: str | None = None
+    failure_message: str | None = None
 
 
 class InMemoryWorkerRepository:
@@ -178,6 +181,27 @@ class WorkerProtocolService:
         if not replay:
             self.repo.artifacts[job_id] = list(artifacts)
         return replay
+
+    def fail(self, worker: Worker, job_id: UUID, code: str, message: str) -> Job:
+        """The worker has stopped trying, and says why.
+
+        Lease-scoped like completion, for the same reason: only the worker
+        currently holding the job may speak for it. Without that, a worker whose
+        lease expired mid-build could fail a job another worker has since picked
+        up and is about to finish.
+
+        A completed job is not re-opened. Completion is the stronger statement —
+        the artifacts exist and were verified — and a late failure report from a
+        worker that lost its lease must not take that away.
+        """
+        job = self.repo.jobs.get(job_id)
+        if job is not None and job.status == JobStatus.COMPLETED:
+            return job
+        job = self._owned_active_job(worker, job_id)
+        job.status = JobStatus.FAILED
+        job.failure_code, job.failure_message = code, message
+        job.lease_owner, job.lease_expires_at = None, None
+        return job
 
     def _owned_active_job(self, worker: Worker, job_id: UUID) -> Job:
         job = self.repo.jobs.get(job_id)

@@ -246,6 +246,23 @@ class ShapeClaim(StrictModel):
     #: The rounded and chamfered edges the drawing marks, by kind and count. Empty when
     #: the part has none or the reader could not see them — silence is not a claim.
     blends: Annotated[list[BlendClaim], Field(max_length=16)] = Field(default_factory=list)
+    #: How many distinct outside sizes the part has along its axis. A plain plate or
+    #: cylinder is 1; a flanged bushing is 2; a bushing with a flange and a reduced
+    #: nose is 3. Nothing when the reader could not settle it — silence is not a claim.
+    #:
+    #: Added because two real evasions came from its absence, and both were the same
+    #: evasion. Told that every dimension must drive geometry, and having no way to
+    #: say "this part has three diameters", a model put the dimensions it could not
+    #: place into eight construction circles no constraint mentioned, and — when that
+    #: stopped counting — into three cut features named `*_reference_cut`. The first
+    #: was invisible to every check. The second was caught, but only by the opening
+    #: count noticing four holes where the drawing showed one, which is a diagnosis
+    #: arrived at sideways.
+    #:
+    #: A count, never a size, and about the *outside*: it is the number a reader can
+    #: get off a sectional view without measuring, and it is exactly what
+    #: distinguishes a stepped part from the cylinder a model falls back to.
+    steps: Annotated[int, Field(ge=1, le=32)] | None = None
     #: Free text, for a reader to say what an outline is when the vocabulary
     #: above does not name it. Never read by any check — it exists so a person
     #: reviewing a contradiction can see what was meant.
@@ -296,7 +313,67 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
     found.extend(_wall_disagreement(document, claim))
     found.extend(_draft_disagreement(document, claim))
     found.extend(_blend_disagreements(document, claim))
+    found.extend(_step_disagreement(solids, claim, repeats))
     return found
+
+
+def _step_disagreement(
+    solids: list, claim: ShapeClaim, repeats: dict[str, int]
+) -> list[Disagreement]:
+    """How many distinct outside sizes the part has along its axis.
+
+    Silence is not a claim: a reader who could not settle it says nothing and
+    agrees with whatever gets built.
+
+    Counted from the document as the number of *distinct outer contours* among the
+    features that make material — a stepped bushing writes a flange disc and a
+    sleeve disc and they differ, while a plain cylinder writes one. Two features
+    drawn to the same size are one step, which is what a reader would say looking
+    at the section.
+
+    Deliberately not measured from the solid. The claim compares kinds and counts
+    against what the *document states*, and a size read back off the geometry would
+    be the document checking itself (ADR-025).
+    """
+    if claim.steps is None:
+        return []
+    shapes = {
+        _outer_signature(feature)
+        for feature in solids
+        for _ in range(repeats.get(str(feature.id), 1))
+    }
+    built = len(shapes - {None}) or 1
+    if built == claim.steps:
+        return []
+    return [
+        Disagreement(
+            code="STEP_COUNT",
+            claimed=str(claim.steps),
+            built=str(built),
+            detail=(
+                f"the drawing was read as having {claim.steps} distinct outside "
+                f"size(s) along its axis; the document builds {built}"
+            ),
+        )
+    ]
+
+
+def _outer_signature(feature) -> str | None:
+    """A stable name for the outer contour's size, or None when there is none.
+
+    Two features whose outer contour is written the same way are the same step.
+    Serialising the contour is enough and is honest about what it can see: a
+    circle written as a literal radius and the same circle written as a diameter
+    divided by two look different here, and a reader comparing counts would call
+    them one. That is a false disagreement waiting to happen, and it is bounded —
+    it can only ever over-count, which fails loudly rather than passing a wrong
+    part.
+    """
+    sketch = getattr(getattr(feature, "inputs", None), "sketch", None)
+    outer = getattr(sketch, "outer", None)
+    if outer is None:
+        return None
+    return outer.model_dump_json()
 
 
 def _boolean_roles(document: CadIrDocument) -> tuple[set[str], set[str]]:

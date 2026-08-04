@@ -633,7 +633,6 @@
         "SCHEMA_VALIDATION",
         "SEMANTIC_VALIDATION",
         "CAD_STARTUP",
-        "KOMPAS_STARTUP",
         "DOCUMENT_BUILD",
         "FEATURE_BUILD",
         "SELECTOR_RESOLUTION",

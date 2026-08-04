@@ -9,19 +9,13 @@ part.
 Nothing is evaluated as code. A parameter's value is a number in the document;
 `cad_ir.expression` exists for documents that carry expressions and is a real
 parser with a fixed grammar, not `eval`.
-
-`resolve` also handles a `ScaledParameterRef` — a parameter times a constant, so a
-Ø80 callout can drive a radius of 40. That form is **not in `Scalar` yet**, so no
-document the validator accepts can reach this branch; it is resolved here, and
-tested, because adding it to the contract is a CAD-IR version and the arithmetic is
-worth settling first. `docs/TASK-POSTMVP-scalar-arithmetic.md` has the argument.
 """
 
 from __future__ import annotations
 
 from typing import Mapping
 
-from cad_ir.base import ParameterRef, ScaledParameterRef
+from cad_ir.base import ParameterRef, ScalarNegation, ScalarQuotient
 from cad_ir.canonical import CadIrDocument, ParameterStatus
 
 from .errors import CadEngineError
@@ -60,8 +54,22 @@ class Parameters:
         return cls(values)
 
     def resolve(self, scalar, what: str) -> float:
-        """A scalar as a number, whether it was one, named one, or scaled one."""
-        if isinstance(scalar, (ParameterRef, ScaledParameterRef)):
+        """A scalar as a number: one, a named one, or one derived from a named one.
+
+        The only place in this engine where a `Scalar` becomes a float, and it
+        serves all twenty-four call sites — the contours, the distances, the blend
+        sizes, the pattern steps. That is why CAD-IR 1.11 could give scalars
+        arithmetic without touching any of them: the two new forms are handled
+        here, recursively, and everything above carries on asking for a number.
+        """
+        if isinstance(scalar, ScalarQuotient):
+            # The divisor is a constant and the contract already refused zero and
+            # anything non-finite, so this cannot produce an infinity the geometry
+            # would then be built from.
+            return self.resolve(scalar.divide, what) / float(scalar.by)
+        if isinstance(scalar, ScalarNegation):
+            return -self.resolve(scalar.negate, what)
+        if isinstance(scalar, ParameterRef):
             name = str(scalar.parameter)
             if name not in self._values:
                 raise CadEngineError(
@@ -70,21 +78,7 @@ class Parameters:
                     f"{what} names parameter {name}, which the document does not "
                     "define.",
                 )
-            value = self._values[name]
-            if isinstance(scalar, ScaledParameterRef):
-                # The one multiplication in the engine. It is here rather than in the
-                # contract because a resolved number is the engine's business, and it
-                # is a multiplication rather than an expression for the reason
-                # `ScaledParameterRef` gives: one spelling per part.
-                value *= scalar.times
-                if not -1e6 < value < 1e6:
-                    raise CadEngineError(
-                        "PARAMETER_UNRESOLVED",
-                        "prepare",
-                        f"{what} scales {name} to {value}, which is outside the range "
-                        "any part is built in.",
-                    )
-            return value
+            return self._values[name]
         if isinstance(scalar, bool) or not isinstance(scalar, (int, float)):
             raise CadEngineError(
                 "CAD_IR_INVALID", "prepare", f"{what} is not a number."

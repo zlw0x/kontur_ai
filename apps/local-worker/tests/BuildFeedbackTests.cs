@@ -20,6 +20,11 @@ public sealed class BuildFeedbackTests
     private static WorkerException Failure(string code) => new(code, $"the engine said {code}");
 
     [Theory]
+    // The trusted gate refused the document, which the agent wrote. The rule
+    // that fired travels in the message; the code is what this file decides
+    // about, and missing that distinction is what left a real order looping.
+    [InlineData("CAD_IR_INVALID")]
+    [InlineData("SHAPE_CLAIM_CONTRADICTED")]
     // The part came out and is not the part the document declared. The document
     // is the only place that can be changed.
     [InlineData("GEOMETRY_VALIDATION_FAILED")]
@@ -36,6 +41,11 @@ public sealed class BuildFeedbackTests
     [InlineData("SKETCH_NOT_CLOSED")]
     [InlineData("DIMENSION_DISAGREES_WITH_GEOMETRY")]
     [InlineData("CONSTRAINT_NOT_SATISFIED")]
+    // A dimension the document states and nothing builds with. Classified after a
+    // real order needed it: the rule shipped, a document was refused by it, and
+    // the loop did nothing at all — an unclassified code is not repairable, so
+    // the job neither healed nor failed.
+    [InlineData("PARAMETER_DRIVES_NOTHING")]
     public void AFailureAboutTheDocumentGoesBackToBeRewritten(string code)
     {
         Assert.True(BuildFeedback.IsRepairable(Failure(code)));
@@ -81,5 +91,23 @@ public sealed class BuildFeedbackTests
     public void TheNumberOfBuildRepairsIsBounded()
     {
         Assert.Equal(2, BuildFeedback.MaxBuildRepairs);
+    }
+
+    /// <summary>
+    /// Rewriting a refused document is cheaper than rebuilding, and gets one more try.
+    /// </summary>
+    /// <remarks>
+    /// A compile repair is one model call; a build repair is a model call plus a
+    /// container start and a kernel run. Three because a real order needed all
+    /// three — refused, rewritten and refused, rewritten into a broken dependency
+    /// graph, and valid on the third. At two it would have stopped one rewrite
+    /// short of a document the gate accepts, which is the most expensive place to
+    /// stop: everything paid for and nothing delivered.
+    /// </remarks>
+    [Fact]
+    public void RewritingARefusedDocumentGetsOneMoreTryThanRebuilding()
+    {
+        Assert.Equal(3, BuildFeedback.MaxCompileRepairs);
+        Assert.True(BuildFeedback.MaxCompileRepairs > BuildFeedback.MaxBuildRepairs);
     }
 }

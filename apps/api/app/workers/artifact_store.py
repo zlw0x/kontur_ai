@@ -28,7 +28,6 @@ class LocalArtifactStore:
     """
 
     _extensions = {
-        "M3D": ".m3d",
         "STEP": ".step",
         "STL": ".stl",
         "PREVIEW": ".png",
@@ -67,6 +66,22 @@ class LocalArtifactStore:
     def put_answers(self, job_id: UUID, value: dict) -> StoredObject:
         payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
         return self._write(f"jobs/{job_id}/input/user-answers.json", payload, len(payload))
+
+    def put_prior_analysis(self, job_id: UUID, payload: bytes) -> StoredObject:
+        """Carry a round's reading into the next round's job.
+
+        Each clarification round is a new job with a new directory, so without
+        this the worker has nothing to reuse and re-reads the drawing — a second
+        vision call, and a fresh set of question ids that the answers already sent
+        no longer refer to.
+        """
+        return self._write(f"jobs/{job_id}/input/drawing-analysis.json", payload, len(payload))
+
+    def prior_analysis(self, job_id: UUID) -> StoredObject | None:
+        try:
+            return self._read(f"jobs/{job_id}/input/drawing-analysis.json")
+        except ArtifactIntegrityError:
+            return None
 
     def answers(self, job_id: UUID) -> StoredObject | None:
         try:

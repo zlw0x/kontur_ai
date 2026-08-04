@@ -48,7 +48,7 @@ REQUIRED_DRAWING_STAGES: tuple[ResourceStage, ...] = (
     ResourceStage.DRAWING_ANALYSIS,
     ResourceStage.CAD_IR_COMPILATION,
     ResourceStage.SEMANTIC_VALIDATION,
-    ResourceStage.KOMPAS_STARTUP,
+    ResourceStage.CAD_STARTUP,
     ResourceStage.FEATURE_BUILD,
     ResourceStage.GEOMETRY_VALIDATION,
     ResourceStage.ARTIFACT_UPLOAD,

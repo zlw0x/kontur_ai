@@ -28,6 +28,8 @@ from .contracts import (
     WorkerClaimResponse,
     JobCompletionAck,
     JobCompletionRequest,
+    JobFailureAck,
+    JobFailureRequest,
     JobHeartbeatRequest,
     WorkerHeartbeatRequest,
     WorkerRegistrationRequest,
@@ -40,6 +42,7 @@ from .contracts import (
     TransitionOrderRequest,
     DrawingJobResponse,
     DrawingAnswersRequest,
+    ClarificationAnswer,
 )
 from .workers.artifact_store import ArtifactIntegrityError, LocalArtifactStore
 from .workers.capabilities import required_capability_keys
@@ -162,6 +165,35 @@ def transition_order(
     )
 
 
+def _answer_matches(question: dict, answer: ClarificationAnswer) -> str | None:
+    """Is this the shape of answer the question asked for? The reason, or None.
+
+    The question is the authority, not the contract: `ClarificationAnswer` allows
+    a number or a choice, and which one is right is a property of what was asked.
+    Checking here rather than in the model is what lets the reading stage decide,
+    and is why the page can render a field that fits.
+
+    A question written before `answer_kind` existed is treated as a number, which
+    is what every such question was. An in-flight order does not become
+    unanswerable because a new build shipped.
+    """
+    kind = question.get("answer_kind", "number")
+    if kind == "number":
+        if not isinstance(answer.value, float):
+            return f"question {question['id']} asks for a dimension in millimetres"
+        return None
+    if kind == "choice":
+        choices = question.get("choices") or []
+        if not isinstance(answer.value, str):
+            return f"question {question['id']} asks for one of the answers offered"
+        if answer.value not in choices:
+            # Not a free-text field. Accepting anything would put text nobody
+            # offered into the prompt of the next round.
+            return f"question {question['id']} was not offered the answer {answer.value!r}"
+        return None
+    return f"question {question['id']} declares an answer kind this build cannot read"
+
+
 def scheduler_diagnostics() -> SchedulerDiagnostics:
     """Built per call so it always reads the protocol currently in use.
 
@@ -223,6 +255,12 @@ def claim_worker_job(request: WorkerClaimRequest, authorization: str | None = He
         return WorkerClaimResponse(protocol_version="1.0", job=None, retry_after_seconds=5)
     return WorkerClaimResponse(protocol_version="1.0", job={
         "job_id": job.id, "order_id": job.order_id, "job_type": job.job_type, "attempt": job.attempt,
+        # The worker needs to know when it is holding the last permitted attempt.
+        # Without it, "there will be no retry after this one" has to be a number
+        # written down on both sides, and two copies of a bound is how one of them
+        # drifts. A worker that knows says FAILED instead of letting the lease
+        # lapse into a job nobody will pick up again.
+        "max_attempts": job.max_attempts,
         "idempotency_key": job.idempotency_key, "lease_expires_at": job.lease_expires_at,
         "manifest_url": f"/api/v1/workers/jobs/{job.id}/manifest",
         "required_output_schema": f"cad-ir/{job.required_cad_ir}",
@@ -387,6 +425,10 @@ def get_drawing_job(
         raise HTTPException(status_code=404, detail="drawing order was not found")
     job_id = tracking["latest_job_id"]
     job = worker_protocol.get_job(job_id)
+    if job is None:
+        # The tracking file outlived the job row. A 500 here told the customer
+        # nothing and told us it was our fault, which is only half true.
+        raise HTTPException(status_code=404, detail="drawing order was not found")
     artifacts = worker_protocol.get_artifacts(job_id)
     questions = []
     if any(item["type"].upper() == "CLARIFICATION_QUESTIONS" for item in artifacts):
@@ -404,10 +446,10 @@ def get_drawing_job(
         else job.status.value
     )
     # Only while the order is genuinely waiting on the scheduler. Once it is
-    # ready or the user has been asked something, the ball is not here.
+    # ready, failed, or the user has been asked something, the ball is not here.
     waiting_reason = (
         scheduler_diagnostics().report(job).summary
-        if status not in ("READY", "WAITING_FOR_USER_ANSWERS")
+        if status not in ("READY", "WAITING_FOR_USER_ANSWERS", "FAILED")
         else None
     )
     return {
@@ -415,6 +457,11 @@ def get_drawing_job(
         "job_id": str(job_id),
         "status": status,
         "waiting_reason": waiting_reason,
+        # Present only on a failure, and safe to show: the worker sends a typed
+        # code and text it has already stripped of paths and hosts. A FAILED with
+        # no reason would be barely better than the silence it replaces.
+        "failure_code": job.failure_code if status == "FAILED" else None,
+        "failure_message": job.failure_message if status == "FAILED" else None,
         "round": tracking["round"],
         "questions": questions,
         "artifacts": [
@@ -450,10 +497,14 @@ def answer_drawing_questions(
         )
     except (ArtifactIntegrityError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=409, detail="order is not waiting for answers") from error
-    expected_ids = {item["id"] for item in question_document.get("questions", [])}
+    asked = {item["id"]: item for item in question_document.get("questions", [])}
     supplied_ids = {item.question_id for item in request.answers}
-    if supplied_ids != expected_ids:
+    if supplied_ids != set(asked):
         raise HTTPException(status_code=422, detail="answers must match the current question set")
+    for answer in request.answers:
+        problem = _answer_matches(asked[answer.question_id], answer)
+        if problem is not None:
+            raise HTTPException(status_code=422, detail=problem)
     if tracking["round"] >= 3:
         raise HTTPException(status_code=409, detail="clarification round limit reached")
     job_id = uuid.uuid4()
@@ -463,6 +514,23 @@ def answer_drawing_questions(
         "schema_version": "0.1.0",
         "answers": [item.model_dump() for item in request.answers],
     })
+    # The reading that produced these questions travels with the answers.
+    #
+    # A round is a new job with a new directory, so without this the worker has
+    # nothing but the drawing and reads it again: a second vision call on every
+    # round, and — worse — a *fresh* set of question ids. The answers already sent
+    # are keyed by the old ones, so what reaches the compiling agent is a set of
+    # values referring to questions that no longer exist.
+    #
+    # Best-effort: an order whose analysis cannot be found still proceeds by
+    # re-reading, which is what it did before this existed.
+    try:
+        artifact_store.put_prior_analysis(
+            job_id,
+            artifact_store.artifact(prior_job_id, "DRAWING_ANALYSIS").path.read_bytes(),
+        )
+    except ArtifactIntegrityError:
+        pass
     round_number = tracking["round"] + 1
     worker_protocol.enqueue(Job(
         job_id,
@@ -550,10 +618,6 @@ def download_manual_artifact(
     except ArtifactIntegrityError as error:
         raise HTTPException(status_code=404, detail="artifact was not found") from error
     media_types = {
-        # Kept although nothing produces one any more: artifacts are files and
-        # are served as written, so an order completed before ENGINE-MIG-008
-        # still downloads everything it was delivered.
-        "M3D": "application/octet-stream",
         "STEP": "model/step",
         "STL": "model/stl",
         "PREVIEW": "image/png",
@@ -583,6 +647,15 @@ def get_job_manifest(
             "size_bytes": source.size_bytes,
             "local_name": f"page-001{source.path.suffix.lower()}",
         }]
+        prior = artifact_store.prior_analysis(job_id)
+        if prior is not None:
+            inputs.append({
+                "kind": "prior_analysis",
+                "download_url": str(request.url_for("download_job_input", job_id=job_id, input_kind="prior-analysis")),
+                "sha256": prior.sha256,
+                "size_bytes": prior.size_bytes,
+                "local_name": "drawing-analysis.json",
+            })
         answers = artifact_store.answers(job_id)
         if answers is not None:
             inputs.append({
@@ -624,6 +697,9 @@ def download_job_input(
     if input_kind == "drawing":
         source = artifact_store.drawing(job_id)
         media_type = "image/png" if source.path.suffix.lower() == ".png" else "image/jpeg"
+    elif input_kind == "prior-analysis":
+        source = artifact_store.prior_analysis(job_id)
+        media_type = "application/json"
     elif input_kind == "user-answers":
         source = artifact_store.answers(job_id)
         if source is None:
@@ -702,6 +778,29 @@ def record_resource_events(
     worker_protocol.get_owned_active_job(worker, job_id)
     accepted, duplicates = resource_ledger.record(job_id, request.events)
     return ResourceEventBatchAck(job_id=job_id, accepted=accepted, duplicates=duplicates)
+
+
+@app.post("/api/v1/workers/jobs/{job_id}/fail", response_model=JobFailureAck)
+def fail_job(job_id: uuid.UUID, request: JobFailureRequest, authorization: str | None = Header(default=None)) -> JobFailureAck:
+    """A worker reporting that it has stopped trying, and why.
+
+    The counterpart to `complete`, and it did not exist. A build that failed
+    raised out of the worker's job handler, was swallowed into a backoff, lost its
+    lease, and came back round to be tried again — up to `max_attempts` and then
+    never again, sitting in PENDING for the rest of time. From the customer's page
+    that is "waiting to start", forever, with no way to tell it from a queue with
+    no worker on it.
+
+    Retrying stays the first answer. This is the *end* of retrying: the worker
+    sends it once it has decided the next attempt would fail the same way, using
+    the split it already makes between a failure about the document and one about
+    the machine.
+    """
+    if request.job_id != job_id:
+        raise HTTPException(status_code=400, detail="job_id path/body mismatch")
+    worker = authenticated_bearer(authorization)
+    job = worker_protocol.fail(worker, job_id, request.code, request.message)
+    return JobFailureAck(job_id=job_id, status=job.status)
 
 
 @app.post("/api/v1/workers/jobs/{job_id}/complete", response_model=JobCompletionAck)

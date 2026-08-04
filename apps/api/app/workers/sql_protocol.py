@@ -137,7 +137,6 @@ class SqlWorkerProtocolService:
                 worker_id=row.id,
                 manifest_sha256=fingerprint,
                 worker_version=manifest.worker_version,
-                kompas_version=manifest.kompas_version,
                 codex_cli_version=manifest.codex_cli_version,
                 cad_ir_versions=list(manifest.cad_ir_versions),
                 capabilities=document["capabilities"],
@@ -198,6 +197,19 @@ class SqlWorkerProtocolService:
             row.status, row.completed_key = JobStatus.COMPLETED.value, idempotency_key
             row.lease_owner, row.lease_expires_at = None, None
             return False
+
+    def fail(self, worker: Worker, job_id: UUID, code: str, message: str) -> Job:
+        """See `WorkerProtocolService.fail` — same rules, one row lock."""
+        with self.sessions.begin() as session:
+            row = session.get(JobRow, str(job_id), with_for_update=True)
+            if row is not None and row.status == JobStatus.COMPLETED.value:
+                return self._job(row)
+            row = self._owned_row(session, worker, job_id)
+            row.status = JobStatus.FAILED.value
+            row.failure_code, row.failure_message = code, message
+            row.lease_owner, row.lease_expires_at = None, None
+            session.flush()
+            return self._job(row)
 
     def enqueue(self, job: Job) -> None:
         with self.sessions.begin() as session:
@@ -263,4 +275,5 @@ class SqlWorkerProtocolService:
                    {WorkerCapability(item) for item in row.required_capabilities}, row.required_cad_ir,
                    list(row.required_capability_keys or []),
                    row.max_attempts, row.attempt, JobStatus(row.status),
-                   UUID(row.lease_owner) if row.lease_owner else None, row.lease_expires_at, row.completed_key)
+                   UUID(row.lease_owner) if row.lease_owner else None, row.lease_expires_at, row.completed_key,
+                   row.failure_code, row.failure_message)

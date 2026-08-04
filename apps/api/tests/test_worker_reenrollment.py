@@ -93,7 +93,7 @@ def test_re_enrolling_clears_what_the_old_worker_had_published():
 
     service = sql()
     worker, _ = enroll(service)
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1)
 
     reborn, _ = enroll(service)
 

@@ -6,7 +6,15 @@ import LandingPage from "./landing-page";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-type Question = { id: string; parameter_id: string; text: string };
+type Question = {
+  id: string;
+  parameter_id: string;
+  text: string;
+  // How the question is answered. Absent on a question written before the
+  // reading stage said so, and those were all numbers.
+  answer_kind?: "number" | "choice";
+  choices?: string[];
+};
 type Artifact = {
   type: string;
   size_bytes: number;
@@ -18,6 +26,10 @@ type OrderState = {
   job_id: string;
   status: string;
   waiting_reason: string | null;
+  // Present only when the order failed. Both are written by the worker and are
+  // safe to show: a typed code and text already stripped of paths and hosts.
+  failure_code?: string | null;
+  failure_message?: string | null;
   round: number;
   questions: Question[];
   artifacts: Artifact[];
@@ -44,11 +56,9 @@ type IconName =
   | "trash"
   | "upload";
 
-// The order results are shown in. `M3D` is still listed, and last: nothing has
-// produced one since the CAD engine changed (ADR-023), but artifacts are files
-// and are served as written, so an order finished before that still shows
-// everything it was delivered.
-const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT", "M3D"];
+// The order results are shown in: two files and the report they were checked
+// with, which is ADR-023's whole answer to what a customer gets.
+const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT"];
 const statusCopy: Record<string, string> = {
   PENDING: "Ожидает запуска",
   LEASED: "Создаём модель",
@@ -75,8 +85,7 @@ export default function Home() {
   const [material, setMaterial] = useState<Material>("aluminum");
   const [precision, setPrecision] = useState<"standard" | "high">("high");
   const [viewMode, setViewMode] = useState<ViewMode>("model");
-  // What a new order asks for. No M3D: nothing produces one, and offering a
-  // format that cannot arrive is a promise the page cannot keep.
+  // What a new order asks for: everything a build delivers.
   const [outputs, setOutputs] = useState<Record<string, boolean>>({
     STEP: true,
     STL: true,
@@ -247,6 +256,19 @@ export default function Home() {
     setError("");
     try {
       if (!token) {
+        // With no token this is a demonstration: nothing is sent anywhere, no
+        // drawing is read, and the "model" below is a fixed box written into this
+        // file. It exists to show the shape of the flow.
+        //
+        // It used to be indistinguishable from the real thing. The questions
+        // arrived pre-filled with 80 / 40 / 12 whatever the drawing showed, and
+        // the download button handed over a seven-line STEP file and a
+        // twelve-triangle STL — a fabricated part, presented as the customer's
+        // own. That is the one place in this service where a *result* was
+        // invented, and everything else here exists to stop exactly that.
+        //
+        // So it stays, and says what it is. `isDemo` marks the order; the banner
+        // and the disabled downloads are keyed off it.
         const localOrderId = `local-${Date.now()}`;
         setOrderId(localOrderId);
         setOrder({
@@ -305,12 +327,20 @@ export default function Home() {
     setBusy(true);
     setError("");
     try {
-      const payload = order.questions.map((question) => ({
-        question_id: question.id,
-        value: Number(answers[question.id]),
-        unit: "mm",
-      }));
-      if (payload.some((answer) => !Number.isFinite(answer.value) || answer.value <= 0)) {
+      // A choice is sent as the text that was offered and carries no unit; a
+      // dimension carries millimetres. Which one a question wants is the
+      // question's to say, and the API checks the answer against it.
+      const payload = order.questions.map((question) =>
+        question.answer_kind === "choice"
+          ? { question_id: question.id, value: answers[question.id] ?? "" }
+          : { question_id: question.id, value: Number(answers[question.id]), unit: "mm" },
+      );
+      if (payload.some((answer) => answer.unit === undefined && !answer.value)) {
+        throw new Error("Выберите ответ на каждый вопрос.");
+      }
+      if (payload.some((answer) =>
+        answer.unit !== undefined &&
+        (!Number.isFinite(answer.value as number) || (answer.value as number) <= 0))) {
         throw new Error("Проверьте указанные размеры.");
       }
       // What the visitor confirmed, so the summary has something true to show
@@ -355,10 +385,14 @@ export default function Home() {
     setError("");
     try {
       if (!token) {
-        const blob = new Blob([localArtifactContents(artifact.type)], {
-          type: mediaTypeFor(artifact.type),
-        });
-        triggerDownload(blob, `kontur-model.${extensionFor(artifact.type)}`);
+        // The demonstration hands over nothing. What it would hand over is a
+        // box written into this file, and a file named `kontur-model.step` is
+        // indistinguishable from a real one once it is on somebody's disk — at
+        // which point nothing about it says it was never built from a drawing.
+        setError(
+          "Это демонстрация: модель не строилась, скачивать нечего. " +
+          "Для настоящего построения нужен доступ к сервису.",
+        );
         return;
       }
       const response = await fetch(`${API_URL}${artifact.download_url}`, {
@@ -677,6 +711,53 @@ export default function Home() {
             </div>
           </div>
 
+          {/*
+            An order that failed says so, with the reason.
+
+            Until the worker could report a failure, this state was unreachable:
+            a build that gave up left its job in PENDING, which reads as "waiting
+            to start" — forever, and identical to a queue with no worker on it.
+            The copy for FAILED has been in `statusCopy` all along with nothing
+            able to select it.
+
+            `waiting_reason` is shown for the same reason. The scheduler has been
+            explaining why an order is stuck since POSTMVP-003A, into a field
+            nothing rendered.
+          */}
+          {/*
+            Unmistakable, and above everything else the order shows. A visitor
+            with no token gets the flow and not a part, and the one thing that
+            must never be ambiguous is which of the two they are looking at.
+          */}
+          {order && !token && (
+            <div className="notice-card notice-demo" role="status">
+              <span className="eyebrow">Демонстрация</span>
+              <p>
+                Чертёж <strong>не отправлялся</strong> и модель <strong>не строилась</strong>.
+                Всё, что показано ниже, — пример того, как выглядит работа сервиса,
+                а не ваша деталь. Скачивание отключено.
+              </p>
+            </div>
+          )}
+
+          {order?.status === "FAILED" && (
+            <div className="notice-card notice-failed" role="alert">
+              <span className="eyebrow">Не удалось построить</span>
+              <p>{order.failure_message ?? "Сборка остановлена."}</p>
+              {order.failure_code && <code>{order.failure_code}</code>}
+              <p className="notice-hint">
+                Чертёж сохранён. Загрузите его снова или уточните размеры — повторять
+                автоматически мы уже пробовали.
+              </p>
+            </div>
+          )}
+          {order?.waiting_reason && order.status !== "FAILED" && (
+            <div className="notice-card notice-waiting">
+              <span className="eyebrow">Заказ ждёт</span>
+              <p>{order.waiting_reason}</p>
+            </div>
+          )}
+
           {order?.questions.length ? (
             <form className="clarification-card" onSubmit={submitAnswers}>
               <div className="clarification-intro">
@@ -689,22 +770,54 @@ export default function Home() {
               </div>
               <div className="question-row">
                 {order.questions.map((question) => (
-                  <label className="dimension-field" key={question.id}>
-                    <span>{question.text}</span>
-                    <div>
-                      <input
-                        type="number"
-                        min="0.001"
-                        step="any"
-                        value={answers[question.id] ?? ""}
-                        onChange={(event) =>
-                          setAnswers((current) => ({ ...current, [question.id]: event.target.value }))
-                        }
-                        required
-                      />
-                      <b>мм</b>
-                    </div>
-                  </label>
+                  /*
+                    Rendered from what the question says it wants.
+
+                    Every question used to be a number field with a "мм" suffix,
+                    and the reading stage has always been able to ask things that
+                    are not numbers — "is this opening through or blind?". Those
+                    had no answer this form could send and no answer the API would
+                    accept, so the order stopped there permanently. A question
+                    written before `answer_kind` existed is a number, which is
+                    what all of them were.
+                  */
+                  question.answer_kind === "choice" ? (
+                    <fieldset className="choice-field" key={question.id}>
+                      <legend>{question.text}</legend>
+                      {(question.choices ?? []).map((choice) => (
+                        <label key={choice}>
+                          <input
+                            type="radio"
+                            name={question.id}
+                            value={choice}
+                            checked={answers[question.id] === choice}
+                            onChange={() =>
+                              setAnswers((current) => ({ ...current, [question.id]: choice }))
+                            }
+                            required
+                          />
+                          <span>{choice}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : (
+                    <label className="dimension-field" key={question.id}>
+                      <span>{question.text}</span>
+                      <div>
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          value={answers[question.id] ?? ""}
+                          onChange={(event) =>
+                            setAnswers((current) => ({ ...current, [question.id]: event.target.value }))
+                          }
+                          required
+                        />
+                        <b>мм</b>
+                      </div>
+                    </label>
+                  )
                 ))}
                 <button className="confirm-button" disabled={busy}>
                   <span>{busy ? "Создаём…" : "Подтвердить"}</span>
@@ -882,7 +995,6 @@ function Icon({ name }: { name: IconName }) {
 
 function artifactLabel(type: string) {
   return {
-    M3D: "Исходная модель КОМПАС",
     STEP: "STEP-модель",
     STL: "STL-модель",
     VALIDATION_REPORT: "Паспорт модели",
@@ -891,7 +1003,6 @@ function artifactLabel(type: string) {
 
 function artifactDescription(type: string) {
   return {
-    M3D: "Из заказов до смены движка",
     STEP: "Для CAD-систем",
     STL: "Для производства",
     VALIDATION_REPORT: "Результаты проверки",
@@ -910,7 +1021,6 @@ function localArtifacts(): Artifact[] {
 function localArtifactContents(type: string) {
   if (type === "STL") return LOCAL_STL;
   if (type === "STEP") return "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('KONTUR 3D MODEL'),'2;1');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
-  if (type === "M3D") return "KONTUR 3D MODEL\n";
   return JSON.stringify({ valid: true, body_count: 1, units: "mm", dimensions: [80, 40, 12] }, null, 2);
 }
 
@@ -1015,7 +1125,7 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 function extensionFor(type: string) {
-  return ({ M3D: "m3d", STEP: "step", STL: "stl", VALIDATION_REPORT: "json" } as Record<string, string>)[type] ?? "bin";
+  return ({ STEP: "step", STL: "stl", VALIDATION_REPORT: "json" } as Record<string, string>)[type] ?? "bin";
 }
 
 function cleanFileName(value: string) {

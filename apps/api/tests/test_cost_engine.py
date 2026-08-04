@@ -111,7 +111,7 @@ def typical_job() -> list[ResourceEvent]:
     return [
         ai_run("job:a:ai:analysis:1", AgentRole.DRAWING_EXTRACTION, seconds=40),
         ai_run("job:a:ai:compile:1", AgentRole.CAD_IR_COMPILATION, seconds=35),
-        span("job:a:cad:session:1", ResourceEventType.CAD_SESSION, ResourceStage.KOMPAS_STARTUP, 60, 90),
+        span("job:a:cad:session:1", ResourceEventType.CAD_SESSION, ResourceStage.CAD_STARTUP, 60, 90),
         # Nested inside the CAD session above; must not be billed twice.
         span("job:a:cad:prism:1", ResourceEventType.CAD_OPERATION, ResourceStage.FEATURE_BUILD, 70, 5),
         span("job:a:cad:hole:1", ResourceEventType.CAD_OPERATION, ResourceStage.FEATURE_BUILD, 80, 4),
@@ -155,7 +155,7 @@ def test_time_waiting_for_the_user_is_never_billed():
     late = span(
         "job:a:cad:session:2",
         ResourceEventType.CAD_SESSION,
-        ResourceStage.KOMPAS_STARTUP,
+        ResourceStage.CAD_STARTUP,
         offset=100_000,  # the user answered a clarification a day later
         seconds=30,
     )

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.10",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.11",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -54,6 +54,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -70,6 +76,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -86,6 +98,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -382,6 +400,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Distance"
@@ -393,6 +417,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             },
             {
               "type": "null"
@@ -408,6 +438,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             },
             {
               "type": "null"
@@ -451,6 +487,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -466,6 +508,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Radius"
@@ -512,6 +560,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -527,6 +581,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Step Deg"
@@ -592,6 +652,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -608,6 +674,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -624,6 +696,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -668,6 +746,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -683,6 +767,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Radius"
@@ -718,6 +808,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -734,6 +830,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -773,6 +875,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -891,6 +999,12 @@
               "$ref": "#/$defs/ParameterRef"
             },
             {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            },
+            {
               "type": "null"
             }
           ],
@@ -920,6 +1034,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "default": 0.0,
@@ -1255,6 +1375,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Offset Mm"
@@ -1395,6 +1521,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Value"
@@ -1814,6 +1946,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Radius"
@@ -1842,6 +1980,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -1858,6 +2002,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -1906,6 +2056,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Spacing Mm"
@@ -2124,7 +2280,7 @@
     },
     "ParameterRef": {
       "additionalProperties": false,
-      "description": "A reference to a named parameter, the only indirection CAD-IR allows.",
+      "description": "A reference to a named parameter.",
       "properties": {
         "parameter": {
           "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
@@ -2452,6 +2608,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -2467,6 +2629,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Width"
@@ -2478,6 +2646,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Height"
@@ -2489,6 +2663,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "default": 0.0,
@@ -2533,6 +2713,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -2554,6 +2740,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Circumradius"
@@ -2565,6 +2757,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "default": 0.0,
@@ -2631,6 +2829,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -2647,6 +2851,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -2736,6 +2946,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "default": 360.0,
@@ -2768,6 +2984,67 @@
         "axis"
       ],
       "title": "RevolveInputs",
+      "type": "object"
+    },
+    "ScalarNegation": {
+      "additionalProperties": false,
+      "description": "The same scalar, the other way — `{\"negate\": <scalar>}`.\n\nThe second thing one parameter could not do: drive both sides of a symmetric\noutline. `lever-plate`'s cap radius is 15 and its profile needs y = +15 *and*\ny = −15, so one of the two had to be a literal, and a document half-driven by\nits parameters is one where changing a dimension moves half the part.",
+      "properties": {
+        "negate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "title": "Negate"
+        }
+      },
+      "required": [
+        "negate"
+      ],
+      "title": "ScalarNegation",
+      "type": "object"
+    },
+    "ScalarQuotient": {
+      "additionalProperties": false,
+      "description": "A scalar divided by a constant — `{\"divide\": <scalar>, \"by\": 2.0}`.\n\nAlmost every mechanical drawing dimensions **diameters**, and almost every\ncontour takes a **radius**. Until this existed the two could not be the same\nnumber: a `Scalar` was `float | ParameterRef` with no arithmetic, so a\ndocument that read \"Ø44\" off a drawing had to write `44` into a parameter and\nthen write `22` — or, as one real order did, write `44` again — as a literal\nbeside it.\n\nThat order is why this is here. It declared `bushing_outer_radius: 44`, the\n*diameter* value under a radius name, extruded a circle of radius 44, and\nrestated 88 in its own expectation so the check agreed. A Ø88 part, delivered,\nwith every measurement green — because the number that built it and the number\nthat checked it were the same copy, and the copy that came off the drawing was\ncompared against nothing.",
+      "properties": {
+        "divide": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "title": "Divide"
+        },
+        "by": {
+          "title": "By",
+          "type": "number"
+        }
+      },
+      "required": [
+        "divide",
+        "by"
+      ],
+      "title": "ScalarQuotient",
       "type": "object"
     },
     "ShellDirection": {
@@ -2851,6 +3128,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Thickness"
@@ -3189,6 +3472,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -3205,6 +3494,12 @@
               },
               {
                 "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
               }
             ]
           },
@@ -3220,6 +3515,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Radius"
@@ -3321,6 +3622,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Distance"
@@ -3337,6 +3644,12 @@
             },
             {
               "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "default": 0.0,
@@ -3782,8 +4095,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.10",
-      "default": "1.10",
+      "const": "1.11",
+      "default": "1.11",
       "title": "Schema Version",
       "type": "string"
     },

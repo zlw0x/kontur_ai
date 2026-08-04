@@ -106,8 +106,26 @@ def ref(name: str) -> dict[str, Any]:
 def build() -> dict[str, Any]:
     defs: dict[str, Any] = {
         "identifier": {"type": "string", "pattern": r"^[a-z][a-z0-9_.-]{1,63}$"},
-        # A scalar is a number or a named parameter. `anyOf`, never `oneOf`.
-        "scalar": {"anyOf": [number(), obj(parameter=ref("identifier"))]},
+        # A scalar is a number, a named parameter, or one derived from a
+        # parameter by the two operations CAD-IR 1.11 allows. `anyOf`, never
+        # `oneOf`.
+        #
+        # Two separate defs rather than one node with an operator field: negation
+        # takes one operand and division takes two, and rule 4 forbids an optional
+        # property — the same reason `cut_extrusion` and `blind_cut_extrusion` are
+        # two branches instead of one optional depth (ADR-029).
+        #
+        # They recurse back into `scalar`, which the canonical model bounds at
+        # three levels. Nothing in the dialect forbids recursion; nothing else in
+        # the profile uses it either.
+        "scalar_quotient": obj(divide=ref("scalar"), by=number()),
+        "scalar_negation": obj(negate=ref("scalar")),
+        "scalar": {"anyOf": [
+            number(),
+            obj(parameter=ref("identifier")),
+            ref("scalar_quotient"),
+            ref("scalar_negation"),
+        ]},
         "point": array(ref("scalar"), 2, 2),
     }
 

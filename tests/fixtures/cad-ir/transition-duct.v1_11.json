@@ -1,0 +1,213 @@
+{
+ "document": {
+  "coordinate_system": "right_handed",
+  "name": "transition-duct",
+  "part_type": "single_part",
+  "units": "mm"
+ },
+ "expectations": [
+  {
+   "id": "inv_bbox",
+   "size_mm": {
+    "x": 60.0,
+    "y": 60.0,
+    "z": 130.0
+   },
+   "tolerance_mm": 0.05,
+   "type": "bounding_box"
+  },
+  {
+   "id": "inv_bodies",
+   "type": "body_count",
+   "value": 1
+  },
+  {
+   "id": "inv_holes",
+   "type": "through_hole_count",
+   "value": 0
+  }
+ ],
+ "features": [
+  {
+   "depends_on": [],
+   "enabled": true,
+   "id": "feature.throat_plane",
+   "inputs": {
+    "base": "XY",
+    "flip": false,
+    "offset_mm": {
+     "parameter": "p_rise"
+    }
+   },
+   "produces": [
+    {
+     "id": "plane.throat",
+     "kind": "plane"
+    }
+   ],
+   "type": "datum.plane.offset"
+  },
+  {
+   "depends_on": [
+    "feature.throat_plane"
+   ],
+   "enabled": true,
+   "id": "feature.transition",
+   "inputs": {
+    "ruled": false,
+    "sections": [
+     {
+      "constraints": [],
+      "construction": [],
+      "dimensions": [],
+      "id": "sketch.mouth",
+      "inner": [],
+      "outer": {
+       "center": [
+        0.0,
+        0.0
+       ],
+       "height": 60.0,
+       "rotation_deg": 0.0,
+       "type": "rectangle",
+       "width": 60.0
+      },
+      "plane": {
+       "on": "base",
+       "plane": "XY"
+      }
+     },
+     {
+      "constraints": [],
+      "construction": [],
+      "dimensions": [],
+      "id": "sketch.throat",
+      "inner": [],
+      "outer": {
+       "center": [
+        0.0,
+        0.0
+       ],
+       "height": {
+        "parameter": "p_throat"
+       },
+       "rotation_deg": 0.0,
+       "type": "rectangle",
+       "width": {
+        "parameter": "p_throat"
+       }
+      },
+      "plane": {
+       "on": "datum",
+       "plane": {
+        "result": "plane.throat"
+       }
+      }
+     }
+    ]
+   },
+   "produces": [
+    {
+     "id": "body.main",
+     "kind": "solid_body"
+    }
+   ],
+   "type": "solid.loft"
+  },
+  {
+   "depends_on": [
+    "feature.throat_plane",
+    "feature.transition"
+   ],
+   "enabled": true,
+   "id": "feature.riser",
+   "inputs": {
+    "path": {
+     "id": "path.riser",
+     "plane": "XZ",
+     "segments": [
+      {
+       "end": [
+        0.0,
+        50.0
+       ],
+       "start": [
+        0.0,
+        0.0
+       ],
+       "type": "line"
+      },
+      {
+       "center": [
+        25.0,
+        50.0
+       ],
+       "end": [
+        25.0,
+        75.0
+       ],
+       "start": [
+        0.0,
+        50.0
+       ],
+       "sweep": "cw",
+       "type": "arc"
+      }
+     ]
+    },
+    "sketch": {
+     "constraints": [],
+     "construction": [],
+     "dimensions": [],
+     "id": "sketch.riser",
+     "inner": [],
+     "outer": {
+      "center": [
+       0.0,
+       0.0
+      ],
+      "height": {
+       "parameter": "p_throat"
+      },
+      "rotation_deg": 0.0,
+      "type": "rectangle",
+      "width": {
+       "parameter": "p_throat"
+      }
+     },
+     "plane": {
+      "on": "datum",
+      "plane": {
+       "result": "plane.throat"
+      }
+     }
+    }
+   },
+   "produces": [],
+   "type": "solid.sweep"
+  }
+ ],
+ "metadata": {
+  "generator": "fixture",
+  "generator_version": "1.9"
+ },
+ "parameters": [
+  {
+   "id": "p_rise",
+   "status": "confirmed",
+   "type": "length",
+   "unit": "mm",
+   "value": 40.0
+  },
+  {
+   "id": "p_throat",
+   "status": "confirmed",
+   "type": "length",
+   "unit": "mm",
+   "value": 30.0
+  }
+ ],
+ "reference_geometry": [],
+ "schema": "cad-ai/cad-ir",
+ "schema_version": "1.11"
+}

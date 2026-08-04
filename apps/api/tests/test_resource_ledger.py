@@ -264,7 +264,7 @@ def test_counters_are_derived_from_events_and_ignore_replays():
         ResourceEvent(
             event_key="job:a:cad:session:1",
             event_type=ResourceEventType.CAD_SESSION,
-            stage=ResourceStage.KOMPAS_STARTUP,
+            stage=ResourceStage.CAD_STARTUP,
             started_at=STARTED,
             success=True,
         ),
@@ -314,10 +314,10 @@ def register_worker_with_job(monkeypatch):
         },
     ).json()
     worker = protocol.repo.workers[UUID(registered["worker_id"])]
-    protocol.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["1.1"], 1)
+    protocol.heartbeat(worker, [WorkerCapability.CAD_BUILD], ["1.1"], 1)
     job_id = uuid4()
     protocol.repo.jobs[job_id] = Job(
-        job_id, uuid4(), JobType.BUILD_CAD, "sha256:ledger", {WorkerCapability.KOMPAS_BUILD}, "1.1"
+        job_id, uuid4(), JobType.BUILD_CAD, "sha256:ledger", {WorkerCapability.CAD_BUILD}, "1.1"
     )
     protocol.claim(worker)
     return client, {"Authorization": f"Bearer {registered['credential']}"}, job_id

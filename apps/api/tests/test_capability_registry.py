@@ -31,7 +31,6 @@ ENROLLMENT = "local-development-enrollment-token-change-me"
 def manifest(statuses: dict[str, CapabilityStatus] | None = None) -> WorkerCapabilityManifest:
     return WorkerCapabilityManifest(
         worker_version="0.4.0",
-        kompas_version="22.0",
         cad_ir_versions=[CAD_IR_VERSION],
         capabilities=statuses or {key: CapabilityStatus.STABLE for key in MVP_CAPABILITIES},
     )
@@ -43,7 +42,7 @@ def build_cad_job() -> Job:
         uuid4(),
         JobType.BUILD_CAD,
         f"sha256:{uuid4()}",
-        {WorkerCapability.KOMPAS_BUILD},
+        {WorkerCapability.CAD_BUILD},
         CAD_IR_VERSION,
         required_capability_keys(JobType.BUILD_CAD),
     )
@@ -63,7 +62,7 @@ def test_mvp_jobs_require_the_confirmed_capability_vocabulary():
 
 def test_a_worker_without_a_manifest_is_not_offered_a_capability_gated_job():
     service, worker = memory_service()
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1)
     service.enqueue(build_cad_job())
 
     assert service.claim(worker) is None
@@ -73,7 +72,7 @@ def test_a_partial_manifest_blocks_the_lease_and_names_what_is_missing():
     service, worker = memory_service()
     partial = {key: CapabilityStatus.STABLE for key in MVP_CAPABILITIES}
     partial.pop(SOLID_RECTANGULAR_PRISM)
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest(partial))
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest(partial))
     service.enqueue(build_cad_job())
 
     assert service.claim(worker) is None
@@ -87,7 +86,7 @@ def test_experimental_and_disabled_capabilities_do_not_qualify():
         service, worker = memory_service()
         statuses = {key: CapabilityStatus.STABLE for key in MVP_CAPABILITIES}
         statuses[SOLID_RECTANGULAR_PRISM] = blocked
-        service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest(statuses))
+        service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest(statuses))
         service.enqueue(build_cad_job())
 
         assert service.claim(worker) is None, f"{blocked} must not be leasable"
@@ -95,7 +94,7 @@ def test_experimental_and_disabled_capabilities_do_not_qualify():
 
 def test_a_fully_capable_worker_is_offered_the_job():
     service, worker = memory_service()
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest())
     job = build_cad_job()
     service.enqueue(job)
 
@@ -107,9 +106,9 @@ def test_a_v1_job_without_capability_requirements_stays_leasable():
     """Jobs enqueued before the registry existed carry no requirements and
     must keep working exactly as they did."""
     service, worker = memory_service()
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1)
     legacy = Job(
-        uuid4(), uuid4(), JobType.BUILD_CAD, "sha256:legacy", {WorkerCapability.KOMPAS_BUILD}, CAD_IR_VERSION
+        uuid4(), uuid4(), JobType.BUILD_CAD, "sha256:legacy", {WorkerCapability.CAD_BUILD}, CAD_IR_VERSION
     )
     service.enqueue(legacy)
 
@@ -128,11 +127,11 @@ def sql_service():
 
 def test_sql_claim_applies_the_same_gate():
     service, worker, _ = sql_service()
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1)
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1)
     service.enqueue(build_cad_job())
     assert service.claim(worker) is None
 
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest())
     assert service.claim(worker) is not None
 
 
@@ -140,7 +139,7 @@ def test_sql_manifest_survives_a_reauthentication():
     """The gate must read the stored manifest, not an in-memory leftover: a
     worker reconnecting to a restarted API keeps its declared capabilities."""
     service, worker, credential = sql_service()
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest())
 
     reloaded = service.authenticate(worker.id, credential)
     assert reloaded.capability_manifest is not None
@@ -155,12 +154,12 @@ def test_sql_keeps_one_history_row_per_distinct_manifest():
     from sqlalchemy import select
 
     service, worker, _ = sql_service()
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest())
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest())
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest())
 
     changed = {key: CapabilityStatus.STABLE for key in MVP_CAPABILITIES}
     changed["solid.revolve"] = CapabilityStatus.BETA
-    service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], [CAD_IR_VERSION], 1, manifest(changed))
+    service.heartbeat(worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, manifest(changed))
 
     with service.sessions() as session:
         rows = session.scalars(select(WorkerCapabilitySnapshotRow)).all()
@@ -181,7 +180,7 @@ def test_claim_endpoint_rejects_an_incapable_worker(monkeypatch):
     body = {
         "protocol_version": "1.0",
         "worker_id": registered["worker_id"],
-        "capabilities": ["KOMPAS_BUILD"],
+        "capabilities": ["CAD_BUILD"],
         "supported_cad_ir": [CAD_IR_VERSION],
         "available_slots": 1,
     }
@@ -284,37 +283,31 @@ def test_an_experimental_operation_still_does_not_make_a_job_leasable():
     assert unmet_capabilities(build123d_manifest(), demanded) == ["solid.revolve"]
 
 
-# --- the coarse capability was renamed too ----------------------------------
+# --- the seam the rename went through ---------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("job_declares", "worker_declares"),
-    [
-        (WorkerCapability.CAD_BUILD, WorkerCapability.CAD_BUILD),
-        # A job enqueued before the rename, served by a worker built after it.
-        (WorkerCapability.KOMPAS_BUILD, WorkerCapability.CAD_BUILD),
-        # A worker built before the rename, given a job enqueued after it.
-        (WorkerCapability.CAD_BUILD, WorkerCapability.KOMPAS_BUILD),
-        (WorkerCapability.KOMPAS_BUILD, WorkerCapability.KOMPAS_BUILD),
-    ],
-)
-def test_either_spelling_of_the_coarse_capability_matches_either(job_declares, worker_declares):
-    """All four combinations, because all four happen across a deploy.
+def test_a_worker_and_a_job_that_agree_are_matched():
+    """The case the alias machinery existed for, now that the alias is gone.
 
-    `KOMPAS_BUILD` is stored in rows written by every earlier release, and
-    `CAD_BUILD` is what a current worker sends. Comparing the raw values made a
-    worker and a job that meant exactly the same thing look incompatible, and the
-    order simply never moved.
+    `KOMPAS_BUILD` was folded onto `CAD_BUILD` from ENGINE-MIG-008 until
+    migration 0006 rewrote the stored rows and the name was deleted. What that
+    episode showed is worth keeping a test for: capabilities are compared through
+    `canonical_capabilities` and never as raw values, because comparing raw values
+    is what made a worker and a job that meant exactly the same thing look
+    incompatible, and the order simply never moved.
+
+    `_COARSE_ALIASES` is empty now and deliberately still there. This test is what
+    the next rename will edit.
     """
     service, worker = memory_service()
     service.heartbeat(
-        worker, [worker_declares], [CAD_IR_VERSION], 1, build123d_manifest())
+        worker, [WorkerCapability.CAD_BUILD], [CAD_IR_VERSION], 1, build123d_manifest())
     job = Job(
         uuid4(),
         uuid4(),
         JobType.BUILD_CAD,
         f"sha256:{uuid4()}",
-        {job_declares},
+        {WorkerCapability.CAD_BUILD},
         CAD_IR_VERSION,
         required_capability_keys(JobType.BUILD_CAD),
     )

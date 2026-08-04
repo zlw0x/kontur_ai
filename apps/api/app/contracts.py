@@ -58,32 +58,31 @@ class JobType(StrEnum):
 class WorkerCapability(StrEnum):
     """What kind of work a worker will take, coarsely.
 
-    `CAD_BUILD` replaces `KOMPAS_BUILD` (ENGINE-MIG-008): the coarse capability
-    named an engine, and the engine is gone. The old name is kept as a member
-    rather than deleted because it is stored — in `worker.capabilities` and in
-    `order.required_capabilities`, as JSON strings written by every release before
-    this one. Removing it would make those rows unparseable, which turns a rename
-    into an outage.
+    `CAD_BUILD` replaced `KOMPAS_BUILD` at ENGINE-MIG-008: the coarse capability
+    named an engine, and the engine is gone. The old name stayed parseable for a
+    while because it is *stored* — in `worker.capabilities` and in
+    `order.required_capabilities`, as JSON written by every release before that
+    one — and deleting a name that rows still carry turns a rename into an outage.
 
-    So both names parse and `CAD_BUILD` is what anything new writes. The old
-    member leaves once no stored row carries it.
+    Migration 0006 rewrote those rows, so the name is gone rather than waiting to
+    age out. What it meant did not change on the way: a worker that declared
+    `KOMPAS_BUILD` could build CAD, and can.
     """
 
     AI_DRAWING = "AI_DRAWING"
     CAD_BUILD = "CAD_BUILD"
-    KOMPAS_BUILD = "KOMPAS_BUILD"
 
 
-#: The two names for one thing, folded together.
+#: Retired spellings, folded onto the ones in use. Empty, and kept empty rather
+#: than deleted.
 #:
-#: A worker built before ENGINE-MIG-008 declares `KOMPAS_BUILD`; one built after
-#: declares `CAD_BUILD`; and a job enqueued before the rename requires the old
-#: name while a job enqueued after requires the new one. All four combinations
-#: have to work, or the rename is an outage on either side of a deploy — which is
-#: exactly what it was until this existed.
-_COARSE_ALIASES: dict[WorkerCapability, WorkerCapability] = {
-    WorkerCapability.KOMPAS_BUILD: WorkerCapability.CAD_BUILD,
-}
+#: It held `KOMPAS_BUILD -> CAD_BUILD` and is the reason that rename survived a
+#: deploy at all: a worker on the old build and a job enqueued by the new one
+#: meant the same thing and compared as different, until this existed. The next
+#: rename will want the same seam, and `canonical_capabilities` being the only
+#: way anything compares capabilities is what makes adding one a one-line change
+#: rather than an audit.
+_COARSE_ALIASES: dict[WorkerCapability, WorkerCapability] = {}
 
 
 def canonical_capabilities(
@@ -120,6 +119,35 @@ class JobStatus(StrEnum):
     PENDING = "PENDING"
     LEASED = "LEASED"
     COMPLETED = "COMPLETED"
+    #: The worker tried and stopped trying.
+    #:
+    #: Until this existed there was no way to say so. A build that failed went
+    #: back to PENDING, was re-leased up to `max_attempts`, and then sat there —
+    #: indistinguishable, from the outside and forever, from a job waiting for a
+    #: worker. The customer's page said "waiting to start" for the rest of time.
+    #:
+    #: A retry is still the first answer: this is the *end* of retrying, reported
+    #: by the worker once it has decided the next attempt would fail the same way.
+    FAILED = "FAILED"
+
+
+class JobFailureRequest(StrictModel):
+    """A worker saying why it stopped, in words the customer may be shown."""
+
+    job_id: UUID
+    #: The typed code the engine or the pipeline raised. The worker decides what
+    #: is worth reporting using its own `BuildFeedback` split — a code about the
+    #: document is repairable and has already been retried by the time this is
+    #: sent; a code about the machine never was.
+    code: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[A-Z][A-Z0-9_]*$")]
+    #: Safe text only. Everything the worker sends here can reach a browser, so it
+    #: carries no path, no host and no stack.
+    message: Annotated[str, Field(min_length=1, max_length=400)]
+
+
+class JobFailureAck(StrictModel):
+    job_id: UUID
+    status: JobStatus
 
 
 class OrderSnapshot(StrictModel):
@@ -166,6 +194,10 @@ class ClaimedJob(StrictModel):
     order_id: UUID
     job_type: JobType
     attempt: Annotated[int, Field(ge=1)]
+    #: How many attempts this job gets in total, so the worker can tell that the
+    #: one it is holding is the last. A bound written down on both sides is a
+    #: bound that eventually disagrees with itself.
+    max_attempts: Annotated[int, Field(ge=1)]
     idempotency_key: str
     lease_expires_at: datetime
     manifest_url: str
@@ -278,9 +310,39 @@ class DrawingJobResponse(StrictModel):
 
 
 class ClarificationAnswer(StrictModel):
+    """One answer, in the shape its question asked for.
+
+    This was `{question_id, value: float, unit: "mm"}` and nothing else, which
+    made most of what the reading stage actually asks unanswerable. Of the six
+    questions the acceptance runs produced, four could not be sent: two asked for
+    a pair of distances, and two asked whether an opening went through — which is
+    a choice, and has no millimetre value at all. The order was a dead end: the
+    API refuses an answer set that is not a complete match, so a question with no
+    expressible answer stops the job forever.
+
+    A number still carries `unit`, because a dimension without one is a number
+    somebody has to guess the meaning of. A choice carries none, because "through"
+    is not measured in millimetres.
+
+    Which shape is valid is not decided here — it is decided by the question, and
+    checked against the question when the answers arrive (`_answer_matches`). The
+    reading stage says how each of its questions is answered, so the customer is
+    never offered a field that cannot hold the answer.
+    """
+
     question_id: str = Field(min_length=1, max_length=100)
-    value: float
-    unit: Literal["mm"]
+    #: A dimension, or the text of one of the choices the question offered.
+    value: float | Annotated[str, Field(min_length=1, max_length=120)]
+    #: Present for a number, absent for a choice.
+    unit: Literal["mm"] | None = None
+
+    @model_validator(mode="after")
+    def validate_unit_matches_value(self) -> "ClarificationAnswer":
+        if isinstance(self.value, float) and self.unit is None:
+            raise ValueError("a numeric answer must carry its unit")
+        if isinstance(self.value, str) and self.unit is not None:
+            raise ValueError("a chosen answer is not measured in millimetres")
+        return self
 
 
 class DrawingAnswersRequest(StrictModel):
@@ -326,11 +388,11 @@ class ResourceStage(StrEnum):
     CAD_IR_COMPILATION = "CAD_IR_COMPILATION"
     SCHEMA_VALIDATION = "SCHEMA_VALIDATION"
     SEMANTIC_VALIDATION = "SEMANTIC_VALIDATION"
-    #: Renamed from KOMPAS_STARTUP with the engine (ENGINE-MIG-008). The old
-    #: value is still accepted because ledger rows already carry it, and a
-    #: measurement that cannot be read back is a measurement that was not taken.
+    #: Renamed from KOMPAS_STARTUP with the engine (ENGINE-MIG-008), and the old
+    #: value stayed readable until migration 0006 rewrote the rows carrying it. A
+    #: measurement that cannot be read back is a measurement that was not taken,
+    #: so the rows moved before the name went.
     CAD_STARTUP = "CAD_STARTUP"
-    KOMPAS_STARTUP = "KOMPAS_STARTUP"
     DOCUMENT_BUILD = "DOCUMENT_BUILD"
     FEATURE_BUILD = "FEATURE_BUILD"
     # Naming the faces a feature applies to is separately measurable from
@@ -796,7 +858,7 @@ CapabilityVersion = Annotated[str, Field(pattern=CAPABILITY_VERSION_PATTERN)]
 
 
 def capability_version_tuple(version: str) -> tuple[int, ...]:
-    """Compare versions numerically; "1.10" is newer than "1.9", not older."""
+    """Compare versions numerically; "1.11" is newer than "1.9", not older."""
     parts = tuple(int(part) for part in version.split("."))
     return parts + (0,) * (3 - len(parts))
 
@@ -843,11 +905,11 @@ class CapabilityRequirement(StrictModel):
 class WorkerEngineDeclaration(StrictModel):
     """Which CAD engine a worker builds with, and on what kernel.
 
-    Added by ENGINE-MIG-007 rather than reusing `kompas_version`, which names one
-    engine and reports a version that only that engine has. Putting an
-    OpenCascade version in a field called `kompas_version` would make every
-    reader of a manifest wrong about what produced the model, and the field is
-    still read by anything holding an older manifest.
+    Added by ENGINE-MIG-007 rather than reusing the `kompas_version` field that
+    stood here, which named one engine and reported a version only that engine
+    had. An OpenCascade version in a field called `kompas_version` would make
+    every reader of a manifest wrong about what produced the model. That field is
+    gone; this one says which engine, and says it in terms of the engine.
 
     Optional, because a worker older than this build does not send it and being
     unable to say which engine it uses is not a reason to refuse its work.
@@ -865,7 +927,6 @@ class WorkerCapabilityManifest(StrictModel):
     schema_version: Literal["1.0"] = CAPABILITY_MANIFEST_SCHEMA_VERSION
     worker_version: Annotated[str, Field(min_length=1, max_length=50)]
     engine: WorkerEngineDeclaration | None = None
-    kompas_version: Annotated[str | None, Field(max_length=50)] = None
     codex_cli_version: Annotated[str | None, Field(max_length=50)] = None
     cad_ir_versions: list[Annotated[str, Field(max_length=20)]] = Field(min_length=1, max_length=20)
     capabilities: dict[CapabilityKey, CapabilityDeclaration] = Field(min_length=1, max_length=500)

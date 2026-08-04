@@ -24,8 +24,8 @@ def test_postgres_claim_transaction_round_trip():
         Base.metadata.create_all(engine)
         service = SqlWorkerProtocolService(sessions, "e" * 32)
         worker, _ = service.register(enrollment_token="e" * 32, worker_name=f"integration-{uuid4()}", app_version="test")
-        service.heartbeat(worker, [WorkerCapability.KOMPAS_BUILD], ["0.1.0"], 1)
-        job = Job(uuid4(), uuid4(), JobType.BUILD_CAD, f"sha256:{uuid4()}", {WorkerCapability.KOMPAS_BUILD}, "0.1.0")
+        service.heartbeat(worker, [WorkerCapability.CAD_BUILD], ["0.1.0"], 1)
+        job = Job(uuid4(), uuid4(), JobType.BUILD_CAD, f"sha256:{uuid4()}", {WorkerCapability.CAD_BUILD}, "0.1.0")
         service.enqueue(job)
         claimed = service.claim(worker)
         assert claimed and claimed.id == job.id
