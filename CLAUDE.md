@@ -298,10 +298,27 @@ restated 80 as a literal in its expectation. The rule that would refuse it
 (`PARAMETER_DRIVES_NOTHING`) was written, measured and **reverted**: a canonical `Scalar`
 is `float | ParameterRef` with no arithmetic, so a diameter cannot drive a radius and one
 parameter cannot drive both sides of a symmetric outline. Version 0.1.0 had expressions
-and the canonical form traded them away; this is the bill. Unblocking it needs a `Scalar`
-carrying at least negation and division by a constant — a CAD-IR version, an evaluator in
-trusted code, and a decision about how much expression language is safe to take from a
-model.
+and the canonical form traded them away; this is the bill.
+
+**The unblocking is designed and half built** (`docs/TASK-POSTMVP-scalar-arithmetic.md`).
+Two of the three things it was thought to need are already in the tree: `cad_ir.expression`
+is a recursive-descent parser with a fixed grammar, bounded input and result, three
+whitelisted functions and a test for `__import__('os').system(...)` — so the question of how
+much expression language is safe was answered in 0.1.0 and the answer is still shipped. What
+is blocked is only the **canonical representation**, and for a nameable reason: `"d/2"` and
+`"d / 2"` are the same part with two byte-stable hashes, which is what ADR-018 traded
+expressions away to prevent. An AST is no better — `a + b` and `b + a` are two hashes.
+
+So the form is **one node, not an expression**: `{"parameter": "outer_diameter", "times":
+0.5}`. No parser, no recursion, no precedence, one spelling per part — and it covers every
+row of the measured table (a diameter driving a radius ×3, and one parameter driving both
+sides of a symmetric outline). Never 1, which is a plain reference; never 0, which drives
+nothing; bounded after the multiplication, because 900 000 × 100 is two legal numbers.
+`ScaledParameterRef` and its resolver are built and tested (22 tests, including the two
+refusals `Parameters` had carried untested since ENGINE-MIG-002); **`Scalar` is untouched**,
+so nothing can reach it yet, and one test asserts that on purpose. Sums and trigonometry are
+refused for stated reasons — the sum belongs in an expectation, and a bolt circle belongs in
+`pattern.circular`, which is already there and already not being taken.
 
 One defect outside the geometry was found by the runs and fixed: **the Codex child
 inherited the worker's own stdin**, so a pipe nobody closed made a stage fail with no

@@ -14,7 +14,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
@@ -89,6 +89,54 @@ class ParameterRef(StrictModel):
     parameter: Id
 
 
+class ScaledParameterRef(StrictModel):
+    """A parameter multiplied by a constant: a diameter driving a radius.
+
+    **Not yet part of `Scalar`, and deliberately so** — adding it is a CAD-IR
+    version. It is here, with a resolver in the engine and tests for both, because
+    the design was decided by measurement and the arithmetic is worth proving
+    before the version that carries it. `docs/TASK-POSTMVP-scalar-arithmetic.md`
+    has the argument and what wiring costs.
+
+    The problem it exists for was found by a real run
+    (`docs/acceptance/POSTMVP-016-runs-2-6-*`): a flange document carried
+    `outer_diameter: 80` cited to the Ø80 callout, drew a literal `radius: 40`, and
+    restated 80 in its expectation. Change the parameter to 100 and the part stays
+    Ø80 — every check passes, because the copy with the best provenance is the one
+    nothing reads. A `Scalar` of `float | ParameterRef` gives a diameter nowhere to
+    go: it can drive a magnitude and not a half of one, so the parameter is unused
+    because the contract has no way to use it.
+
+    One node rather than an expression, and that is the whole design. A free-text
+    `{"expr": "outer_diameter / 2"}` — which CAD-IR 0.1.0 had, and whose parser is
+    still in `cad_ir.expression` — cannot be canonical: `"d/2"` and `"d / 2"` are
+    the same part with two byte-stable hashes, and ADR-018 traded expressions away
+    for exactly that reason. A scaled reference has one spelling per part, needs no
+    parser, and covers every case the runs turned up: a diameter driving a radius
+    (`times: 0.5`) and one parameter driving both sides of a symmetric outline
+    (`times: -1`).
+    """
+
+    parameter: Id
+    #: Bounded because an unbounded factor turns a 40 mm plate into a kilometre of
+    #: one, and the bound is the same 1e6 the expression evaluator has always used
+    #: for its result.
+    times: Annotated[float, Field(gt=-1_000_000.0, lt=1_000_000.0)]
+
+    @model_validator(mode="after")
+    def validate_factor(self) -> "ScaledParameterRef":
+        if self.times == 1.0:
+            # A plain `ParameterRef` already says this, and two spellings of one part
+            # is what canonical form exists to prevent (ADR-018).
+            raise ValueError("a factor of 1 is a plain parameter reference; use one")
+        if self.times == 0.0:
+            # Zero drives nothing, which is the defect this form was added to fix.
+            raise ValueError("a factor of 0 is the literal 0 wearing a parameter's name")
+        return self
+
+
+#: Not `ScaledParameterRef` yet: see that class, and
+#: `docs/TASK-POSTMVP-scalar-arithmetic.md`.
 Scalar = Union[float, ParameterRef]
 
 
