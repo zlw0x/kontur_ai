@@ -347,11 +347,22 @@ inherited the worker's own stdin**, so a pipe nobody closed made a stage fail wi
 events at all — indistinguishable from the model failing — and any bytes that did arrive
 would have been appended to the prompt. Redirected and closed at start.
 
-**What is next**: rib (P3.2), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the
-order.
+**What is next**: an up-to-face extrusion and `feature.draft`, both CAD-IR versions and
+**not at the same time** — two branches each holding one is expensive to reconcile, which
+this repository has now paid for once. Then the rest of Gate P4.
+`docs/POST-MVP-ROADMAP.md` has the order.
 
-**Rib is designed and not built** (`docs/TASK-POSTMVP-P3-2-up-to-a-face.md`), and the
-investigation it was blocked on ends by dropping `extrude(until=…)` altogether. Sixteen
+**Rib itself needs no operation** (POSTMVP-022): a closed contour extruded both ways,
+31 468.0000 mm³ against a closed form of 31 468. What the roadmap listed beside it does.
+`feature.draft(faces, angle)` is the one selections are waiting on — POSTMVP-024 found the
+four upright walls of a boss are there to name, and then nothing in CAD-IR takes a set of
+wall faces: a fillet takes edges and a shell takes the faces it removes. It earns its place
+by the rule those three milestones arrived at, because it says what `taper_deg` cannot:
+*these* walls and not those, and a draft on a body a revolve or a boolean produced.
+
+**An up-to-face extrusion is designed and not built**
+(`docs/TASK-POSTMVP-P3-2-up-to-a-face.md`), and the investigation ends by dropping
+`extrude(until=…)` altogether. Sixteen
 cases: two are correct, three raise, and three succeed wrongly — a profile inside the
 material spikes 62.45 mm into open space and reports one valid solid, a cut to the next
 surface can remove nothing. `until` is also the first operation that would state **no
@@ -361,6 +372,16 @@ compare against. So an up-to-face extrusion **names the terminating face with a 
 reproduces the kernel's own answer to 0.000e+00 where `until=` works, gives the corpus a
 closed form the kernel used to keep to itself, and turns each failure into a refusal or into
 two solids that `body_count` already sees. Building it is a CAD-IR version.
+
+The local session probed the same thing independently and found two more of its lies
+(POSTMVP-022): `Until.NEXT` added 14 834.94 mm³ to a bracket — a slab rather than a rib, and
+closed-form from nothing — and `Until.LAST` added nothing at all, silently. The objection that
+decides it is upstream of whether it works: **`until` answers a question the drawing has
+already answered.** A rib is dimensioned, and answering by asking the kernel puts a number in
+the part that no document states and no expectation can check. Where a reach genuinely is not
+stated it is a *difference* of two dimensions, which is the one thing 1.11's arithmetic
+deliberately cannot express — so that, and not the rib, is what an up-to-face extrusion is
+for.
 
 **The migration's last leftovers are gone.** `WorkerCapability.KOMPAS_BUILD`,
 `ResourceStage.KOMPAS_STARTUP`, the manifest's `kompas_version` and the `M3D`
