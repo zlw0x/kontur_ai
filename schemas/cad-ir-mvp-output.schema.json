@@ -1342,6 +1342,85 @@
       ],
       "additionalProperties": false
     },
+    "topmost_face": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "type": "string",
+          "const": "face"
+        },
+        "from_result": {
+          "type": "string",
+          "const": "body.main"
+        },
+        "cardinality": {
+          "type": "string",
+          "const": "exactly_one"
+        },
+        "where": {
+          "type": "object",
+          "properties": {
+            "surface_type": {
+              "type": "string",
+              "const": "planar"
+            },
+            "normal": {
+              "type": "object",
+              "properties": {
+                "parallel_to": {
+                  "type": "string",
+                  "const": "axis.z"
+                },
+                "direction": {
+                  "type": "string",
+                  "const": "positive"
+                }
+              },
+              "required": [
+                "direction",
+                "parallel_to"
+              ],
+              "additionalProperties": false
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "extreme_along": {
+                  "type": "string",
+                  "const": "axis.z"
+                },
+                "extreme": {
+                  "type": "string",
+                  "const": "maximum"
+                }
+              },
+              "required": [
+                "extreme",
+                "extreme_along"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "normal",
+            "position",
+            "surface_type"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "cardinality",
+        "from_result",
+        "id",
+        "kind",
+        "where"
+      ],
+      "additionalProperties": false
+    },
     "corner_fillet": {
       "type": "object",
       "properties": {
@@ -1555,7 +1634,14 @@
           "type": "object",
           "properties": {
             "faces": {
-              "$ref": "#/$defs/top_face"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/top_face"
+                },
+                {
+                  "$ref": "#/$defs/topmost_face"
+                }
+              ]
             },
             "thickness": {
               "$ref": "#/$defs/scalar"

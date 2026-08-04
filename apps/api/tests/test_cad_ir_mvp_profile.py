@@ -322,10 +322,19 @@ def treated(fid: str, type_name: str, edges: dict, size: str, value: float) -> d
             "inputs": {"edges": edges, size: value}}
 
 
-def hollowed() -> dict:
+#: The same face on a part that has more than one facing up. A run on a flanged
+#: bushing stopped at `SELECTOR_AMBIGUOUS` because the shoulder and the sleeve end
+#: both matched the shape above, and `exactly_one` cannot choose.
+TOPMOST_FACE = {**TOP_FACE, "id": "selector.topmost",
+                "where": {**TOP_FACE["where"],
+                          "position": {"extreme_along": "axis.z", "extreme": "maximum"}}}
+
+
+def hollowed(faces: dict | None = None) -> dict:
     return {"id": "feature.hollow", "type": "feature.shell", "enabled": True,
             "depends_on": ["feature.base"], "produces": [],
-            "inputs": {"faces": TOP_FACE, "thickness": 2.0, "direction": "inward"}}
+            "inputs": {"faces": faces or TOP_FACE, "thickness": 2.0,
+                       "direction": "inward"}}
 
 
 LINEAR = {"kind": "linear", "direction": "+X", "spacing_mm": 20.0, "count": 3}
@@ -514,3 +523,33 @@ def test_the_rules_are_the_ones_the_previously_accepted_schema_obeyed():
 
     assert accepted["properties"]["schema_version"]["const"] == "0.1.0"
     assert dialect_violations(accepted) == []
+
+
+def test_a_shell_may_name_the_topmost_face_as_well_as_the_upward_one(profile):
+    """Two named shapes for the shell's open face, and the reading stage picks.
+
+    The run this exists for stopped at `SELECTOR_AMBIGUOUS` on a flanged bushing:
+    "planar face facing +Z" found the shoulder and the sleeve end. Narrowing the single
+    offer to the topmost would have made every such document resolve — including the
+    ones where the drawing shows the *shoulder* open, which would then be a silent wrong
+    part rather than a refusal. Two selections, and the model chooses between shapes
+    written here, which is the whole of what ADR-032 permits it to do.
+    """
+    document = with_features(base_feature(), hollowed(TOPMOST_FACE))
+
+    assert list(profile.iter_errors(document)) == []
+    assert validate_canonical(document).schema_version == CAD_IR_VERSION
+
+
+def test_the_shell_still_refuses_a_face_shape_nobody_wrote_here(profile):
+    """Two offers, not a widened predicate set. `area_mm2` is the third thing a drawing
+    might mean by "the top" and is deliberately absent: a selector states an area as a
+    measurement, so offering it would ask the model for a number off the part rather
+    than a shape off the drawing.
+    """
+    composed = {**TOP_FACE, "where": {**TOP_FACE["where"],
+                                      "area_mm2": {"value": 2400.0, "tolerance": 0.5}}}
+    document = with_features(base_feature(), hollowed(composed))
+
+    assert validate_canonical(document).schema_version == CAD_IR_VERSION
+    assert list(profile.iter_errors(document)) != []

@@ -332,11 +332,31 @@ def build() -> dict[str, Any]:
             position=obj(extreme_along=const("axis.z"), extreme=const("maximum"))),
         counted=True,
     )
-    # The face a hollow part is open at.
+    # The face a hollow part is open at, on a part that has one upward face.
     defs["top_face"] = selection(
         "face",
         obj(surface_type=const("planar"),
             normal=obj(parallel_to=const("axis.z"), direction=const("positive"))),
+        counted=False,
+    )
+    # The same face on a part that has more than one, and the reason there are two
+    # selections rather than one narrower one.
+    #
+    # A run on a flanged bushing stopped at `SELECTOR_AMBIGUOUS`: "planar face facing
+    # +Z" found the flange's shoulder *and* the sleeve's end, and `exactly_one` cannot
+    # choose. Narrowing the offer above to the topmost would have made every document
+    # resolve — including the ones where the drawing shows the shoulder open, which
+    # would then be a silent wrong part instead of a refusal. So the topmost is a
+    # second named shape and the reading stage says which one the drawing shows.
+    #
+    # "The largest" is the third thing a drawing might mean and is deliberately not
+    # here: a selector states an area as a *measurement*, so offering it would ask the
+    # model for a number off the part rather than a shape off the drawing.
+    defs["topmost_face"] = selection(
+        "face",
+        obj(surface_type=const("planar"),
+            normal=obj(parallel_to=const("axis.z"), direction=const("positive")),
+            position=obj(extreme_along=const("axis.z"), extreme=const("maximum"))),
         counted=False,
     )
 
@@ -367,7 +387,10 @@ def build() -> dict[str, Any]:
         depends_on=array(ref("identifier"), 1, 8),
         produces=array(obj(), 0, 0),
         inputs=obj(
-            faces=ref("top_face"),
+            # Either named shape, and nothing else. `anyOf` rather than a widened
+            # predicate set: the model picks between two selections written here, which
+            # is the whole of what ADR-032 permits it to do.
+            faces={"anyOf": [ref("top_face"), ref("topmost_face")]},
             thickness=ref("scalar"),
             direction=const("inward"),
         ),
