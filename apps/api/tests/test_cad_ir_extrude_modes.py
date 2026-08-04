@@ -254,3 +254,86 @@ def test_the_draft_and_the_wall_are_different_questions():
 
     assert [item.code for item in disagreement] == ["WALL_PARAMETER"]
     assert disagreement[0].built == "no shell"
+
+
+# --- what CAD-IR 1.11's arithmetic changed about all of this -----------------
+
+HALF_DRAFT = {"divide": {"parameter": "p_total_draft"}, "by": 2.0}
+TOTAL_DRAFT = {"id": "p_total_draft", "type": "angle", "unit": "deg", "value": 10.0,
+               "status": "confirmed"}
+
+
+def test_a_taper_derived_from_a_parameter_is_refused_rather_than_crashing():
+    """The defect ADR-034 left in seven range checks, in the one that matters here.
+
+    `_validate_taper` guarded with `isinstance(value, ParameterRef)` and then called
+    `float(value)`. That was right while a `Scalar` had two members; with four, a taper
+    stated as half a parameter raised `TypeError` **from inside a pydantic validator** —
+    not a refusal, and the range check it guarded never ran. `stated_number` is one
+    function so the next member of `Scalar` cannot bring it back.
+    """
+    inputs = SolidExtrudeInputs(sketch=sketch(), direction="+Z", distance=DEPTH,
+                                taper_deg=HALF_DRAFT)
+
+    assert inputs.taper_deg.by == 2.0
+    assert inputs.taper_deg.divide.parameter == "p_total_draft"
+
+
+def test_the_claim_sees_a_parameter_through_the_arithmetic_that_scales_it():
+    """A draft stated as half an overall angle is still driven by that parameter.
+
+    Before this the claim asked whether the taper *is* a `ParameterRef`, so a document
+    that used 1.11's arithmetic correctly was reported as having lost the name — the
+    check telling the compiling agent to fix something it had done right.
+    """
+    value = document([pad(taper=HALF_DRAFT)], parameters=[TOTAL_DRAFT])
+
+    assert found(value, draft="p_total_draft") == []
+
+
+def test_a_thickness_stated_as_half_a_total_still_names_its_parameter():
+    """The same fix, on the field that has had a word since ADR-025."""
+    value = document(
+        [pad(distance={"divide": {"parameter": "p_total_height"}, "by": 2.0})],
+        parameters=[{"id": "p_total_height", "type": "length", "unit": "mm",
+                     "value": 40.0, "status": "confirmed"}],
+    )
+
+    assert found(value, thickness="p_total_height") == []
+
+
+def test_a_draft_the_document_turns_over_is_caught():
+    """What ADR-034 took away, and this puts back.
+
+    ADR-033 gave the claim a name and not a direction, and said so on the grounds that a
+    canonical `Scalar` could not flip a sign: the sign the reading cited to the drawing
+    was the sign the kernel received. `ScalarNegation` ends that. A document that tapers
+    by the negation of the parameter names exactly what the drawing said and builds a
+    part leaning the other way — with the drawing's outline, openings, solid count and
+    bounding box.
+    """
+    value = document([pad(taper={"negate": {"parameter": "p_draft"}})], parameters=[DRAFT])
+    disagreement = found(value, draft="p_draft")
+
+    assert [item.code for item in disagreement] == ["DRAFT_PARAMETER"]
+    assert disagreement[0].built == "the negation of p_draft"
+
+
+def test_a_negative_divisor_turns_it_over_too():
+    """The sign can hide in the divisor, and one place answers both spellings."""
+    value = document(
+        [pad(taper={"divide": {"parameter": "p_total_draft"}, "by": -2.0})],
+        parameters=[TOTAL_DRAFT],
+    )
+
+    assert [item.code for item in found(value, draft="p_total_draft")] == ["DRAFT_PARAMETER"]
+
+
+def test_two_negations_are_the_angle_the_drawing_gave():
+    """Nobody writes this, and the check must not be fooled by it either way."""
+    value = document(
+        [pad(taper={"negate": {"negate": {"parameter": "p_draft"}}})],
+        parameters=[DRAFT],
+    )
+
+    assert found(value, draft="p_draft") == []

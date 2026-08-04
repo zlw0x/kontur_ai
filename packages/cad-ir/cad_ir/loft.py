@@ -46,6 +46,7 @@ from .base import (
     Provenance,
     ResultRef,
     StrictModel,
+    stated_number,
 )
 from .sketch import PathContour, RectangleContour, RegularPolygonContour, Sketch
 
@@ -82,21 +83,21 @@ def _symmetry_deg(contour) -> float | None:
         return 360.0 / contour.sides
     if isinstance(contour, RectangleContour):
         # A square repeats every quarter turn; any other rectangle, every half. When
-        # either side is a parameter the two cannot be compared here, so the guaranteed
-        # symmetry of *every* rectangle is used — that refuses the half turn and lets a
-        # quarter through rather than refusing a document that may be correct.
-        if isinstance(contour.width, ParameterRef) or isinstance(contour.height, ParameterRef):
+        # either side reads a parameter the two cannot be compared here, so the
+        # guaranteed symmetry of *every* rectangle is used — that refuses the half turn
+        # and lets a quarter through rather than refusing a document that may be correct.
+        width, height = stated_number(contour.width), stated_number(contour.height)
+        if width is None or height is None:
+            # Equal *expressions* are equal sides, which catches a square whose two
+            # sides are one parameter. Anything else falls back to the safe symmetry.
             return 90.0 if contour.width == contour.height else 180.0
-        return 90.0 if abs(float(contour.width) - float(contour.height)) <= 1e-9 else 180.0
+        return 90.0 if abs(width - height) <= 1e-9 else 180.0
     return None
 
 
 def _rotation_of(contour) -> float | None:
     """The rotation a contour states, or `None` when it states it as a name."""
-    rotation = getattr(contour, "rotation_deg", None)
-    if rotation is None or isinstance(rotation, ParameterRef):
-        return None
-    return float(rotation)
+    return stated_number(getattr(contour, "rotation_deg", None))
 
 
 def _require_unambiguous_rotation(sections: list[Sketch]) -> None:

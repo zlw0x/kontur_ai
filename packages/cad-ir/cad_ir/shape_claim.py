@@ -37,7 +37,7 @@ from typing import Annotated
 
 from pydantic import Field
 
-from .base import Id, ParameterRef, StrictModel
+from .base import Id, StrictModel, negates, parameters_of, stated_number
 from .canonical import (
     BooleanFeature,
     CadIrDocument,
@@ -730,14 +730,16 @@ def _wall_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disag
                 ),
             )
         ]
+    # Through the arithmetic, not only at the top of it: a wall stated as half an
+    # overall thickness is driven by the parameter the drawing gave (ADR-034).
     named = {
-        str(shell.inputs.thickness.parameter)
-        for shell in shells
-        if isinstance(shell.inputs.thickness, ParameterRef)
+        name for shell in shells for name in parameters_of(shell.inputs.thickness)
     }
     if str(claim.wall) in named:
         return []
-    literals = [shell for shell in shells if not isinstance(shell.inputs.thickness, ParameterRef)]
+    literals = [
+        shell for shell in shells if not parameters_of(shell.inputs.thickness)
+    ]
     if literals:
         return [
             Disagreement(
@@ -776,8 +778,8 @@ def _drafted(document: CadIrDocument) -> list:
         for feature in document.features
         if feature.enabled
         and (
-            isinstance(taper := getattr(feature.inputs, "taper_deg", 0.0), ParameterRef)
-            or float(taper) != 0.0
+            (taper := getattr(feature.inputs, "taper_deg", 0.0)) is not None
+            and (stated_number(taper) is None or stated_number(taper) != 0.0)
         )
     ]
 
@@ -826,11 +828,34 @@ def _draft_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disa
             )
         ]
     named = {
-        str(feature.inputs.taper_deg.parameter)
-        for feature in tapered
-        if isinstance(feature.inputs.taper_deg, ParameterRef)
+        name for feature in tapered for name in parameters_of(feature.inputs.taper_deg)
     }
     if str(claim.draft) in named:
+        turned = [
+            feature
+            for feature in tapered
+            if str(claim.draft) in parameters_of(feature.inputs.taper_deg)
+            and negates(feature.inputs.taper_deg)
+        ]
+        if turned:
+            # The one thing ADR-034 took away. This claim says the parameter's name and
+            # deliberately not the direction, and the reason given was that a canonical
+            # `Scalar` had no arithmetic to flip a sign with — so the sign the reading
+            # cited to the drawing was the sign the kernel received. `ScalarNegation`
+            # ends that: `{"negate": {"parameter": "draft_angle"}}` names the parameter
+            # the reading gave and leans the walls the other way, which is a part whose
+            # outline, openings, solid count and bounding box are all the drawing's.
+            return [
+                Disagreement(
+                    code="DRAFT_PARAMETER",
+                    claimed=str(claim.draft),
+                    built=f"the negation of {claim.draft}",
+                    detail=(
+                        f"the drawing's draft was read as {claim.draft} and {turned[0].id} "
+                        "tapers by its negation, so the walls lean the other way"
+                    ),
+                )
+            ]
         held = next(
             (
                 parameter.value
@@ -856,7 +881,9 @@ def _draft_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disa
                 )
             ]
         return []
-    literals = [feature for feature in tapered if not isinstance(feature.inputs.taper_deg, ParameterRef)]
+    literals = [
+        feature for feature in tapered if not parameters_of(feature.inputs.taper_deg)
+    ]
     if literals:
         return [
             Disagreement(
@@ -886,17 +913,18 @@ def _thickness_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:
     if claim.thickness is None:
         return []
     distance = getattr(base.inputs, "distance", None)
-    if isinstance(distance, ParameterRef):
-        if str(distance.parameter) == str(claim.thickness):
+    driven = parameters_of(distance)
+    if driven:
+        if str(claim.thickness) in driven:
             return []
         return [
             Disagreement(
                 code="THICKNESS_PARAMETER",
                 claimed=str(claim.thickness),
-                built=str(distance.parameter),
+                built=", ".join(sorted(driven)),
                 detail=(
                     f"the drawing's thickness was read as {claim.thickness} and "
-                    f"{base.id} extrudes by {distance.parameter}"
+                    f"{base.id} extrudes by {', '.join(sorted(driven))}"
                 ),
             )
         ]

@@ -46,6 +46,7 @@ from .base import (  # re-exported: this is still the one place to read the docu
     ScalarQuotient,
     SourceRegion,
     StrictModel,
+    stated_number,
 )
 from .blend import (  # re-exported alongside the document
     ChamferFeature,
@@ -198,9 +199,10 @@ TAPER_LIMIT_DEG = 89.0
 
 
 def _validate_taper(value: Scalar | None) -> None:
-    if value is None or isinstance(value, ParameterRef):
+    taper = stated_number(value)
+    if taper is None:
         return
-    if not -TAPER_LIMIT_DEG <= float(value) <= TAPER_LIMIT_DEG:
+    if not -TAPER_LIMIT_DEG <= taper <= TAPER_LIMIT_DEG:
         raise ValueError(
             f"a taper is between -{TAPER_LIMIT_DEG:g} and {TAPER_LIMIT_DEG:g} degrees"
         )

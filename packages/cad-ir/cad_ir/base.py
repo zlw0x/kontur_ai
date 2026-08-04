@@ -179,6 +179,71 @@ ScalarQuotient.model_rebuild()
 ScalarNegation.model_rebuild()
 
 
+def stated_number(value: object) -> float | None:
+    """The number a scalar states outright, or nothing when it depends on a parameter.
+
+    Every range check in this contract has the same shape: a literal size can be
+    checked here, and a named one is a promise about a number this module never sees,
+    which the engine resolves and re-checks in front of the kernel. Each of them wrote
+    that as `isinstance(value, ParameterRef)` — correct while a `Scalar` had two
+    members, and wrong the moment ADR-034 gave it four.
+
+    It was wrong in the worst available way. `float(ScalarQuotient(...))` raises
+    `TypeError` from inside a pydantic validator, which is not a refusal: it escapes as
+    a raw type error, reaches the caller as `SCHEMA_INVALID` with the message
+    "float() argument must be a string or a real number", and the range check it was
+    guarding never runs. Seven of the nine sites did this — a fillet radius, three
+    chamfer sizes, a wall thickness, a pattern spacing and an extrusion taper — so a
+    document that drove any of them from a diameter was refused with a Python
+    diagnostic, and one that drove them from a negative one was not checked at all.
+
+    One function so that the next member of `Scalar` cannot reintroduce it.
+    """
+    if isinstance(value, (ParameterRef, ScalarQuotient, ScalarNegation)):
+        return None
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def parameters_of(value: object) -> frozenset[str]:
+    """Every parameter a scalar reads, through whatever arithmetic sits on top of it.
+
+    The other half of the same problem, and it belongs to the shape claim rather than
+    to a range check. `thickness`, `wall` and `draft` each name the parameter the
+    drawing's dimension was recorded as, and each asked whether the geometry's scalar
+    *is* a `ParameterRef` with that name. A thickness written as half of a stated
+    overall height is driven by the parameter and would have been reported as "the
+    literal ...", telling the compiling agent to fix something it had done right.
+    """
+    if isinstance(value, ParameterRef):
+        return frozenset({str(value.parameter)})
+    if isinstance(value, ScalarQuotient):
+        return parameters_of(value.divide)
+    if isinstance(value, ScalarNegation):
+        return parameters_of(value.negate)
+    return frozenset()
+
+
+def negates(value: object) -> bool:
+    """Whether a scalar arrives with its sign turned over.
+
+    One question, asked in one place: `ShapeClaim.draft` names the parameter holding a
+    draft angle and deliberately says nothing about direction, because ADR-033 measured
+    that a positive taper narrows away from the sketch plane whichever way the extrusion
+    travels — and, at the time, because a `Scalar` had no arithmetic to flip a sign
+    with. ADR-034 gave it one. `{"negate": {"parameter": "draft_angle"}}` leans the
+    walls the other way while still naming the parameter the reading cited.
+    """
+    if isinstance(value, ScalarNegation):
+        return not negates(value.negate)
+    if isinstance(value, ScalarQuotient):
+        return negates(value.divide) != (value.by < 0)
+    return False
+
+
 class FeatureResult(StrictModel):
     """Something a feature creates that a later feature may refer to.
 

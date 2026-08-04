@@ -50,6 +50,7 @@ from .base import (
     Provenance,
     Scalar,
     StrictModel,
+    stated_number,
 )
 from .selectors import Axis
 from .sketch import BasePlaneName
@@ -86,7 +87,8 @@ class LinearPattern(StrictModel):
 
     @model_validator(mode="after")
     def validate_spacing(self) -> "LinearPattern":
-        if not isinstance(self.spacing_mm, ParameterRef) and float(self.spacing_mm) <= 0:
+        spacing = stated_number(self.spacing_mm)
+        if spacing is not None and spacing <= 0:
             # A zero step puts every instance on top of the original, which is a
             # boolean with itself and a document that meant something else.
             raise ValueError("a linear pattern's spacing must be positive")
@@ -111,9 +113,9 @@ class CircularPattern(StrictModel):
 
     @model_validator(mode="after")
     def validate_step(self) -> "CircularPattern":
-        if isinstance(self.step_deg, ParameterRef):
+        step = stated_number(self.step_deg)
+        if step is None:
             return self
-        step = float(self.step_deg)
         if step == 0 or abs(step) >= 360:
             raise ValueError(
                 "a circular pattern's step is more than 0 and less than 360 degrees"
