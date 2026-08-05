@@ -10,6 +10,29 @@ jobs:
         with: {python-version: "3.13"}
       - run: pip install -r requirements.txt
       - run: pytest -q
+  # The sanitizer's own job, because its tests need an image decoder and the API's
+  # must never have one. Without this the suite would `importorskip` on Pillow and
+  # report green while nothing in it ran — the failure mode that hid three stale
+  # fixture names through a whole contract version.
+  sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - run: pip install -r packages/image-sanitizer/requirements.txt pytest==8.4.1
+      - name: The sanitizer's own tests, where a skip is a failure
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=packages/image-sanitizer pytest -q packages/image-sanitizer/tests \
+            | tee sanitizer.log
+          # Without Pillow the module skips whole and the job is green with nothing
+          # run, so the summary is read rather than trusted.
+          if grep -qE '[0-9]+ skipped' sanitizer.log; then
+            echo "::error::the sanitizer suite skipped tests; its decoder is missing"
+            exit 1
+          fi
   contracts:
     runs-on: ubuntu-latest
     steps:

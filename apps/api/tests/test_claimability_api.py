@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
+from tests.drawing_fixture import TINY_PNG
 from app.contracts import CapabilityStatus, WorkerCapability
 from app.main import app
 from app.database import Base, create_session_factory
@@ -165,7 +166,7 @@ def test_drawing_order_status_explains_why_it_is_waiting(monkeypatch, tmp_path):
     created = client.post(
         "/api/v1/drawing-jobs",
         headers={**MANUAL, "content-type": "image/png"},
-        content=b"\x89PNG\r\n\x1a\n" + b"fixture",
+        content=TINY_PNG,
     )
     order_id = created.json()["order_id"]
     registered, headers = enrol(client, protocol)
@@ -188,7 +189,7 @@ def test_a_busy_worker_produces_a_different_customer_message(monkeypatch, tmp_pa
     created = client.post(
         "/api/v1/drawing-jobs",
         headers={**MANUAL, "content-type": "image/png"},
-        content=b"\x89PNG\r\n\x1a\n" + b"fixture",
+        content=TINY_PNG,
     )
     order_id = created.json()["order_id"]
     registered, headers = enrol(client, protocol)

@@ -7,12 +7,16 @@ testpaths = [
     "apps/api/tests",
     "apps/cad-worker/tests",
     "packages/build123d-adapter/tests",
+    # Its tests need Pillow and skip without it, the same way the engine's need
+    # build123d. The API's must never need either.
+    "packages/image-sanitizer/tests",
 ]
 pythonpath = [
     "apps/api",
     "apps/cad-worker",
     "packages/cad-ir",
     "packages/build123d-adapter",
+    "packages/image-sanitizer",
     # `cad_ir_fixtures`, which is where a fixture's filename is derived from the
     # contract version instead of being written into nineteen test files.
     "tests",

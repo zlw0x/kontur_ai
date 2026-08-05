@@ -1,5 +1,7 @@
 import asyncio
 import contextlib
+import shutil
+from pathlib import Path
 import logging
 import json
 import hashlib
@@ -46,6 +48,8 @@ from .contracts import (
     DrawingAnswersRequest,
     ClarificationAnswer,
 )
+from .input.quarantine import InputRejected, Quarantine
+from .input.sanitizer import Sanitizer, SanitizerUnavailable
 from .workers.artifact_store import ArtifactIntegrityError, LocalArtifactStore
 from .workers.capabilities import required_capability_keys
 from .workers.diagnostics import SchedulerDiagnostics
@@ -161,6 +165,11 @@ worker_protocol = build_worker_protocol()
 resource_ledger = build_resource_ledger()
 artifact_store = LocalArtifactStore(settings.artifact_store_root, settings.max_artifact_bytes)
 order_state_service = OrderStateService()
+#: Uploads nothing else can read, and the program that cleans them. Kept apart from
+#: the artifact store on purpose: that is what the worker downloads from, and a raw
+#: upload must never be in it.
+quarantine = Quarantine(Path(settings.artifact_store_root).parent / "quarantine")
+sanitizer = Sanitizer(image=settings.sanitizer_image or None)
 order_records: dict[uuid.UUID, OrderRecord] = {}
 drawing_orders: dict[uuid.UUID, dict] = {}
 
@@ -419,18 +428,44 @@ async def create_drawing_job(
     x_manual_api_token: str | None = Header(default=None),
 ) -> DrawingJobResponse:
     authenticated_manual_api(x_manual_api_token)
-    normalized_type = (content_type or "").split(";", 1)[0].strip().lower()
-    extension = { "image/png": ".png", "image/jpeg": ".jpg" }.get(normalized_type)
-    if extension is None:
-        raise HTTPException(status_code=415, detail="drawing must be PNG or JPEG")
-    payload = await request.body()
-    if not (
-        (extension == ".png" and payload.startswith(b"\x89PNG\r\n\x1a\n"))
-        or (extension == ".jpg" and payload.startswith(b"\xff\xd8"))
-    ):
-        raise HTTPException(status_code=422, detail="drawing content does not match content type")
+    # Quarantine, sanitize, then store — and never the upload itself. The addendum's
+    # central invariant is that the worker, Codex and the browser see only cleaned
+    # pages, and what stood here read the whole body into memory with `request.body()`
+    # and wrote the raw file straight into the job directory the worker downloads.
+    declared = request.headers.get("content-length")
+    try:
+        held = await quarantine.accept(
+            request.stream(),
+            content_type,
+            int(declared) if declared and declared.isdigit() else None,
+        )
+    except InputRejected as refused:
+        raise HTTPException(status_code=refused.status_code,
+                            detail=refused.message) from refused
+
     order_id, job_id = uuid.uuid4(), uuid.uuid4()
-    stored = artifact_store.put_drawing(job_id, payload, extension)
+    try:
+        page = sanitizer.sanitize(held, quarantine.root / f"{held.file_id}-out")
+    except InputRejected as refused:
+        raise HTTPException(status_code=refused.status_code,
+                            detail=refused.message) from refused
+    except SanitizerUnavailable as broken:
+        # The machine, not the drawing. A 503 says "come back", a 422 would tell a
+        # customer their file is malformed because an operator has not installed a
+        # decoder — and the service would say it again every time.
+        logger.error("sanitizer unavailable: %s", broken)
+        raise HTTPException(
+            status_code=503, detail="The drawing service is temporarily unavailable."
+        ) from broken
+    finally:
+        # §5: the raw upload goes as soon as processing ends. Nothing downstream can
+        # reach quarantine, so what is left here is only a window — and a window is
+        # worth closing.
+        quarantine.discard(held.file_id)
+        shutil.rmtree(quarantine.root / f"{held.file_id}-out", ignore_errors=True)
+
+    stored = artifact_store.put_drawing(job_id, page.png, ".png")
+    artifact_store.put_input_manifest(job_id, page.manifest())
     order_records[order_id] = OrderRecord(
         order_id, OrderStatus.WAITING_FOR_LOCAL_WORKER, 0, datetime.now(timezone.utc)
     )

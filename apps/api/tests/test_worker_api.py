@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from tests.drawing_fixture import TINY_PNG
 from app.main import app
 from app.contracts import CapabilityStatus, JobType, WorkerCapability
 from app.database import Base, create_session_factory
@@ -216,7 +217,7 @@ def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
     monkeypatch.setattr("app.main.drawing_orders", {})
     client = TestClient(app)
     manual_headers = {"x-manual-api-token": "local-development-manual-api-token-change-me"}
-    png = b"\x89PNG\r\n\x1a\n" + b"fixture"
+    png = TINY_PNG
     created = client.post(
         "/api/v1/drawing-jobs",
         headers={**manual_headers, "content-type": "image/png"},

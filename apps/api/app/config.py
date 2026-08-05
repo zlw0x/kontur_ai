@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     #: that moves nothing is two indexed queries. Set to 0 to turn it off, which is
     #: what the tests do: they call `reap()` and assert, rather than waiting.
     reaper_interval_seconds: int = 30
+    #: The image the sanitizer runs in. Empty means the child-process mode, which
+    #: still has RLIMIT_AS, RLIMIT_CPU and a wall clock but shares the host's kernel
+    #: namespace with the API. Production sets this; a laptop need not.
+    sanitizer_image: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

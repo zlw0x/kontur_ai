@@ -19,6 +19,7 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.drawing_fixture import TINY_PNG
 from app.contracts import JobStatus
 from app.main import app
 from app.workers.artifact_store import LocalArtifactStore
@@ -186,7 +187,7 @@ def test_the_order_page_shows_a_pause_as_a_pause(monkeypatch, tmp_path):
     created = client.post(
         "/api/v1/drawing-jobs",
         headers={**MANUAL, "content-type": "image/png"},
-        content=b"\x89PNG\r\n\x1a\n" + b"fixture",
+        content=TINY_PNG,
     )
     assert created.status_code == 201
     order_id = created.json()["order_id"]
