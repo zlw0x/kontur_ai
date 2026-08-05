@@ -165,10 +165,64 @@ def test_parameters_of_reads_through_the_arithmetic():
         ({"parameter": "p_total"}, False),
         (HALF, False),
         (TURNED, True),
-        ({"negate": {"negate": {"parameter": "p_total"}}}, False),
-        ({"divide": {"parameter": "p_total"}, "by": -2.0}, True),
-        ({"negate": {"divide": {"parameter": "p_total"}, "by": -2.0}}, False),
+        ({"negate": HALF}, True),
     ],
 )
-def test_negates_answers_every_spelling_of_a_sign(value, turned):
+def test_negates_answers_the_one_spelling_of_a_sign(value, turned):
+    """One line, because there is one place a sign can be.
+
+    This used to walk the tree and answer for three spellings — a negation, a negative
+    divisor, and a pair that cancel. The grammar refuses the other two, so the question
+    became `isinstance`.
+    """
     assert negates(scalar(value)) is turned
+
+
+# --- one value, one spelling (ADR-034's amendment) ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("what", "value"),
+    [
+        # Three spellings of −p/2, of which exactly one survives.
+        ("a negation inside a quotient", {"divide": {"negate": {"parameter": "p_total"}},
+                                          "by": 2.0}),
+        ("a negative divisor", {"divide": {"parameter": "p_total"}, "by": -2.0}),
+        # Two of +p.
+        ("two negations that cancel", {"negate": {"negate": {"parameter": "p_total"}}}),
+        ("dividing by one", {"divide": {"parameter": "p_total"}, "by": 1.0}),
+        # And two of a plain number.
+        ("a negated literal", {"negate": 5.0}),
+        ("a divided literal", {"divide": 80.0, "by": 2.0}),
+        # `p/6` written twice over.
+        ("a quotient of a quotient", {"divide": {"divide": {"parameter": "p_total"},
+                                                 "by": 2.0}, "by": 3.0}),
+    ],
+)
+def test_a_second_spelling_of_a_value_is_refused(what, value):
+    """ADR-018 makes a document's meaning a hash of a *unique* representation, and 1.11
+    shipped four spellings of −p/2 and two of +p. Each was legal, so the property the
+    canonical form traded expressions away to get did not hold.
+
+    Closed by a grammar rather than a field: a quotient divides a **parameter** by a
+    positive constant that is not 1, and a negation wraps a reference or a quotient.
+    """
+    with pytest.raises(ValidationError):
+        scalar(value)
+
+
+def test_the_one_spelling_of_each_value_still_works():
+    assert stated_number(scalar({"negate": HALF})) is None
+    assert parameters_of(scalar({"negate": HALF})) == {"p_total"}
+
+
+def test_the_grammar_bounds_the_depth_rather_than_a_check():
+    """`negate(divide(p, k))` is as deep as a scalar goes, and nothing counts to find
+    out: a quotient takes a parameter, and a negation takes a reference or a quotient.
+    1.11 needed an explicit bound because both nodes took a whole `Scalar`."""
+    from cad_ir.base import MAX_SCALAR_DEPTH
+
+    assert MAX_SCALAR_DEPTH == 2
+    deepest = ScalarNegation(negate=ScalarQuotient(divide=ParameterRef(parameter="p_total"),
+                                                   by=2.0))
+    assert parameters_of(deepest) == {"p_total"}

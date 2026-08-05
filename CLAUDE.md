@@ -301,25 +301,30 @@ is `float | ParameterRef` with no arithmetic, so a diameter cannot drive a radiu
 parameter cannot drive both sides of a symmetric outline. Version 0.1.0 had expressions
 and the canonical form traded them away; this is the bill.
 
-**The unblocking is designed and half built** (`docs/TASK-POSTMVP-scalar-arithmetic.md`).
-Two of the three things it was thought to need are already in the tree: `cad_ir.expression`
-is a recursive-descent parser with a fixed grammar, bounded input and result, three
-whitelisted functions and a test for `__import__('os').system(...)` — so the question of how
-much expression language is safe was answered in 0.1.0 and the answer is still shipped. What
-is blocked is only the **canonical representation**, and for a nameable reason: `"d/2"` and
-`"d / 2"` are the same part with two byte-stable hashes, which is what ADR-018 traded
-expressions away to prevent. An AST is no better — `a + b` and `b + a` are two hashes.
+**CAD-IR 1.11 paid it** (ADR-034). `ScalarQuotient` and `ScalarNegation` cover both rows of
+the measured table — a diameter driving a radius, and one parameter driving both sides of a
+symmetric outline — and `PARAMETER_DRIVES_NOTHING` shipped with them, because arithmetic
+without the rule makes nothing use it. Structured nodes rather than the `{"expr": "d / 2"}`
+0.1.0 had: `"d/2"` and `"d / 2"` are one part with two hashes, which is what ADR-018 traded
+expressions away to prevent. Sums are refused for a stated reason — a difference of two
+dimensions is a relationship nobody drew unless the drawing draws it, and that argument is
+the one an up-to-face extrusion has to answer.
 
-So the form is **one node, not an expression**: `{"parameter": "outer_diameter", "times":
-0.5}`. No parser, no recursion, no precedence, one spelling per part — and it covers every
-row of the measured table (a diameter driving a radius ×3, and one parameter driving both
-sides of a symmetric outline). Never 1, which is a plain reference; never 0, which drives
-nothing; bounded after the multiplication, because 900 000 × 100 is two legal numbers.
-`ScaledParameterRef` and its resolver are built and tested (22 tests, including the two
-refusals `Parameters` had carried untested since ENGINE-MIG-002); **`Scalar` is untouched**,
-so nothing can reach it yet, and one test asserts that on purpose. Sums and trigonometry are
-refused for stated reasons — the sum belongs in an expectation, and a bolt circle belongs in
-`pattern.circular`, which is already there and already not being taken.
+The parser 0.1.0 used is still in the tree (`cad_ir.expression`: a fixed grammar, bounded
+input and result, three whitelisted functions and a test for `__import__('os').system(...)`),
+reachable only from the 0.1.0 validator nothing calls. It is worth knowing it exists: the
+question of how much expression language is safe was answered then, and what was actually
+blocked all along was the canonical representation.
+
+**One value, one spelling** (ADR-034's amendment). The two scalar nodes were written the
+general way — each taking a whole `Scalar` — which admitted four spellings of −p/2 and two
+of +p, so the byte-stable hash ADR-018 exists for did not identify a part. The fix adds
+nothing: a quotient divides a **reference** by a positive constant that is not 1, and a
+negation wraps a reference or a quotient. Three things fell out of it — the explicit depth
+bound became unnecessary (the grammar bounds it at two), `negates` became one line, and the
+output profile turned out to be **offering documents the validator would refuse**, which is
+the worst kind of rejection because the repair loop has nothing to read. A test now holds
+the profile and the contract to the same set.
 
 **A failure can be worth neither repairing nor retrying** (POSTMVP-025). `BuildFeedback`
 split failures in two — repairable by rewriting the document, or about the machine — and the

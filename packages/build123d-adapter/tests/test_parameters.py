@@ -122,11 +122,13 @@ def test_a_derived_scalar_still_names_a_parameter_the_document_must_define():
     assert "p_absent" in raised.value.safe_message
 
 
-def test_a_derived_scalar_bottoms_out_in_a_literal_too():
-    """`divide` takes a `Scalar`, so a bare number is legal underneath it. It says
-    nothing a literal would not, and refusing it would be a rule about spelling
-    rather than about the part."""
-    assert parameters().resolve(ScalarQuotient(divide=80.0, by=2.0), "a radius") == 40.0
+def test_a_quotient_of_a_literal_is_refused_because_it_is_a_literal():
+    """`divide(80, 2)` is the number 40 with extra words, and a rule about spelling is
+    exactly what canonical form is (ADR-018). It was legal in 1.11, on the reasoning
+    that refusing it would be a rule about spelling rather than about the part — which
+    had it the wrong way round."""
+    with pytest.raises(ValidationError):
+        ScalarQuotient(divide=80.0, by=2.0)
 
 
 # --- what the contract refuses ------------------------------------------------
@@ -146,13 +148,15 @@ def test_a_divisor_may_not_be_a_parameter():
         ScalarQuotient(divide=named("p_depth"), by={"parameter": "p_other"})
 
 
-def test_a_scalar_may_not_nest_deeper_than_three_operations():
-    """The bound exists because the nodes are recursive and a document is written by a
-    model: nothing else stops a tower a thousand deep from being schema-valid."""
-    third = ScalarNegation(negate=ScalarQuotient(divide=half("p_depth"), by=2.0))
+def test_a_scalar_cannot_nest_past_two_operations():
+    """Not a bound any more: the grammar. A quotient divides a parameter and a negation
+    wraps a reference or a quotient, so `negate(divide(p, k))` is the deepest there is
+    and there is nothing left to count."""
+    deepest = ScalarNegation(negate=half("p_depth"))
+    assert parameters(p_depth=8.0).resolve(deepest, "the far edge") == -4.0
 
     with pytest.raises(ValidationError):
-        ScalarQuotient(divide=third, by=2.0)
+        ScalarQuotient(divide=deepest, by=2.0)
 
 
 def test_a_derived_scalar_carries_nothing_else():

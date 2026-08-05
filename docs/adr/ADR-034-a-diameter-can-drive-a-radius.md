@@ -197,3 +197,50 @@ So the claim gains the narrowest possible answer rather than a direction: a tape
 answers every spelling — a negation, a negative divisor, and two negations cancelling — in
 one place, because a sign that can hide in three shapes is a sign a check will miss in one of
 them.
+
+## Amendment, 2026-08-04: one value, one spelling
+
+The two nodes were written the general way — each takes a whole `Scalar` — and that
+admitted **four spellings of −p/2**:
+
+```json
+{"negate": {"divide": {"parameter": "p"}, "by": 2.0}}
+{"divide":  {"negate": {"parameter": "p"}}, "by": 2.0}
+{"divide":  {"parameter": "p"}, "by": -2.0}
+```
+
+three hashes for one number, and two more of `+p`: the plain reference, and a pair of
+negations that cancel. Also `divide(p, 1)`, `divide(80, 2)` for the literal 40, and
+`divide(divide(p, 2), 3)` for `p/6`.
+
+Every one was legal, which means **the property this ADR's own reasoning rests on did
+not hold**. It argues against the string form `{"expr": "d / 2"}` because `"d/2"` and
+`"d / 2"` are one part with two byte-stable hashes — and then shipped structured nodes
+with the same defect in a different alphabet.
+
+Closed by narrowing what each node accepts, rather than by adding anything:
+
+```
+quotient := divide(<reference>, k)     k finite, k > 0, k ≠ 1
+negation := negate(<reference> | <quotient>)
+```
+
+Every value now has exactly one spelling. Three things follow, and each is worth more
+than the rule itself:
+
+**The depth bound is gone.** `_MAX_SCALAR_DEPTH = 3` existed because both nodes were
+recursive and nothing else stopped a tower a thousand deep from being schema-valid. The
+grammar bounds it at two by construction, and a check that cannot fail is not a check.
+
+**`negates` became one line.** It walked the tree and answered for three spellings; there
+is now one place a sign can be, which is what `ShapeClaim.draft` needs it to be.
+
+**The output profile was offering documents the validator would refuse.** Its two scalar
+nodes recursed back into `scalar`, correctly mirroring the contract as it was. A model
+writing `divide(negate(p), 2)` from that schema would have had its document rejected for
+a rule the schema never told it about — the worst kind of refusal, because the repair
+loop has nothing to read. The profile now states the same grammar, and a test asserts
+that what it offers and what the contract accepts are the same set.
+
+Nothing in the repository used a spelling that is now refused: every derived scalar in
+every fixture is `negate(<reference>)`, the simplest form there is.

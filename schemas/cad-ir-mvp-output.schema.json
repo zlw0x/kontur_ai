@@ -212,15 +212,27 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
     },
+    "scalar_reference": {
+      "type": "object",
+      "properties": {
+        "parameter": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "required": [
+        "parameter"
+      ],
+      "additionalProperties": false
+    },
     "scalar_quotient": {
       "type": "object",
       "properties": {
         "divide": {
-          "$ref": "#/$defs/scalar"
+          "$ref": "#/$defs/scalar_reference"
         },
         "by": {
           "type": "number",
-          "minimum": -1000000,
+          "minimum": 1e-09,
           "maximum": 1000000
         }
       },
@@ -234,7 +246,14 @@
       "type": "object",
       "properties": {
         "negate": {
-          "$ref": "#/$defs/scalar"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/scalar_reference"
+            },
+            {
+              "$ref": "#/$defs/scalar_quotient"
+            }
+          ]
         }
       },
       "required": [
@@ -250,16 +269,7 @@
           "maximum": 1000000
         },
         {
-          "type": "object",
-          "properties": {
-            "parameter": {
-              "$ref": "#/$defs/identifier"
-            }
-          },
-          "required": [
-            "parameter"
-          ],
-          "additionalProperties": false
+          "$ref": "#/$defs/scalar_reference"
         },
         {
           "$ref": "#/$defs/scalar_quotient"

@@ -553,3 +553,48 @@ def test_the_shell_still_refuses_a_face_shape_nobody_wrote_here(profile):
 
     assert validate_canonical(document).schema_version == CAD_IR_VERSION
     assert list(profile.iter_errors(document)) != []
+
+
+# --- the profile may not offer what the contract refuses ----------------------
+
+
+def derived_width(value: dict) -> dict:
+    """The plate, with its outline's width stated through 1.11's arithmetic."""
+    document = with_features(base_feature())
+    document["parameters"] = profile_shaped_document()["parameters"][:1]
+    document["features"][0]["inputs"]["sketch"]["outer"]["width"] = value
+    return document
+
+
+@pytest.mark.parametrize(
+    ("what", "value"),
+    [
+        ("a negation inside a quotient",
+         {"divide": {"negate": {"parameter": "p_width"}}, "by": 2.0}),
+        ("a negative divisor", {"divide": {"parameter": "p_width"}, "by": -2.0}),
+        ("two negations", {"negate": {"negate": {"parameter": "p_width"}}}),
+        ("a divided literal", {"divide": 80.0, "by": 2.0}),
+    ],
+)
+def test_the_profile_cannot_offer_a_scalar_the_contract_refuses(profile, what, value):
+    """The half of ADR-034's amendment that lives here.
+
+    The profile's two scalar nodes recursed back into `scalar`, which was right while
+    the contract allowed it. Once the contract closed the grammar — one value, one
+    spelling — the profile was offering documents the validator would reject, and a
+    model writing one from this schema would be refused for a rule the schema never
+    told it about. The two say the same thing now, and this is what keeps them saying it.
+    """
+    document = derived_width(value)
+
+    assert list(profile.iter_errors(document)) != [], what
+    with pytest.raises(CadIrValidationError):
+        validate_canonical(document)
+
+
+def test_the_one_spelling_the_contract_keeps_is_still_offered(profile):
+    """Both halves of it: a quotient of a reference, and a negation of that."""
+    for value in ({"divide": {"parameter": "param.width"}, "by": 2.0},
+                  {"negate": {"divide": {"parameter": "param.width"}, "by": 2.0}},
+                  {"negate": {"parameter": "param.width"}}):
+        assert list(profile.iter_errors(derived_width(value))) == [], value

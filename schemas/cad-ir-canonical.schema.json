@@ -3082,21 +3082,15 @@
     },
     "ScalarNegation": {
       "additionalProperties": false,
-      "description": "The same scalar, the other way — `{\"negate\": <scalar>}`.\n\nThe second thing one parameter could not do: drive both sides of a symmetric\noutline. `lever-plate`'s cap radius is 15 and its profile needs y = +15 *and*\ny = −15, so one of the two had to be a literal, and a document half-driven by\nits parameters is one where changing a dimension moves half the part.",
+      "description": "A parameter or a quotient, the other way — `{\"negate\": {\"parameter\": \"r\"}}`.\n\nThe second thing one parameter could not do: drive both sides of a symmetric\noutline. `lever-plate`'s cap radius is 15 and its profile needs y = +15 *and*\ny = −15, so one of the two had to be a literal, and a document half-driven by\nits parameters is one where changing a dimension moves half the part.",
       "properties": {
         "negate": {
           "anyOf": [
-            {
-              "type": "number"
-            },
             {
               "$ref": "#/$defs/ParameterRef"
             },
             {
               "$ref": "#/$defs/ScalarQuotient"
-            },
-            {
-              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Negate"
@@ -3110,24 +3104,10 @@
     },
     "ScalarQuotient": {
       "additionalProperties": false,
-      "description": "A scalar divided by a constant — `{\"divide\": <scalar>, \"by\": 2.0}`.\n\nAlmost every mechanical drawing dimensions **diameters**, and almost every\ncontour takes a **radius**. Until this existed the two could not be the same\nnumber: a `Scalar` was `float | ParameterRef` with no arithmetic, so a\ndocument that read \"Ø44\" off a drawing had to write `44` into a parameter and\nthen write `22` — or, as one real order did, write `44` again — as a literal\nbeside it.\n\nThat order is why this is here. It declared `bushing_outer_radius: 44`, the\n*diameter* value under a radius name, extruded a circle of radius 44, and\nrestated 88 in its own expectation so the check agreed. A Ø88 part, delivered,\nwith every measurement green — because the number that built it and the number\nthat checked it were the same copy, and the copy that came off the drawing was\ncompared against nothing.",
+      "description": "A parameter divided by a constant — `{\"divide\": {\"parameter\": \"d\"}, \"by\": 2.0}`.\n\nAlmost every mechanical drawing dimensions **diameters**, and almost every\ncontour takes a **radius**. Until this existed the two could not be the same\nnumber: a `Scalar` was `float | ParameterRef` with no arithmetic, so a\ndocument that read \"Ø44\" off a drawing had to write `44` into a parameter and\nthen write `22` — or, as one real order did, write `44` again — as a literal\nbeside it.\n\nThat order is why this is here. It declared `bushing_outer_radius: 44`, the\n*diameter* value under a radius name, extruded a circle of radius 44, and\nrestated 88 in its own expectation so the check agreed. A Ø88 part, delivered,\nwith every measurement green — because the number that built it and the number\nthat checked it were the same copy, and the copy that came off the drawing was\ncompared against nothing.",
       "properties": {
         "divide": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "$ref": "#/$defs/ParameterRef"
-            },
-            {
-              "$ref": "#/$defs/ScalarQuotient"
-            },
-            {
-              "$ref": "#/$defs/ScalarNegation"
-            }
-          ],
-          "title": "Divide"
+          "$ref": "#/$defs/ParameterRef"
         },
         "by": {
           "title": "By",

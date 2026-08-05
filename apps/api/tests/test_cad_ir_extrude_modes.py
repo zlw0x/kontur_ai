@@ -319,21 +319,16 @@ def test_a_draft_the_document_turns_over_is_caught():
     assert disagreement[0].built == "the negation of p_draft"
 
 
-def test_a_negative_divisor_turns_it_over_too():
-    """The sign can hide in the divisor, and one place answers both spellings."""
-    value = document(
-        [pad(taper={"divide": {"parameter": "p_total_draft"}, "by": -2.0})],
-        parameters=[TOTAL_DRAFT],
-    )
+def test_a_sign_cannot_hide_anywhere_but_the_negation():
+    """The check has one place to look, and the contract is why.
 
-    assert [item.code for item in found(value, draft="p_total_draft")] == ["DRAFT_PARAMETER"]
-
-
-def test_two_negations_are_the_angle_the_drawing_gave():
-    """Nobody writes this, and the check must not be fooled by it either way."""
-    value = document(
-        [pad(taper={"negate": {"negate": {"parameter": "p_draft"}}})],
-        parameters=[DRAFT],
-    )
-
-    assert found(value, draft="p_draft") == []
+    A sign could once hide in a negative divisor or in a pair of negations, and the
+    draft check had to answer for all three spellings. Both are refused now — one value,
+    one spelling (ADR-034's amendment) — so a document that leans the walls the other
+    way has to say so where anybody can see it.
+    """
+    for hidden in ({"divide": {"parameter": "p_total_draft"}, "by": -2.0},
+                   {"negate": {"negate": {"parameter": "p_draft"}}}):
+        with pytest.raises(ValidationError):
+            SolidExtrudeInputs(sketch=sketch(), direction="+Z", distance=DEPTH,
+                               taper_deg=hidden)

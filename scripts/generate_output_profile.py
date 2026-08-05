@@ -115,14 +115,20 @@ def build() -> dict[str, Any]:
         # property — the same reason `cut_extrusion` and `blind_cut_extrusion` are
         # two branches instead of one optional depth (ADR-029).
         #
-        # They recurse back into `scalar`, which the canonical model bounds at
-        # three levels. Nothing in the dialect forbids recursion; nothing else in
-        # the profile uses it either.
-        "scalar_quotient": obj(divide=ref("scalar"), by=number()),
-        "scalar_negation": obj(negate=ref("scalar")),
+        # **They do not recurse.** A quotient divides a *parameter reference* and a
+        # negation wraps a reference or a quotient, which is the grammar the contract
+        # settled on so that one value has one spelling (ADR-034's amendment). The
+        # profile said `ref("scalar")` on both while the contract still allowed it, and
+        # that is now an offer the validator would refuse — a model writing
+        # `divide(negate(p), 2)` from this schema would get a document rejected for a
+        # rule the schema never told it about.
+        "scalar_reference": obj(parameter=ref("identifier")),
+        "scalar_quotient": obj(divide=ref("scalar_reference"), by=number(minimum=1e-9)),
+        "scalar_negation": obj(negate={"anyOf": [ref("scalar_reference"),
+                                                 ref("scalar_quotient")]}),
         "scalar": {"anyOf": [
             number(),
-            obj(parameter=ref("identifier")),
+            ref("scalar_reference"),
             ref("scalar_quotient"),
             ref("scalar_negation"),
         ]},
