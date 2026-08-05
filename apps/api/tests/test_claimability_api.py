@@ -1,24 +1,16 @@
 import json
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from tests.drawing_fixture import TINY_PNG
-from app.contracts import CapabilityStatus, WorkerCapability
+from app.contracts import CapabilityStatus
 from app.main import app
-from app.database import Base, create_session_factory
-from app.ledger.service import ResourceLedgerService
 from app.workers.artifact_store import LocalArtifactStore
 from app.workers.capabilities import MVP_CAPABILITIES, SOLID_RECTANGULAR_PRISM
-from app.workers.protocol import InMemoryWorkerRepository, WorkerProtocolService
 from cad_ir.canonical import CAD_IR_VERSION
-
-def disposable_ledger() -> ResourceLedgerService:
-    engine, sessions = create_session_factory("sqlite://")
-    Base.metadata.create_all(engine)
-    return ResourceLedgerService(sessions)
-
+from tests.test_worker_api import memory_protocol
 
 MANUAL = {"x-manual-api-token": "local-development-manual-api-token-change-me"}
 ENROLLMENT = "local-development-enrollment-token-change-me"
@@ -38,11 +30,14 @@ def manifest(**overrides) -> dict:
 
 
 def environment(monkeypatch, tmp_path):
-    protocol = WorkerProtocolService(InMemoryWorkerRepository(), ENROLLMENT)
-    monkeypatch.setattr("app.main.worker_protocol", protocol)
-    monkeypatch.setattr("app.main.resource_ledger", disposable_ledger())
+    """One definition of "an API with nothing real behind it", not two.
+
+    This built its own protocol and ledger, which is how it came to be the only
+    file that did not get an in-memory order repository when orders moved into
+    PostgreSQL: a second copy of the setup is a second place to remember.
+    """
+    protocol = memory_protocol(monkeypatch)
     monkeypatch.setattr("app.main.artifact_store", LocalArtifactStore(tmp_path, 1_000_000))
-    monkeypatch.setattr("app.main.drawing_orders", {})
     return protocol, TestClient(app)
 
 

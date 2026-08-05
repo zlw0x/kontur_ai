@@ -61,14 +61,29 @@ type IconName =
 // The order results are shown in: two files and the report they were checked
 // with, which is ADR-023's whole answer to what a customer gets.
 const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT"];
+// One vocabulary. The API used to answer with `OrderStatus` on two branches and
+// `JobStatus` on the third — READY and WAITING_FOR_USER_ANSWERS from one set,
+// PENDING and LEASED from the other — so this map had to cover both and which
+// half a customer saw depended on which branch fired. Since the orders table it
+// is `OrderStatus` throughout.
 const statusCopy: Record<string, string> = {
-  PENDING: "Ожидает запуска",
-  LEASED: "Создаём модель",
+  WAITING_FOR_LOCAL_WORKER: "Ожидает запуска",
+  DRAWING_ANALYSIS: "Читаем чертёж",
+  CAD_BUILDING: "Создаём модель",
+  CAD_VALIDATION: "Проверяем геометрию",
   WAITING_FOR_USER_ANSWERS: "Уточните размеры",
   READY: "Модель готова",
   FAILED: "Нужна проверка",
   PAUSED: "Пауза, вернёмся",
+  MANUAL_REVIEW: "Смотрит инженер",
+  CANCELLED: "Заказ отменён",
+  EXPIRED: "Срок заказа истёк",
 };
+
+// The states where a worker is holding the order and the page should look busy.
+// A set rather than a comparison with "LEASED": the stage is now named, and three
+// names mean three places to forget one.
+const working = new Set(["DRAWING_ANALYSIS", "CAD_BUILDING", "CAD_VALIDATION"]);
 const materialOptions: { value: Material; label: string; color: string }[] = [
   { value: "aluminum", label: "Алюминий", color: "#c8d2d5" },
   { value: "steel", label: "Сталь", color: "#aeb7c1" },
@@ -298,7 +313,7 @@ export default function Home() {
         setOrder({
           order_id: localOrderId,
           job_id: localOrderId,
-          status: "LEASED",
+          status: "DRAWING_ANALYSIS",
           waiting_reason: null,
           round: 0,
           questions: [],
@@ -376,7 +391,7 @@ export default function Home() {
         Object.values(box).every((value) => Number.isFinite(value) && value > 0) ? box : null,
       );
       if (!token) {
-        setOrder({ ...order, status: "LEASED", questions: [] });
+        setOrder({ ...order, status: "CAD_BUILDING", questions: [] });
         await delay(1100);
         setOrder({
           ...order,
@@ -711,21 +726,21 @@ export default function Home() {
 
               {file && viewMode === "model" && order?.status !== "READY" && (
                 <div className="model-state-card">
-                  <span className={busy || order?.status === "LEASED" ? "pulse" : ""}>
+                  <span className={busy || working.has(order?.status ?? "") ? "pulse" : ""}>
                     <Icon name={order?.questions.length ? "settings" : "sparkles"} />
                   </span>
                   <div>
                     <strong>
                       {order?.questions.length
                         ? "Почти готово"
-                        : order?.status === "LEASED"
+                        : working.has(order?.status ?? "")
                           ? "Создаём геометрию"
                           : "Чертёж готов к обработке"}
                     </strong>
                     <small>
                       {order?.questions.length
                         ? "Подтвердите размеры ниже"
-                        : order?.status === "LEASED"
+                        : working.has(order?.status ?? "")
                           ? "Собираем объёмную модель"
                           : "Запустите построение в левой панели"}
                     </small>
@@ -1200,11 +1215,15 @@ function getProgress(status: string) {
   return {
     EMPTY: 0,
     DRAFT: 18,
-    PENDING: 30,
-    LEASED: 68,
+    WAITING_FOR_LOCAL_WORKER: 30,
+    DRAWING_ANALYSIS: 52,
     WAITING_FOR_USER_ANSWERS: 46,
+    CAD_BUILDING: 68,
+    CAD_VALIDATION: 84,
     READY: 100,
     FAILED: 62,
+    PAUSED: 30,
+    MANUAL_REVIEW: 62,
   }[status] ?? 0;
 }
 

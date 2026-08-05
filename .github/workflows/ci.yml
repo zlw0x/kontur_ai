@@ -41,6 +41,12 @@ jobs:
         with: {python-version: "3.13"}
       - run: pip install -r apps/api/requirements.txt
       - run: python scripts/generate_schemas.py --check
+      # The published OpenAPI document, against the routes that actually exist. It
+      # had been stale since 0007 — `retry_after` was added to two models and
+      # nothing regenerated it — because the two checks below cannot see a field
+      # that never arrived: one validates the document's shape, the other only that
+      # nothing v1 promised has disappeared.
+      - run: python scripts/generate_openapi.py --check
       - run: python scripts/validate_schemas.py
       - run: python scripts/check_openapi_compatibility.py
   # Real geometry, on a Linux runner, with no licence and no GUI — the whole

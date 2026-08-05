@@ -375,6 +375,46 @@ The page stops lying and stops polling: a pause reads as a pause with the time i
 retried, and the three-second poll now ends on READY and FAILED instead of running until
 the tab closes.
 
+**The raw upload never crosses into the pipeline** (P0-2 of the production audit,
+`docs/SECURE-INPUT-ADDENDUM.md`). What stood in the approved requirement's place was
+`payload = await request.body()`: the whole upload in memory, eight magic bytes checked, and
+the file a stranger sent written into the directory the worker downloads from. Three stages
+now, each doing what the next cannot — a **quarantine** that counts and hashes as it reads and
+*stops* at the limit rather than measuring what already happened, a **sanitizer in a child
+process** with no environment of ours and `RLIMIT_AS`/`RLIMIT_CPU` (the wall clock stays on
+our side, because a child that has stopped responding cannot enforce its own timeout), and a
+page **rebuilt from pixels** so nothing the decoder attached travels. Alpha is composited onto
+white rather than dropped — dropping it keeps the RGB the uploader believed was invisible. The
+answer is one JSON line, measured against the bytes on disk before it is believed, the way the
+CAD launcher treats the engine. Not done and not implied: the container image itself (the argv
+is asserted, the process mode is what runs), WEBP, and the PDF contour.
+
+**An order is a row, and there is one vocabulary for it** (P0-4, ADR-036, migration 0008).
+Jobs, artifacts and the ledger had been in PostgreSQL since 0001; the order — the thing the
+customer has — was two dictionaries in `app.main`, so a restart lost every order in flight and
+a second API process never saw the first one's. Reading the code found two things worse than
+that. The stored status was **written and never read**, so persisting it unchanged would have
+made a lie durable. And the API answered in **two vocabularies at once** — `READY` and
+`WAITING_FOR_USER_ANSWERS` from `OrderStatus`, `PENDING` and `LEASED` from `JobStatus` —
+depending on which branch fired.
+
+So the row holds what only the order knows and the job keeps progress, because copying it
+would be a second place for one truth to live. `pipeline_status` is the single translation:
+`LEASED` says a worker holds the job and says nothing about what it is doing, and the job's
+**type** is the only thing that does. `PAUSED` joins `OrderStatus` as **derived-only** —
+nothing transitions into or out of it, an empty transition set here means "not stored" rather
+than "terminal". And a **decision outranks an observation**: cancelling does not reach into
+the worker, so the build finishes and the order is still cancelled. That is what makes the
+stored status stop being write-only, and it is the column the moderation queue will write.
+Measured on a real PostgreSQL: one process creates and cancels an order, a second process
+reads it back cancelled — where before it would have found the order through the tracking
+file and reported `PENDING`.
+
+Regenerating the published contract for one new enum value found that `schemas/openapi.v1.json`
+had been **stale since 0007**. Neither existing check could see it: one validates the document's
+shape, the other only that nothing v1 promised has disappeared, and a field that never arrived
+fails neither. `generate_openapi.py --check` now runs in CI.
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.

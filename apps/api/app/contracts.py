@@ -46,6 +46,14 @@ class OrderStatus(StrEnum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
+    # A job stopped on something that returns on a stated date — an exhausted Codex
+    # quota is the measured case. The page has shown it since the reaper landed; the
+    # order's own vocabulary had no word for it, so the API answered with `JobStatus`
+    # instead and the customer's status came back in two vocabularies at once.
+    #
+    # Derived from the job and never stored: see `DERIVED_FROM_THE_JOB` in
+    # `app.orders.state_machine`.
+    PAUSED = "PAUSED"
 
 
 class JobType(StrEnum):
