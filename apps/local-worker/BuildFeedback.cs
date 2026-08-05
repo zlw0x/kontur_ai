@@ -168,6 +168,23 @@ internal static class BuildFeedback
     /// <summary>Can the compiling agent do anything about this?</summary>
     public static bool IsRepairable(WorkerException error) => IsRepairable(error.Code);
 
+    /// <summary>
+    /// How long to wait before a deferred job is worth trying again.
+    /// </summary>
+    /// <remarks>
+    /// A duration rather than the date the CLI states, and that is deliberate. The
+    /// reset time arrives only as prose — "try again at Aug 8th, 2026 8:44 AM" — and
+    /// parsing prose is the weakness `MapExit` already has, in a place where getting
+    /// it wrong means an order sleeps until a date nobody meant.
+    ///
+    /// An hour reaches the same place without a parser. If the quota is back, the job
+    /// builds; if it is not, the worker pauses it again, and a pause hands the attempt
+    /// back, so a four-day outage costs a handful of claims a day and nothing else.
+    /// The customer sees "paused, retrying at …" throughout, which is the truth at
+    /// every point in that window.
+    /// </remarks>
+    public static readonly TimeSpan PauseFor = TimeSpan.FromHours(1);
+
     /// <summary>Would another attempt at this job be told the same thing?</summary>
     /// <remarks>
     /// Asked only of failures that are *not* repairable — a repairable one already

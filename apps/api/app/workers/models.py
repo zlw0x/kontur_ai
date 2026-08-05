@@ -48,6 +48,14 @@ class JobRow(Base):
     # every row written before FAILED existed has no answer to give.
     failure_code: Mapped[str | None] = mapped_column(String(64))
     failure_message: Mapped[str | None] = mapped_column(String(400))
+    # When a paused job may be tried again. Only the worker knows it, and only for
+    # the failures that state a date; the reaper returns the job to PENDING when it
+    # passes. Nullable because most jobs are never paused.
+    retry_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # When something other than a worker last moved this row. A job that reached
+    # FAILED through the reaper looks exactly like one a worker reported, and the
+    # difference matters when reading a queue: the first means nobody said anything.
+    reaped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ArtifactRow(Base):

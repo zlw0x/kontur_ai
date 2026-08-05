@@ -58,6 +58,51 @@ class Job:
     #: Why the worker stopped, once it has. Both are set together or not at all.
     failure_code: str | None = None
     failure_message: str | None = None
+    #: When a paused job may be tried again.
+    retry_after: datetime | None = None
+    #: When the reaper last moved this job, if it was the reaper that moved it.
+    reaped_at: datetime | None = None
+
+
+#: What a job is failed with when its last attempt went silent.
+#:
+#: A code of its own rather than the last one the worker reported, because the
+#: worker reported nothing — that is the whole of what happened. Reusing a build
+#: code here would put words in the mouth of a process that died.
+LEASE_LOST_CODE = "LEASE_LOST"
+LEASE_LOST_MESSAGE = (
+    "The worker stopped responding on the last permitted attempt and never said why."
+)
+
+
+@dataclass
+class ReapOutcome:
+    """What one sweep moved, for the log line and for the tests.
+
+    Three numbers because there are three things that get stuck, and they are stuck
+    for different reasons:
+
+    - **requeued**: a lease lapsed with attempts left. The claim loop already does
+      this when a worker next asks, so the reaper only matters here when no worker
+      is asking — which is exactly when a queue looks broken.
+    - **failed**: a lease lapsed with **no** attempts left. Measured: `claim`
+      selects `attempt < max_attempts`, so this row is unclaimable by anyone,
+      un-failed, and reads as "waiting to start" on the customer's page for the
+      rest of time. Nothing but the reaper can end it, because the only party that
+      could report it is the process that died.
+    - **resumed**: a pause whose time has come.
+
+    A sweep that moved nothing returns zeroes, and the caller says nothing. A queue
+    that is quiet should be quiet in the log too.
+    """
+
+    requeued: int = 0
+    failed: int = 0
+    resumed: int = 0
+
+    @property
+    def moved(self) -> int:
+        return self.requeued + self.failed + self.resumed
 
 
 class InMemoryWorkerRepository:
@@ -182,7 +227,14 @@ class WorkerProtocolService:
             self.repo.artifacts[job_id] = list(artifacts)
         return replay
 
-    def fail(self, worker: Worker, job_id: UUID, code: str, message: str) -> Job:
+    def fail(
+        self,
+        worker: Worker,
+        job_id: UUID,
+        code: str,
+        message: str,
+        retry_after: datetime | None = None,
+    ) -> Job:
         """The worker has stopped trying, and says why.
 
         Lease-scoped like completion, for the same reason: only the worker
@@ -198,10 +250,59 @@ class WorkerProtocolService:
         if job is not None and job.status == JobStatus.COMPLETED:
             return job
         job = self._owned_active_job(worker, job_id)
-        job.status = JobStatus.FAILED
         job.failure_code, job.failure_message = code, message
+        job.retry_after = retry_after
         job.lease_owner, job.lease_expires_at = None, None
+        if retry_after is None:
+            job.status = JobStatus.FAILED
+            return job
+        # A pause hands the attempt back. Nothing was attempted: the worker never
+        # reached the model, and the reason it gives is about the machine and carries
+        # a date. Spending an attempt here means a four-day quota outage burns every
+        # job's three tries in the first hour and the reaper then fails them all with
+        # `LEASE_LOST` — a code that would be a lie twice over, because the worker did
+        # say why, and because the drawing was never the problem.
+        #
+        # It does mean a job can be paused any number of times. That is the right way
+        # round: each pause carries a date and the job sleeps until it passes, so an
+        # unbounded pause is an unbounded outage, which is a thing to alert on rather
+        # than to hide by failing a customer's order.
+        job.status = JobStatus.PAUSED
+        job.attempt = max(0, job.attempt - 1)
         return job
+
+    def reap(self) -> ReapOutcome:
+        """Move the jobs no worker will ever speak for again. See `ReapOutcome`."""
+        now, outcome = self.clock(), ReapOutcome()
+        for job in self.repo.jobs.values():
+            if job.status == JobStatus.PAUSED and job.retry_after is not None and job.retry_after <= now:
+                job.status, job.retry_after, job.reaped_at = JobStatus.PENDING, None, now
+                job.failure_code, job.failure_message = None, None
+                outcome.resumed += 1
+                continue
+            expired = (
+                job.status == JobStatus.LEASED
+                and job.lease_expires_at is not None
+                and job.lease_expires_at <= now
+            )
+            # A job with no attempts left is stuck in **whichever** state it is in.
+            # The two protocol implementations spell it differently — the in-memory
+            # claim resets an expired lease to PENDING before testing the attempt
+            # count, the SQL one tests both at once and leaves the row LEASED — and
+            # the disease is the same either way: unclaimable, un-failed, forever.
+            spent = job.status == JobStatus.PENDING and job.attempt >= job.max_attempts
+            if not expired and not spent:
+                continue
+            job.lease_owner, job.lease_expires_at, job.reaped_at = None, None, now
+            if job.attempt < job.max_attempts:
+                job.status = JobStatus.PENDING
+                outcome.requeued += 1
+            else:
+                job.status = JobStatus.FAILED
+                job.failure_code = LEASE_LOST_CODE
+                job.failure_message = LEASE_LOST_MESSAGE
+                outcome.failed += 1
+        return outcome
 
     def _owned_active_job(self, worker: Worker, job_id: UUID) -> Job:
         job = self.repo.jobs.get(job_id)

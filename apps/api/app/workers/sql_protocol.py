@@ -19,7 +19,15 @@ from app.contracts import (
 from app.ledger.models import WorkerCapabilitySnapshotRow
 from app.workers.capabilities import unmet_capabilities
 from app.workers.models import ArtifactRow, JobRow, WorkerRow
-from app.workers.protocol import Job, Worker, WorkerProtocolError, _hash
+from app.workers.protocol import (
+    LEASE_LOST_CODE,
+    LEASE_LOST_MESSAGE,
+    Job,
+    ReapOutcome,
+    Worker,
+    WorkerProtocolError,
+    _hash,
+)
 
 
 class SqlWorkerProtocolService:
@@ -198,18 +206,79 @@ class SqlWorkerProtocolService:
             row.lease_owner, row.lease_expires_at = None, None
             return False
 
-    def fail(self, worker: Worker, job_id: UUID, code: str, message: str) -> Job:
+    def fail(
+        self,
+        worker: Worker,
+        job_id: UUID,
+        code: str,
+        message: str,
+        retry_after: datetime | None = None,
+    ) -> Job:
         """See `WorkerProtocolService.fail` — same rules, one row lock."""
         with self.sessions.begin() as session:
             row = session.get(JobRow, str(job_id), with_for_update=True)
             if row is not None and row.status == JobStatus.COMPLETED.value:
                 return self._job(row)
             row = self._owned_row(session, worker, job_id)
-            row.status = JobStatus.FAILED.value
             row.failure_code, row.failure_message = code, message
+            row.retry_after = retry_after
             row.lease_owner, row.lease_expires_at = None, None
+            if retry_after is None:
+                row.status = JobStatus.FAILED.value
+            else:
+                # See `WorkerProtocolService.fail`: a pause hands the attempt back,
+                # because nothing was attempted.
+                row.status = JobStatus.PAUSED.value
+                row.attempt = max(0, row.attempt - 1)
             session.flush()
             return self._job(row)
+
+    def reap(self) -> ReapOutcome:
+        """See `WorkerProtocolService.reap`. One statement per kind, all locked.
+
+        `skip_locked` on purpose: a row a worker is completing right now is a row
+        the reaper has no business touching, and coming back in a second costs
+        nothing. The alternative — waiting on the lock — turns a sweep into a queue.
+        """
+        now, outcome = self.clock(), ReapOutcome()
+        with self.sessions.begin() as session:
+            due = session.scalars(
+                select(JobRow)
+                .where(JobRow.status == JobStatus.PAUSED.value,
+                       JobRow.retry_after.is_not(None), JobRow.retry_after <= now)
+                .with_for_update(skip_locked=True)
+            ).all()
+            for row in due:
+                row.status, row.retry_after, row.reaped_at = JobStatus.PENDING.value, None, now
+                row.failure_code, row.failure_message = None, None
+                outcome.resumed += 1
+
+            # Leased-and-lapsed, or pending with no attempts left. Both are stuck,
+            # and which one a job lands in depends on whether a `claim` happened to
+            # reset its lease first — a difference between the two protocol
+            # implementations rather than between two situations.
+            lapsed = session.scalars(
+                select(JobRow)
+                .where(or_(
+                    (JobRow.status == JobStatus.LEASED.value)
+                    & JobRow.lease_expires_at.is_not(None)
+                    & (JobRow.lease_expires_at <= now),
+                    (JobRow.status == JobStatus.PENDING.value)
+                    & (JobRow.attempt >= JobRow.max_attempts),
+                ))
+                .with_for_update(skip_locked=True)
+            ).all()
+            for row in lapsed:
+                row.lease_owner, row.lease_expires_at, row.reaped_at = None, None, now
+                if row.attempt < row.max_attempts:
+                    row.status = JobStatus.PENDING.value
+                    outcome.requeued += 1
+                else:
+                    row.status = JobStatus.FAILED.value
+                    row.failure_code, row.failure_message = LEASE_LOST_CODE, LEASE_LOST_MESSAGE
+                    outcome.failed += 1
+            session.flush()
+        return outcome
 
     def enqueue(self, job: Job) -> None:
         with self.sessions.begin() as session:
@@ -276,4 +345,4 @@ class SqlWorkerProtocolService:
                    list(row.required_capability_keys or []),
                    row.max_attempts, row.attempt, JobStatus(row.status),
                    UUID(row.lease_owner) if row.lease_owner else None, row.lease_expires_at, row.completed_key,
-                   row.failure_code, row.failure_message)
+                   row.failure_code, row.failure_message, row.retry_after, row.reaped_at)

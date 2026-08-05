@@ -129,6 +129,20 @@ class JobStatus(StrEnum):
     #: A retry is still the first answer: this is the *end* of retrying, reported
     #: by the worker once it has decided the next attempt would fail the same way.
     FAILED = "FAILED"
+    #: The machine will be able to try again, and not yet.
+    #:
+    #: The state a real run needed and did not have. An exhausted Codex quota
+    #: returns on a stated date: the job is not failed — nothing about the drawing
+    #: is wrong and it will build when the quota resets — and it is not waiting for
+    #: a worker either, because every worker would be told the same thing today.
+    #: Without a word for that, it could only be one of the two, and both are lies
+    #: to the customer: "failed" throws away a job that will succeed, and "waiting"
+    #: is the silence `FAILED` was added to end.
+    #:
+    #: A paused job carries `retry_after`, and the reaper returns it to PENDING when
+    #: that time passes. Nothing else moves it: a pause with no time on it would be
+    #: the same silence wearing a better name.
+    PAUSED = "PAUSED"
 
 
 class JobFailureRequest(StrictModel):
@@ -143,11 +157,23 @@ class JobFailureRequest(StrictModel):
     #: Safe text only. Everything the worker sends here can reach a browser, so it
     #: carries no path, no host and no stack.
     message: Annotated[str, Field(min_length=1, max_length=400)]
+    #: When the machine will be able to try again, for the failures that state a
+    #: date. Present makes this a **pause** rather than a failure: the job goes to
+    #: `PAUSED`, and the reaper returns it to the queue when the time passes.
+    #:
+    #: Only the worker knows this, and only for some codes — an exhausted quota says
+    #: when it resets, and a container that would not start says nothing. So it is
+    #: optional here rather than derived: a deadline the API guessed would be a
+    #: promise nobody made.
+    retry_after: datetime | None = None
 
 
 class JobFailureAck(StrictModel):
     job_id: UUID
     status: JobStatus
+    #: Echoed so the worker can log what the API decided, and so a pause that was
+    #: sent as one is distinguishable from a pause the API declined to honour.
+    retry_after: datetime | None = None
 
 
 class OrderSnapshot(StrictModel):

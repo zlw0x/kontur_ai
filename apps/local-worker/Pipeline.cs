@@ -382,7 +382,15 @@ public static class ClaimLoop
         catch (Exception error) when (Typed(error) is { } failure)
         {
             if (EndsTheJob(failure.Code, job.attempt, job.max_attempts))
-                await TryReportFailureAsync(client, job, failure.Code, failure.Message, cancellation);
+                await TryReportFailureAsync(
+                    client, job, failure.Code, failure.Message,
+                    // A failure that will say the same thing next time is a *pause*
+                    // rather than an end, and the API needs to know when to look
+                    // again. Everything else reports with no date and is final.
+                    BuildFeedback.WillBeTheSameNextTime(failure.Code)
+                        ? DateTimeOffset.UtcNow + BuildFeedback.PauseFor
+                        : null,
+                    cancellation);
             Console.Error.WriteLine(
                 $"job {job.job_id} attempt {job.attempt}/{job.max_attempts} failed: {failure.Code}");
         }
@@ -434,13 +442,14 @@ public static class ClaimLoop
         ClaimedJob job,
         string code,
         string message,
+        DateTimeOffset? retryAfter,
         CancellationToken cancellation)
     {
         try
         {
             using var response = await client.PostAsJsonAsync(
                 $"/api/v1/workers/jobs/{job.job_id}/fail",
-                new { job_id = job.job_id, code, message },
+                new { job_id = job.job_id, code, message, retry_after = retryAfter },
                 cancellation);
             response.EnsureSuccessStatusCode();
         }

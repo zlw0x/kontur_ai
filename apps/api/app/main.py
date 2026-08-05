@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 import json
 import hashlib
@@ -96,10 +98,53 @@ def build_resource_ledger():
     return ResourceLedgerService(sessions)
 
 
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run the reaper while the API is up.
+
+    On a timer rather than on each claim, because the failure it exists for is the
+    one where **nothing is claiming**: a worker that died on its last attempt leaves
+    a job leased, unclaimable and un-failed, and the only other party that could
+    have reported it is the process that died. A queue that looks broken is exactly
+    when no worker is polling to trigger a sweep.
+
+    Failures are logged and swallowed. A reaper that takes the API down with it
+    would turn a stuck job into an outage, and the next pass is thirty seconds away.
+    """
+    task = None
+    if settings.reaper_interval_seconds > 0:
+        task = asyncio.create_task(_reap_forever(settings.reaper_interval_seconds))
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+async def _reap_forever(interval: int) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            outcome = await asyncio.to_thread(worker_protocol.reap)
+        except Exception as error:  # noqa: BLE001 - a sweep must not end the API
+            logging.getLogger("cad_ai.reaper").warning("reap failed: %s", error)
+            continue
+        if outcome.moved:
+            # Only when something moved. A quiet queue should be quiet in the log,
+            # or the one line that matters is buried under a thousand that do not.
+            logging.getLogger("cad_ai.reaper").info(
+                "reaped: requeued=%d failed=%d resumed=%d",
+                outcome.requeued, outcome.failed, outcome.resumed,
+            )
+
+
 app = FastAPI(
     title="CAD AI Service API",
     version="1.0.0",
     responses={409: {"model": ProblemDetails, "description": "Conflict"}},
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -446,10 +491,12 @@ def get_drawing_job(
         else job.status.value
     )
     # Only while the order is genuinely waiting on the scheduler. Once it is
-    # ready, failed, or the user has been asked something, the ball is not here.
+    # ready, failed, paused, or the user has been asked something, the ball is not
+    # here — and a paused order least of all: the scheduler's summary would say no
+    # worker has capacity, which is true and is not the reason.
     waiting_reason = (
         scheduler_diagnostics().report(job).summary
-        if status not in ("READY", "WAITING_FOR_USER_ANSWERS", "FAILED")
+        if status not in ("READY", "WAITING_FOR_USER_ANSWERS", "FAILED", "PAUSED")
         else None
     )
     return {
@@ -457,11 +504,15 @@ def get_drawing_job(
         "job_id": str(job_id),
         "status": status,
         "waiting_reason": waiting_reason,
-        # Present only on a failure, and safe to show: the worker sends a typed
-        # code and text it has already stripped of paths and hosts. A FAILED with
-        # no reason would be barely better than the silence it replaces.
-        "failure_code": job.failure_code if status == "FAILED" else None,
-        "failure_message": job.failure_message if status == "FAILED" else None,
+        # Present on a failure and on a pause, and safe to show: the worker sends a
+        # typed code and text it has already stripped of paths and hosts. A FAILED
+        # with no reason would be barely better than the silence it replaces, and a
+        # PAUSED with no reason would be worse — it would read as a stall.
+        "failure_code": job.failure_code if status in ("FAILED", "PAUSED") else None,
+        "failure_message": job.failure_message if status in ("FAILED", "PAUSED") else None,
+        # When the service expects to try again. Only on a pause, because it is the
+        # only state where anybody knows.
+        "retry_after": job.retry_after.isoformat() if status == "PAUSED" and job.retry_after else None,
         "round": tracking["round"],
         "questions": questions,
         "artifacts": [
@@ -795,12 +846,21 @@ def fail_job(job_id: uuid.UUID, request: JobFailureRequest, authorization: str |
     sends it once it has decided the next attempt would fail the same way, using
     the split it already makes between a failure about the document and one about
     the machine.
+
+    A `retry_after` turns it into a **pause** instead. Some machine failures state
+    a date — an exhausted Codex quota returns on one — and such a job is neither
+    failed nor waiting for a worker: it will build, and no worker today can build
+    it. The job goes to `PAUSED` and the reaper returns it when the time comes.
+    A date already past is honoured the same way and swept on the next pass, which
+    is one line less than special-casing it here.
     """
     if request.job_id != job_id:
         raise HTTPException(status_code=400, detail="job_id path/body mismatch")
     worker = authenticated_bearer(authorization)
-    job = worker_protocol.fail(worker, job_id, request.code, request.message)
-    return JobFailureAck(job_id=job_id, status=job.status)
+    job = worker_protocol.fail(
+        worker, job_id, request.code, request.message, request.retry_after
+    )
+    return JobFailureAck(job_id=job_id, status=job.status, retry_after=job.retry_after)
 
 
 @app.post("/api/v1/workers/jobs/{job_id}/complete", response_model=JobCompletionAck)

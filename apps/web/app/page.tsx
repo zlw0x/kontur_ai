@@ -30,6 +30,8 @@ type OrderState = {
   // safe to show: a typed code and text already stripped of paths and hosts.
   failure_code?: string | null;
   failure_message?: string | null;
+  // Present only on a pause: when the service expects to be able to try again.
+  retry_after?: string | null;
   round: number;
   questions: Question[];
   artifacts: Artifact[];
@@ -65,6 +67,7 @@ const statusCopy: Record<string, string> = {
   WAITING_FOR_USER_ANSWERS: "Уточните размеры",
   READY: "Модель готова",
   FAILED: "Нужна проверка",
+  PAUSED: "Пауза, вернёмся",
 };
 const materialOptions: { value: Material; label: string; color: string }[] = [
   { value: "aluminum", label: "Алюминий", color: "#c8d2d5" },
@@ -143,16 +146,37 @@ export default function Home() {
           setOrder(value);
           if (value.status === "READY") setViewMode("model");
           setError("");
+          reschedule(value.status);
         }
       } catch (reason) {
         if (!cancelled) setError(message(reason));
       }
     };
+
+    /*
+      How soon to ask again, from what the last answer was.
+
+      A fixed three-second interval never stopped. A finished order was polled for
+      as long as the tab stayed open, and a *paused* one — an exhausted model quota
+      returns on a date — would be polled roughly a hundred thousand times over four
+      days to be told the same thing.
+
+      READY and FAILED are ends: nothing else will happen and the timer stops. PAUSED
+      is not an end, so it is asked about once a minute rather than never: the pause
+      lifts on the server, and a page that had stopped looking would show a stale
+      pause until somebody reloaded.
+    */
+    let timer: number | undefined;
+    const reschedule = (status: string) => {
+      window.clearTimeout(timer);
+      if (cancelled || status === "READY" || status === "FAILED") return;
+      timer = window.setTimeout(poll, status === "PAUSED" ? 60_000 : 3_000);
+    };
+
     void poll();
-    const timer = window.setInterval(poll, 3000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [orderId, token]);
 
@@ -751,7 +775,28 @@ export default function Home() {
               </p>
             </div>
           )}
-          {order?.waiting_reason && order.status !== "FAILED" && (
+          {order?.status === "PAUSED" && (
+            <div className="notice-card notice-waiting">
+              <span className="eyebrow">Заказ на паузе</span>
+              <p>{order.failure_message ?? "Сервис временно не может обратиться к модели."}</p>
+              {/*
+                A pause is not a failure and not a queue. The order will build, and no
+                worker can build it right now — an exhausted model quota is the case
+                this exists for. Saying when we look again is the whole point: without
+                it a pause is the same silence that "waiting to start" was.
+              */}
+              {order.retry_after && (
+                <p className="notice-hint">
+                  Попробуем снова{" "}
+                  {new Date(order.retry_after).toLocaleString("ru-RU", {
+                    hour: "2-digit", minute: "2-digit", day: "numeric", month: "long",
+                  })}
+                  . Ничего делать не нужно — чертёж сохранён.
+                </p>
+              )}
+            </div>
+          )}
+          {order?.waiting_reason && order.status !== "FAILED" && order.status !== "PAUSED" && (
             <div className="notice-card notice-waiting">
               <span className="eyebrow">Заказ ждёт</span>
               <p>{order.waiting_reason}</p>

@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     artifact_store_root: str = ".data/artifacts"
     max_artifact_bytes: int = 100 * 1024 * 1024
     web_origin: str = "http://localhost:3000"
+    #: How often the reaper sweeps for jobs no worker will speak for again.
+    #:
+    #: Thirty seconds because the thing it ends is a customer looking at "waiting"
+    #: — a minute of that is tolerable and an hour is not — and because a sweep
+    #: that moves nothing is two indexed queries. Set to 0 to turn it off, which is
+    #: what the tests do: they call `reap()` and assert, rather than waiting.
+    reaper_interval_seconds: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

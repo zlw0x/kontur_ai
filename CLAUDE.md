@@ -352,6 +352,29 @@ inherited the worker's own stdin**, so a pipe nobody closed made a stage fail wi
 events at all — indistinguishable from the model failing — and any bytes that did arrive
 would have been appended to the prompt. Redirected and closed at start.
 
+**Nothing is left leased forever** (P0-3 of the production audit). Two states a job
+could reach and never leave. `claim` selects `attempt < max_attempts`, so a worker that
+dies on its **last** attempt leaves the row unclaimable *and* un-failed — measured, and
+the two protocol implementations even spell it differently (the in-memory claim resets
+the lease to PENDING first, the SQL one leaves it LEASED), which is one disease with two
+names. And a quota that returns on a date is neither failed nor waiting.
+
+So `JobStatus.PAUSED` with a `retry_after`, and a **reaper** on a timer rather than on a
+claim — the case it exists for is the one where *nothing is claiming*. It requeues a
+lapsed lease with attempts left, fails one with none (`LEASE_LOST`, a code of its own,
+because the worker said nothing and that is what happened), and returns a pause when its
+time comes.
+
+**A pause hands the attempt back**, which a test caught by asserting the opposite: nothing
+was attempted, and spending one means a four-day outage burns every job's three tries in
+the first hour and then fails them all with a code that lies twice. The worker sends a
+*duration* rather than the date the CLI prints — parsing prose is the weakness `MapExit`
+already has — so a quota that is still out simply pauses again, hourly, for free.
+
+The page stops lying and stops polling: a pause reads as a pause with the time it will be
+retried, and the three-second poll now ends on READY and FAILED instead of running until
+the tab closes.
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.
