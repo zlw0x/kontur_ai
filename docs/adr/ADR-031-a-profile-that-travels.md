@@ -129,8 +129,13 @@ arithmetic, which is why they could be added at all:
 Four keys — `solid.sweep`, `cut.sweep`, `solid.loft`, `cut.loft` — at `beta` on arrival,
 by the criterion POSTMVP-013/014 set: the corpus varies what each of them decides.
 
-**A rotational correspondence between like sections is still the kernel's.** A square
-lofted into a square rotated 45° has two equally near vertices, and OpenCascade picks
-one deterministically. The contract's rule removes the ambiguity that produces a *fold*;
-it does not remove this one, which produces a twist that is a real part a drawing would
-state as a twist. Recorded rather than solved, and no corpus case relies on it.
+**A rotational correspondence between like sections was left to the kernel, and is not
+any more.** The contract's kind-and-count rule removes the ambiguity that produces a
+*fold*; the one it left was the symmetry — and measuring it showed the cost is not a
+twist chosen at random but a rotation silently discarded. A 40 × 40 square lofted to
+another turned 90° builds a prism: 48 000.0000 mm³, the same digits as the un-rotated
+case. `_require_unambiguous_rotation` now refuses a rotation of a whole symmetry or more,
+because at that point the sections record a different angle from the one the document
+states. `docs/GATE-P4-ANALYSIS.md` has the four measured angles and the reasoning; a
+drawing that means a quarter-turn twist has to say so as a twist, which is P4.1's
+`controlled twist` and a different input.

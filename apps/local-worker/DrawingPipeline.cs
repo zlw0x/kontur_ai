@@ -62,7 +62,7 @@ public sealed class DrawingPipeline(
     /// between jobs that were asked the same question, so the version travels
     /// with every AI measurement.
     /// </summary>
-    internal const string PromptVersion = "drawing-mvp-8";
+    internal const string PromptVersion = "drawing-mvp-9";
 
     /// <summary>
     /// The version the prompt asks for, taken from the one place that declares it.
@@ -611,13 +611,24 @@ public sealed class DrawingPipeline(
              The count is REQUIRED and must be right: a blend that matched nothing would be a feature that
              silently did not happen, and the part would have square corners where the drawing shows round;
           7. a hollow part is a "feature.shell" with produces [], depends_on the feature it hollows, and
-             inputs {"faces":<the top face>,"thickness":<the wall>,"direction":"inward"}, where the top face
-             is exactly
+             inputs {"faces":<the open face>,"thickness":<the wall>,"direction":"inward"}. The open face is
+             one of exactly two selections. Use the first when the part has ONE face pointing up:
                {"id":"selector.top","kind":"face","from_result":"body.main","cardinality":"exactly_one",
                 "where":{
                   "surface_type":"planar",
                   "normal":{"parallel_to":"axis.z","direction":"positive"}
                 }}
+             Use the second when the part is stepped, so that more than one flat face points up - a flange
+             shoulder and a sleeve end, say - AND the drawing shows the highest of them open:
+               {"id":"selector.topmost","kind":"face","from_result":"body.main","cardinality":"exactly_one",
+                "where":{
+                  "surface_type":"planar",
+                  "normal":{"parallel_to":"axis.z","direction":"positive"},
+                  "position":{"extreme_along":"axis.z","extreme":"maximum"}
+                }}
+             The first selection on a stepped part matches two faces and is refused, which is deliberate:
+             if the drawing shows a LOWER face open, neither selection says so, and leaving the shell out
+             is better than opening the wrong face.
              Shell last, after the holes: it hollows the part as it then is.
 
         Prefer islands in the base sketch to separate cut features when a hole goes right through: it is the

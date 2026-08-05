@@ -42,11 +42,13 @@ from .base import (
     FeatureResult,
     FeatureType,
     Id,
+    ParameterRef,
     Provenance,
     ResultRef,
     StrictModel,
+    stated_number,
 )
-from .sketch import PathContour, RegularPolygonContour, Sketch
+from .sketch import PathContour, RectangleContour, RegularPolygonContour, Sketch
 
 
 def _signature(contour) -> tuple:
@@ -64,6 +66,80 @@ def _signature(contour) -> tuple:
     return (type(contour).__name__,)
 
 
+#: How close two angles have to be to count as the same one, in degrees. A drawing
+#: states a rotation to a degree or a minute; a millidegree is arithmetic noise.
+ROTATION_TOLERANCE_DEG = 1e-6
+
+
+def _symmetry_deg(contour) -> float | None:
+    """The smallest rotation that maps a contour's vertices onto themselves.
+
+    `None` where the question does not arise: a circle has no vertices to pair, and a
+    slot or a spelled-out path states no rotation at all — its corners are coordinates,
+    and comparing two vertex sets for a hidden rotation is a different piece of work
+    (it is named in `docs/GATE-P4-ANALYSIS.md`).
+    """
+    if isinstance(contour, RegularPolygonContour):
+        return 360.0 / contour.sides
+    if isinstance(contour, RectangleContour):
+        # A square repeats every quarter turn; any other rectangle, every half. When
+        # either side reads a parameter the two cannot be compared here, so the
+        # guaranteed symmetry of *every* rectangle is used — that refuses the half turn
+        # and lets a quarter through rather than refusing a document that may be correct.
+        width, height = stated_number(contour.width), stated_number(contour.height)
+        if width is None or height is None:
+            # Equal *expressions* are equal sides, which catches a square whose two
+            # sides are one parameter. Anything else falls back to the safe symmetry.
+            return 90.0 if contour.width == contour.height else 180.0
+        return 90.0 if abs(width - height) <= 1e-9 else 180.0
+    return None
+
+
+def _rotation_of(contour) -> float | None:
+    """The rotation a contour states, or `None` when it states it as a name."""
+    return stated_number(getattr(contour, "rotation_deg", None))
+
+
+def _require_unambiguous_rotation(sections: list[Sketch]) -> None:
+    """A rotation between sections must be smaller than the contour's own symmetry.
+
+    The half of Gate P4 that ADR-031's kind-and-count rule left open, and it is
+    reachable because a rotation is a number the document states.
+
+    A 40 x 40 square lofted to another 40 x 40 square turned 90 degrees builds a
+    **prism with no twist at all** — 48 000.0000 mm3, the same digits as the un-rotated
+    case, one solid, valid, unremarkable topology. Nothing is wrong with the kernel: a
+    square turned a quarter is the same set of points, so both readings are consistent
+    with the sections as stated and it picks one. Measured at 0, 15, 45 and 90 degrees;
+    only the last two are undecided, and 135 is undecided in the same way because its
+    vertex set is the one at 45.
+
+    So the stated rotation has to be the one the sections can record — inside
+    `[0, symmetry)`. A drawing that means a quarter-turn twist has to say so as a twist,
+    which is a different input (P4.1's `controlled twist`) and not a rotated section.
+    """
+    step = _symmetry_deg(sections[0].outer)
+    if step is None:
+        return
+    first = _rotation_of(sections[0].outer)
+    if first is None:
+        return
+    for section in sections[1:]:
+        rotation = _rotation_of(section.outer)
+        if rotation is None:
+            continue
+        turned = (rotation - first) % 360.0
+        if turned < step - ROTATION_TOLERANCE_DEG:
+            continue
+        raise ValueError(
+            f"section {section.id} is turned {turned:g} degrees from {sections[0].id}, "
+            f"and this contour repeats itself every {step:g}; the sections cannot record "
+            f"the difference between that and {turned % step:g} degrees, so which point "
+            "meets which is the kernel's choice. State a twist as a twist, not as a "
+            "rotated section"
+        )
+
+
 def _require_corresponding(sections: list[Sketch]) -> None:
     for index, section in enumerate(sections):
         if section.inner:
@@ -72,6 +148,7 @@ def _require_corresponding(sections: list[Sketch]) -> None:
                 "between sections with holes leaves the kernel to decide which hole "
                 "meets which"
             )
+    _require_unambiguous_rotation(sections)
     first = _signature(sections[0].outer)
     for section in sections[1:]:
         if _signature(section.outer) != first:
@@ -146,6 +223,7 @@ LoftFeature = Union[SolidLoftFeature, CutLoftFeature]
 
 
 __all__ = [
+    "ROTATION_TOLERANCE_DEG",
     "CutLoftFeature",
     "CutLoftInputs",
     "LoftFeature",

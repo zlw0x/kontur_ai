@@ -7,6 +7,7 @@ import pytest
 from app.contracts import OrderStatus
 from app.orders.state_machine import (
     ALLOWED_TRANSITIONS,
+    DERIVED_FROM_THE_JOB,
     InvalidStateTransition,
     OrderRecord,
     OrderStateService,
@@ -44,3 +45,16 @@ def test_stale_version_is_rejected_before_transition_validation():
 @pytest.mark.parametrize("terminal", [OrderStatus.READY, OrderStatus.FAILED, OrderStatus.CANCELLED, OrderStatus.EXPIRED])
 def test_terminal_states_have_no_outgoing_transition(terminal: OrderStatus):
     assert ALLOWED_TRANSITIONS[terminal] == frozenset()
+
+
+@pytest.mark.parametrize("derived", sorted(DERIVED_FROM_THE_JOB))
+def test_a_derived_status_is_unreachable_from_both_directions(derived: OrderStatus):
+    """It is not terminal — it is not stored, which is a different thing.
+
+    A derived status is what the API computes off the job on the way out. Letting
+    the transition endpoint write one would put a copy of the job's state on the
+    order, where it would sit unchanged after the reaper moved the job back — the
+    exact divergence deriving it avoids.
+    """
+    assert ALLOWED_TRANSITIONS[derived] == frozenset()
+    assert [source for source, targets in ALLOWED_TRANSITIONS.items() if derived in targets] == []

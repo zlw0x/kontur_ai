@@ -115,14 +115,20 @@ def build() -> dict[str, Any]:
         # property — the same reason `cut_extrusion` and `blind_cut_extrusion` are
         # two branches instead of one optional depth (ADR-029).
         #
-        # They recurse back into `scalar`, which the canonical model bounds at
-        # three levels. Nothing in the dialect forbids recursion; nothing else in
-        # the profile uses it either.
-        "scalar_quotient": obj(divide=ref("scalar"), by=number()),
-        "scalar_negation": obj(negate=ref("scalar")),
+        # **They do not recurse.** A quotient divides a *parameter reference* and a
+        # negation wraps a reference or a quotient, which is the grammar the contract
+        # settled on so that one value has one spelling (ADR-034's amendment). The
+        # profile said `ref("scalar")` on both while the contract still allowed it, and
+        # that is now an offer the validator would refuse — a model writing
+        # `divide(negate(p), 2)` from this schema would get a document rejected for a
+        # rule the schema never told it about.
+        "scalar_reference": obj(parameter=ref("identifier")),
+        "scalar_quotient": obj(divide=ref("scalar_reference"), by=number(minimum=1e-9)),
+        "scalar_negation": obj(negate={"anyOf": [ref("scalar_reference"),
+                                                 ref("scalar_quotient")]}),
         "scalar": {"anyOf": [
             number(),
-            obj(parameter=ref("identifier")),
+            ref("scalar_reference"),
             ref("scalar_quotient"),
             ref("scalar_negation"),
         ]},
@@ -332,11 +338,31 @@ def build() -> dict[str, Any]:
             position=obj(extreme_along=const("axis.z"), extreme=const("maximum"))),
         counted=True,
     )
-    # The face a hollow part is open at.
+    # The face a hollow part is open at, on a part that has one upward face.
     defs["top_face"] = selection(
         "face",
         obj(surface_type=const("planar"),
             normal=obj(parallel_to=const("axis.z"), direction=const("positive"))),
+        counted=False,
+    )
+    # The same face on a part that has more than one, and the reason there are two
+    # selections rather than one narrower one.
+    #
+    # A run on a flanged bushing stopped at `SELECTOR_AMBIGUOUS`: "planar face facing
+    # +Z" found the flange's shoulder *and* the sleeve's end, and `exactly_one` cannot
+    # choose. Narrowing the offer above to the topmost would have made every document
+    # resolve — including the ones where the drawing shows the shoulder open, which
+    # would then be a silent wrong part instead of a refusal. So the topmost is a
+    # second named shape and the reading stage says which one the drawing shows.
+    #
+    # "The largest" is the third thing a drawing might mean and is deliberately not
+    # here: a selector states an area as a *measurement*, so offering it would ask the
+    # model for a number off the part rather than a shape off the drawing.
+    defs["topmost_face"] = selection(
+        "face",
+        obj(surface_type=const("planar"),
+            normal=obj(parallel_to=const("axis.z"), direction=const("positive")),
+            position=obj(extreme_along=const("axis.z"), extreme=const("maximum"))),
         counted=False,
     )
 
@@ -367,7 +393,10 @@ def build() -> dict[str, Any]:
         depends_on=array(ref("identifier"), 1, 8),
         produces=array(obj(), 0, 0),
         inputs=obj(
-            faces=ref("top_face"),
+            # Either named shape, and nothing else. `anyOf` rather than a widened
+            # predicate set: the model picks between two selections written here, which
+            # is the whole of what ADR-032 permits it to do.
+            faces={"anyOf": [ref("top_face"), ref("topmost_face")]},
             thickness=ref("scalar"),
             direction=const("inward"),
         ),

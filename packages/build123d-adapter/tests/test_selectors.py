@@ -286,3 +286,49 @@ def test_a_hole_is_centred_on_its_axis_and_not_on_its_own_surface():
 
     rim = next(edge for edge in read_edges(part) if edge.curve_type == "circle")
     assert (round(rim.centroid[0], 6), round(rim.centroid[1], 6)) == (-20.0, 5.0)
+
+
+# --- the two upward faces a stepped part has ---------------------------------
+
+
+def stepped_faces() -> list:
+    """A flanged bushing's flats: a shoulder facing up, and the sleeve's end above it.
+
+    The topology a real run stopped on. "Planar face facing +Z" matches both, and a
+    selection that declares `exactly_one` cannot choose between them — which is the
+    refusal `SELECTOR_AMBIGUOUS` exists to give rather than a coin toss.
+    """
+    return [
+        face("flange.bottom", normal=(0, 0, -1), z_max=0.0, area=1017.0),
+        face("flange.shoulder", normal=(0, 0, 1), z_max=5.0, area=565.0),
+        face("sleeve.end", normal=(0, 0, 1), z_max=30.0, area=251.0),
+    ]
+
+
+UPWARD = {"surface_type": "planar",
+          "normal": {"parallel_to": "axis.z", "direction": "positive"}}
+TOPMOST = {**UPWARD, "position": {"extreme_along": "axis.z", "extreme": "maximum"}}
+
+
+def test_the_upward_face_of_a_stepped_part_is_ambiguous():
+    """The measured reason the profile offers a second selection."""
+    resolution = resolve_faces(selector(UPWARD), stepped_faces())
+
+    assert not resolution.satisfied
+    assert sorted(item.id for item in resolution.matched) == [
+        "flange.shoulder", "sleeve.end"]
+
+
+def test_the_topmost_upward_face_of_a_stepped_part_is_one_face():
+    resolution = resolve_faces(selector(TOPMOST), stepped_faces())
+
+    assert resolution.satisfied
+    assert [item.id for item in resolution.matched] == ["sleeve.end"]
+
+
+def test_the_topmost_selection_still_names_the_only_face_of_a_plain_part():
+    """A plate has one upward face and both selections find it, so the second offer
+    cannot make a document that was right into a document that is wrong."""
+    for where in (UPWARD, TOPMOST):
+        resolution = resolve_faces(selector(where), plate_faces())
+        assert [item.id for item in resolution.matched] == ["top"], where

@@ -23,6 +23,14 @@ namespace CadAi.LocalWorker;
 /// start — cannot, and feeding one back would spend a model call to be told the
 /// same thing again. Silence about the machine is not pessimism; it is the
 /// difference between a loop that converges and one that burns a budget.
+///
+/// **It is two questions rather than one, and the split above answers the first.**
+/// "Can the agent fix it?" decides whether the document goes back. "Is another
+/// attempt worth making?" is a different question, and answering it with the same
+/// bit made a machine failure on attempt 1 of 3 go quietly back to the queue. For a
+/// container that would not start that is right; for a quota that returns on a
+/// stated date it is three silent retries and an order that says "waiting" for four
+/// days. <see cref="WillBeTheSameNextTime"/> is the second answer.
 /// </remarks>
 internal static class BuildFeedback
 {
@@ -107,8 +115,84 @@ internal static class BuildFeedback
             "PARAMETER_DRIVES_NOTHING",
         };
 
+    /// <summary>
+    /// Failures that are about the machine and will say the same thing next time.
+    /// </summary>
+    /// <remarks>
+    /// The third case, and it is a real one rather than a tidy-up. A run meant to
+    /// close the bushing never reached the model:
+    ///
+    /// <code>
+    /// {"type":"error","message":"You've hit your usage limit … try again at Aug 8th, 2026"}
+    /// {"type":"turn.failed"}
+    /// </code>
+    ///
+    /// The job stayed leased, `output/` was empty, and the order page said "waiting" —
+    /// the exact silence `JobStatus.FAILED` was added to end. The reason is that the
+    /// worker reports a failure when the code is repairable *or* the attempt was the
+    /// last, and a quota failure is neither: not repairable, because no document fixes
+    /// it, and not the last attempt, because it was the first of three. So it went back
+    /// to the queue to be told the same thing twice more, and the reason never reached
+    /// the customer.
+    ///
+    /// What distinguishes these from the rest of the machine failures is that a retry
+    /// cannot observe a change. A container that would not start may start; a missing
+    /// interpreter may be installed, and on a fleet another worker may already have
+    /// one. A quota returns on a date, and this service reaches the model through one
+    /// locally authenticated CLI on one trusted machine — that is a rule
+    /// (`CLAUDE.md`), not a deployment detail, so there is no second account for a
+    /// retry to find.
+    ///
+    /// Listed, for the reason `Repairable` is listed: a new code joins when somebody
+    /// decides it does. Being wrong here costs an order that is reported failed when
+    /// it could have succeeded on the next worker, which is worse than a retry and
+    /// better than silence.
+    /// </remarks>
+    private static readonly IReadOnlySet<string> Unchanging =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            // The account's quota. **This is the code the real failure carried**, and
+            // not the one it looks like: `LocalCodexRunner.MapExit` maps any error text
+            // containing "rate" or "limit" here, and "You've hit your usage limit"
+            // contains one. Classifying only `CODEX_BUDGET_EXHAUSTED` would have left
+            // the measured failure retrying exactly as before.
+            "CODEX_CAPACITY_LIMIT",
+
+            // This worker's own per-order run budget, which is a policy number rather
+            // than a date. It belongs here for a different reason: the count is
+            // deterministic, so the same drawing through the same policy exhausts it in
+            // the same place on every attempt.
+            "CODEX_BUDGET_EXHAUSTED",
+        };
+
     /// <summary>Can the compiling agent do anything about this?</summary>
     public static bool IsRepairable(WorkerException error) => IsRepairable(error.Code);
+
+    /// <summary>
+    /// How long to wait before a deferred job is worth trying again.
+    /// </summary>
+    /// <remarks>
+    /// A duration rather than the date the CLI states, and that is deliberate. The
+    /// reset time arrives only as prose — "try again at Aug 8th, 2026 8:44 AM" — and
+    /// parsing prose is the weakness `MapExit` already has, in a place where getting
+    /// it wrong means an order sleeps until a date nobody meant.
+    ///
+    /// An hour reaches the same place without a parser. If the quota is back, the job
+    /// builds; if it is not, the worker pauses it again, and a pause hands the attempt
+    /// back, so a four-day outage costs a handful of claims a day and nothing else.
+    /// The customer sees "paused, retrying at …" throughout, which is the truth at
+    /// every point in that window.
+    /// </remarks>
+    public static readonly TimeSpan PauseFor = TimeSpan.FromHours(1);
+
+    /// <summary>Would another attempt at this job be told the same thing?</summary>
+    /// <remarks>
+    /// Asked only of failures that are *not* repairable — a repairable one already
+    /// ends the job with a reason. False for everything unclassified, which keeps the
+    /// retry the default: a job that lapses is picked up again, and that is the
+    /// behaviour every failure had before this existed.
+    /// </remarks>
+    public static bool WillBeTheSameNextTime(string code) => Unchanging.Contains(code);
 
     /// <summary>Can the compiling agent do anything about this?</summary>
     /// <remarks>

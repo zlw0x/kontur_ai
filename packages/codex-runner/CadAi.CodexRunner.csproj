@@ -5,6 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <!-- `MapExit` decides which code a failed run carries, and the worker decides
+         from that code whether a retry is worth making. A run found the two easy to
+         confuse, so the mapping is asserted rather than read. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>CadAi.CodexRunner.Tests</_Parameter1>
+    </AssemblyAttribute>
     <Compile Remove="tests\**\*.cs" />
   </ItemGroup>
 </Project>

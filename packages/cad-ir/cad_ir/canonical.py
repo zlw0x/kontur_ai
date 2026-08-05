@@ -46,6 +46,7 @@ from .base import (  # re-exported: this is still the one place to read the docu
     ScalarQuotient,
     SourceRegion,
     StrictModel,
+    stated_number,
 )
 from .blend import (  # re-exported alongside the document
     ChamferFeature,
@@ -91,6 +92,7 @@ from .loft import (  # re-exported alongside the document
     LoftInputs,
     SolidLoftFeature,
 )
+from .draft import DraftFeature, DraftInputs  # re-exported
 from .shell import ShellDirection, ShellFeature, ShellInputs  # re-exported
 from .sweep import (  # re-exported alongside the document
     CutSweepFeature,
@@ -102,11 +104,11 @@ from .sweep import (  # re-exported alongside the document
 from .sketch import DatumPlaneOffsetInputs, Sketch
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.11"
+CAD_IR_VERSION = "1.12"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.11",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.12",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -126,6 +128,7 @@ MIGRATABLE_VERSIONS: tuple[str, ...] = (
     "1.8",
     "1.9",
     "1.10",
+    "1.11",
 )
 
 class ParameterType(StrEnum):
@@ -198,9 +201,10 @@ TAPER_LIMIT_DEG = 89.0
 
 
 def _validate_taper(value: Scalar | None) -> None:
-    if value is None or isinstance(value, ParameterRef):
+    taper = stated_number(value)
+    if taper is None:
         return
-    if not -TAPER_LIMIT_DEG <= float(value) <= TAPER_LIMIT_DEG:
+    if not -TAPER_LIMIT_DEG <= taper <= TAPER_LIMIT_DEG:
         raise ValueError(
             f"a taper is between -{TAPER_LIMIT_DEG:g} and {TAPER_LIMIT_DEG:g} degrees"
         )
@@ -323,6 +327,7 @@ Feature = Annotated[
         PatternFeature,
         BooleanFeature,
         ShellFeature,
+        DraftFeature,
         SolidSweepFeature,
         CutSweepFeature,
         SolidLoftFeature,

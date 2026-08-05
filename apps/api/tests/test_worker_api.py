@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from tests.drawing_fixture import TINY_PNG
 from app.main import app
 from app.contracts import CapabilityStatus, JobType, WorkerCapability
 from app.database import Base, create_session_factory
 from app.ledger.service import ResourceLedgerService
+from app.orders.repository import InMemoryOrderRepository
 from app.workers.artifact_store import LocalArtifactStore
 from app.workers.capabilities import MVP_CAPABILITIES
 from app.workers.protocol import InMemoryWorkerRepository, Job, WorkerProtocolService
@@ -21,6 +23,11 @@ def memory_protocol(monkeypatch):
     protocol = WorkerProtocolService(InMemoryWorkerRepository(), "local-development-enrollment-token-change-me")
     monkeypatch.setattr("app.main.worker_protocol", protocol)
     monkeypatch.setattr("app.main.resource_ledger", disposable_ledger())
+    # Orders live in PostgreSQL since 0008. Swapped here rather than in each test
+    # for the same reason the protocol is: this is the one place that decides what
+    # an isolated API test runs against, and a test that forgot would not fail — it
+    # would try to open a connection and fail somewhere unrelated.
+    monkeypatch.setattr("app.main.orders", InMemoryOrderRepository())
     return protocol
 
 
@@ -213,10 +220,9 @@ def test_manual_cad_job_manifest_download_upload_and_complete(monkeypatch, tmp_p
 def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
     memory_protocol(monkeypatch)
     monkeypatch.setattr("app.main.artifact_store", LocalArtifactStore(tmp_path, 1_000_000))
-    monkeypatch.setattr("app.main.drawing_orders", {})
     client = TestClient(app)
     manual_headers = {"x-manual-api-token": "local-development-manual-api-token-change-me"}
-    png = b"\x89PNG\r\n\x1a\n" + b"fixture"
+    png = TINY_PNG
     created = client.post(
         "/api/v1/drawing-jobs",
         headers={**manual_headers, "content-type": "image/png"},
@@ -281,7 +287,6 @@ def test_drawing_job_clarification_roundtrip(monkeypatch, tmp_path):
     )
     assert completed.status_code == 200
     # The API can reconstruct order lineage after a process restart.
-    monkeypatch.setattr("app.main.drawing_orders", {})
     status = client.get(f"/api/v1/drawing-jobs/{order_id}", headers=manual_headers)
     assert status.json()["status"] == "WAITING_FOR_USER_ANSWERS"
     assert status.json()["questions"][0]["id"] == "q_depth"

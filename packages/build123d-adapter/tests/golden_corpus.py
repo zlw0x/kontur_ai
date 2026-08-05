@@ -794,13 +794,150 @@ def _shells() -> list[Case]:
     return cases
 
 
+def _drafts() -> list[Case]:
+    """Drawing named walls in, measured from the plane of a named face (ADR-035).
+
+    Three closed forms, and the second and third are the operation's whole
+    justification — neither is reachable with `taper_deg`, which drafts an extrusion as
+    it is created and therefore draws in every wall that extrusion makes.
+
+    - **every wall**, which `taper_deg` *can* do and which is here so the two are
+      compared: the prismatoid rule, `h/6 · (A + 4·A_mid + A_top)`;
+    - **two adjacent walls of four**: each section loses one wall's worth on each axis,
+      so the side at height z is `a − z·tanθ` and the volume is
+      `∫₀ʰ (a − z·tanθ)² dz = (a³ − (a − h·tanθ)³) / (3·tanθ)`;
+    - **the outer wall of a turned tube**, which no extrusion made at all: the frustum
+      `πh/3 · (R² + R·R_top + R_top²)` less the bore `πr²h`.
+
+    The bounding box is the undrafted part's in all three, because the neutral face is
+    the base and the base is what holds its size. That is the point of stating one.
+    """
+    side, height, angle = 40.0, 20.0, 10.0
+    lean = math.tan(math.radians(angle))
+
+    def walls(sid: str, cardinality: Any, extra: dict | None = None) -> dict[str, Any]:
+        return {"id": sid, "kind": "face", "from_result": "body.main",
+                "cardinality": cardinality,
+                "where": {"surface_type": "planar",
+                          "normal": {"perpendicular_to": "axis.z"}, **(extra or {})}}
+
+    def base(sid: str = "selector.base") -> dict[str, Any]:
+        return {"id": sid, "kind": "face", "from_result": "body.main",
+                "cardinality": "exactly_one",
+                "where": {"surface_type": "planar",
+                          "normal": {"parallel_to": "axis.z", "direction": "negative"}}}
+
+    def drafted(faces: dict, degrees: float, depends: str = "feature.block",
+                neutral: dict | None = None) -> dict[str, Any]:
+        return {"id": "feature.draw_in", "type": "feature.draft", "enabled": True,
+                "depends_on": [depends], "produces": [],
+                "inputs": {"faces": faces, "neutral_face": neutral or base(),
+                           "angle_deg": degrees}}
+
+    cases: list[Case] = []
+
+    # Every wall: the same solid `extrude(taper=)` builds, by a different route.
+    far = side - 2 * height * lean
+    mid = side - height * lean
+    cases.append(Case(
+        id="draft-all-walls",
+        document=document(
+            "drafted-boss",
+            [extrude("feature.block", "body.main", height, rectangle(side, side)),
+             drafted(walls("selector.walls", {"type": "exactly_n", "value": 4}), angle)],
+            (side, side, height), holes=0),
+        topology=(6, 12, 8),
+        volume_mm3=height / 6 * (side**2 + 4 * mid**2 + far**2),
+        arithmetic=(
+            f"{height:g}/6 × ({side:g}² + 4·({side:g}−{height:g}·tan{angle:g}°)² + "
+            f"({side:g}−2·{height:g}·tan{angle:g}°)²)"
+        ),
+    ))
+
+    # Two of the four, which no extrusion can express: the pair whose normals run along
+    # x, drawn in, while the pair along y stays vertical. The section at height z is
+    # `(a − 2·z·tanθ)` by `a`, so the volume is `a·h·(a − h·tanθ)`.
+    #
+    # Named by their normal rather than by position: `extreme_along x / minimum` matches
+    # *three* of the four walls, because the two facing y span the whole width and their
+    # own minimum touches it. That is the same trap the shell cases record for z, and it
+    # is a selector reading correctly rather than a bug.
+    cases.append(Case(
+        id="draft-two-walls",
+        document=document(
+            "drafted-two-walls",
+            [extrude("feature.block", "body.main", height, rectangle(side, side)),
+             drafted(walls("selector.walls", {"type": "exactly_n", "value": 2},
+                           {"normal": {"parallel_to": "axis.x"}}), angle)],
+            (side, side, height), holes=0),
+        topology=(6, 12, 8),
+        volume_mm3=side * height * (side - height * lean),
+        arithmetic=f"{side:g} × {height:g} × ({side:g} − {height:g}·tan{angle:g}°)",
+    ))
+
+    # A body an extrusion did not make.
+    outer, bore = 20.0, 10.0
+    top = outer - height * lean
+    axis_line = {"type": "line", "id": "axis.centre", "start": [0.0, 0.0], "end": [0.0, height]}
+    tube = {
+        "id": "feature.tube", "type": "solid.revolve", "enabled": True,
+        "depends_on": [], "produces": [{"id": "body.main", "kind": "solid_body"}],
+        "inputs": {
+            "sketch": sketch("section",
+                             {"type": "rectangle", "center": [(outer + bore) / 2, height / 2],
+                              "width": outer - bore, "height": height, "rotation_deg": 0.0},
+                             plane={"on": "base", "plane": "XZ"}, construction=[axis_line]),
+            "axis": {"kind": "construction_line", "entity": "axis.centre"},
+            "angle_deg": 360.0,
+        },
+    }
+    outer_wall = {"id": "selector.outer", "kind": "face", "from_result": "body.main",
+                  "cardinality": "exactly_one",
+                  "where": {"surface_type": "cylindrical",
+                            "radius_mm": {"value": outer, "tolerance": 0.01}}}
+    cases.append(Case(
+        id="draft-a-turned-wall",
+        document=document(
+            "drafted-tube",
+            [tube, drafted(outer_wall, angle, depends="feature.tube")],
+            (2 * outer, 2 * outer, height), holes=1),
+        volume_mm3=math.pi * height / 3 * (outer**2 + outer * top + top**2)
+        - math.pi * bore**2 * height,
+        arithmetic=(
+            f"π·{height:g}/3 × ({outer:g}² + {outer:g}·R + R²) − π·{bore:g}²·{height:g}, "
+            f"R = {outer:g} − {height:g}·tan{angle:g}°"
+        ),
+    ))
+    return cases
+
+
 def _sweeps() -> list[Case]:
     """Pappus: a profile carried along a path sweeps out `area × path length`.
 
     Exact, not approximate, and exact for the bends too — the profile's centroid sits
     on the path, so the distance its centroid travels *is* the path length. That is
     what makes a sweep checkable by arithmetic rather than by a previous run.
+
+    The topology is closed-form as well, and it is what Gate P4 asks of this operation
+    (`docs/GATE-P4-ANALYSIS.md`). A **circular** section over `n` path segments is two
+    caps and one lateral face per segment, one circle at every section boundary plus one
+    seam per lateral face, and one vertex per circle:
+
+        faces = 2 + n        edges = 2n + 1        vertices = n + 1
+
+    A **rectangular** section is not the naive `2 + 4n`. The two faces whose normals are
+    perpendicular to the bend plane stay planar *and coplanar* over every segment — a
+    planar path never tilts them — so `clean()` merges each into one face spanning the
+    whole sweep, and only the two that bend are split per segment:
+
+        faces = 4 + 2n       edges = 4(n + 1) + (2n + 2)      vertices = 4(n + 1)
     """
+
+    def round_topology(segments: int) -> tuple[int, int, int]:
+        return (2 + segments, 2 * segments + 1, segments + 1)
+
+    def square_topology(segments: int) -> tuple[int, int, int]:
+        return (4 + 2 * segments, 4 * (segments + 1) + 2 * segments + 2, 4 * (segments + 1))
 
     def path(*segments: dict, plane: str = "XZ") -> dict[str, Any]:
         return {"id": "path.spine", "plane": plane, "segments": list(segments)}
@@ -836,6 +973,7 @@ def _sweeps() -> list[Case]:
             (2 * radius, 2 * radius, length_mm), holes=0),
         volume_mm3=math.pi * radius**2 * length_mm,
         arithmetic=f"π × {radius:g}² × {length_mm:g} — a sweep along a line is an extrusion",
+        topology=round_topology(1),
     ))
 
     straight, bend = 50.0, 30.0
@@ -851,6 +989,7 @@ def _sweeps() -> list[Case]:
             (bend + radius, 2 * radius, straight + bend + radius), holes=0),
         volume_mm3=math.pi * radius**2 * (straight + bend * math.pi / 2),
         arithmetic=f"π × {radius:g}² × ({straight:g} + {bend:g}·π/2)",
+        topology=round_topology(2),
     ))
 
     across, along, run, turn = 20.0, 10.0, 40.0, 25.0
@@ -864,6 +1003,7 @@ def _sweeps() -> list[Case]:
             (turn + across / 2, along, run + turn + across / 2), holes=0),
         volume_mm3=across * along * (run + turn * math.pi / 2),
         arithmetic=f"{across:g}·{along:g} × ({run:g} + {turn:g}·π/2)",
+        topology=square_topology(2),
     ))
 
     # A half-round channel milled across the top of a plate: the tool's axis lies in
@@ -892,7 +1032,22 @@ def _lofts() -> list[Case]:
     Exact for a linear transition, which is what a loft between two sections of the
     same kind is. Three sections lofted `ruled` are two of those end to end; three
     lofted smooth are not, and that difference is a case of its own.
+
+    The topology is closed-form too, and is the other half of what Gate P4 asks
+    (`docs/GATE-P4-ANALYSIS.md`). For `m` sections of a contour with `k` vertices there
+    are two caps and one lateral face per vertex per gap, one edge round every section
+    plus one running along each vertex, and one vertex per corner per section:
+
+        faces = 2 + k(m − 1)     edges = km + k(m − 1)     vertices = km
+
+    A circle counts as `k = 1`: its seam is the one longitudinal edge, which is why a
+    truncated cone comes out at 3 faces rather than 2.
     """
+
+    def topology_of(vertices: int, sections: int) -> tuple[int, int, int]:
+        return (2 + vertices * (sections - 1),
+                vertices * sections + vertices * (sections - 1),
+                vertices * sections)
 
     def section(name: str, outer: dict, plane: dict | None = None) -> dict[str, Any]:
         return sketch(name, outer, plane=plane)
@@ -931,6 +1086,7 @@ def _lofts() -> list[Case]:
             (2 * big, 2 * big, tall), holes=0),
         volume_mm3=prismatoid(a1, a2, tall),
         arithmetic=f"{tall:g}/3 × (π{big:g}² + √(π{big:g}²·π{small:g}²) + π{small:g}²)",
+        topology=topology_of(1, 2),
     ))
 
     base_side, top_side = 40.0, 16.0
@@ -947,6 +1103,7 @@ def _lofts() -> list[Case]:
             (base_side, base_side, tall), holes=0),
         volume_mm3=prismatoid(a1, a2, tall),
         arithmetic=f"{tall:g}/3 × ({base_side:g}² + {base_side:g}·{top_side:g} + {top_side:g}²)",
+        topology=topology_of(4, 2),
     ))
 
     on_waist = {"on": "datum", "plane": {"result": "plane.waist"}}
@@ -965,6 +1122,7 @@ def _lofts() -> list[Case]:
         # Ruled means straight between neighbours, so it is two of the case above.
         volume_mm3=2 * prismatoid(a1, a2, tall),
         arithmetic=f"2 × the truncated pyramid — ruled is straight between sections",
+        topology=topology_of(4, 3),
     ))
 
     # A tapered pocket: the mouth sits in the top face and the floor 15 mm below it.
@@ -1084,7 +1242,7 @@ def positives() -> list[Case]:
         *_blind_hole(),
         *_cut_shapes(), *_bosses(), *_face_selector(), *_revolves(), *_fillets(),
         *_chamfers(), *_patterns(), *_grid_and_mirror(), *_extrude_modes(), *_shells(),
-        *_sweeps(), *_lofts(), *_bodies_and_booleans(),
+        *_drafts(), *_sweeps(), *_lofts(), *_bodies_and_booleans(),
     ]
 
 
@@ -1175,6 +1333,21 @@ def _sweep_and_loft_refusals(plate: dict, with_features) -> list[Refusal]:
                 holes=0),
             code="SCHEMA_INVALID",
             why="round to square is the correspondence the kernel invents and never states",
+            by_contract=True,
+        ),
+        Refusal(
+            id="loft-between-sections-turned-by-their-own-symmetry",
+            document=with_features(
+                [datum_top,
+                 lofted([section("base", rectangle(40.0, 40.0)),
+                         section("tip", {**rectangle(40.0, 40.0), "rotation_deg": 90.0},
+                                 top)], ["feature.top"])],
+                holes=0),
+            code="SCHEMA_INVALID",
+            # Measured before the rule was written: the kernel builds a prism with no
+            # twist at all, 48 000.0000 mm³ — the same digits as the un-rotated case.
+            why="a square turned a quarter is the same square, so which point meets which "
+                "is undecided and the kernel silently chooses no twist",
             by_contract=True,
         ),
         Refusal(
@@ -1390,6 +1563,105 @@ def negatives() -> list[Refusal]:
             # The measured surprise: the kernel does not refuse this. It returns the
             # solid it was given, whole, and every other check in the document passes.
             why="two 25 mm walls meet inside a 40 mm plate, leaving no cavity at all",
+        ),
+        # --- draft (CAD-IR 1.12, ADR-035) -----------------------------------
+        Refusal(
+            id="draft-feature-that-closes-the-section",
+            document=with_features([
+                extrude("feature.block", "body.main", 20.0, rectangle(40.0, 40.0)),
+                {"id": "feature.draw_in", "type": "feature.draft", "enabled": True,
+                 "depends_on": ["feature.block"], "produces": [],
+                 "inputs": {
+                     "faces": {"id": "selector.walls", "kind": "face",
+                               "from_result": "body.main",
+                               "cardinality": {"type": "exactly_n", "value": 4},
+                               "where": {"surface_type": "planar",
+                                         "normal": {"perpendicular_to": "axis.z"}}},
+                     "neutral_face": {"id": "selector.base", "kind": "face",
+                                      "from_result": "body.main",
+                                      "cardinality": "exactly_one",
+                                      "where": {"surface_type": "planar",
+                                                "normal": {"parallel_to": "axis.z",
+                                                           "direction": "negative"}}},
+                     "angle_deg": 45.0,
+                 }},
+            ], holes=0),
+            code="DRAFT_TOO_STEEP",
+            why=("a 40 mm section drawn in 45° over 20 mm closes exactly at the top; the "
+                 "kernel returns the pyramid and marks it invalid, and past 45° it throws "
+                 "Standard_ConstructionError with an empty message"),
+        ),
+        Refusal(
+            id="draft-measured-from-a-curved-face",
+            document=with_features([
+                extrude("feature.post", "body.main", 20.0, circle(15.0)),
+                {"id": "feature.draw_in", "type": "feature.draft", "enabled": True,
+                 "depends_on": ["feature.post"], "produces": [],
+                 "inputs": {
+                     "faces": {"id": "selector.wall", "kind": "face",
+                               "from_result": "body.main", "cardinality": "exactly_one",
+                               "where": {"surface_type": "cylindrical",
+                                         "radius_mm": {"value": 15.0, "tolerance": 0.01}}},
+                     "neutral_face": {"id": "selector.curved", "kind": "face",
+                                      "from_result": "body.main",
+                                      "cardinality": "exactly_one",
+                                      "where": {"surface_type": "cylindrical",
+                                                "radius_mm": {"value": 15.0,
+                                                              "tolerance": 0.01}}},
+                     "angle_deg": 5.0,
+                 }},
+            ], holes=0),
+            code="DRAFT_NEUTRAL_FACE_NOT_PLANAR",
+            why="a cylinder has no single plane, and the middle of one is a position no drawing gave",
+        ),
+        Refusal(
+            id="draft-of-nothing",
+            document=with_features([
+                extrude("feature.block", "body.main", 20.0, rectangle(40.0, 40.0)),
+                {"id": "feature.draw_in", "type": "feature.draft", "enabled": True,
+                 "depends_on": ["feature.block"], "produces": [],
+                 "inputs": {
+                     "faces": {"id": "selector.walls", "kind": "face",
+                               "from_result": "body.main", "cardinality": "all",
+                               "where": {"surface_type": "planar"}},
+                     "neutral_face": {"id": "selector.base", "kind": "face",
+                                      "from_result": "body.main",
+                                      "cardinality": "exactly_one",
+                                      "where": {"surface_type": "planar",
+                                                "normal": {"parallel_to": "axis.z",
+                                                           "direction": "negative"}}},
+                     "angle_deg": 5.0,
+                 }},
+            ], holes=0),
+            code="SCHEMA_INVALID",
+            why=("a cardinality that permits zero makes a draft that treated nothing a "
+                 "successful feature — the blend rule of ADR-026, third operation to need it"),
+            by_contract=True,
+        ),
+        Refusal(
+            id="draft-of-zero-degrees",
+            document=with_features([
+                extrude("feature.block", "body.main", 20.0, rectangle(40.0, 40.0)),
+                {"id": "feature.draw_in", "type": "feature.draft", "enabled": True,
+                 "depends_on": ["feature.block"], "produces": [],
+                 "inputs": {
+                     "faces": {"id": "selector.walls", "kind": "face",
+                               "from_result": "body.main",
+                               "cardinality": {"type": "exactly_n", "value": 4},
+                               "where": {"surface_type": "planar",
+                                         "normal": {"perpendicular_to": "axis.z"}}},
+                     "neutral_face": {"id": "selector.base", "kind": "face",
+                                      "from_result": "body.main",
+                                      "cardinality": "exactly_one",
+                                      "where": {"surface_type": "planar",
+                                                "normal": {"parallel_to": "axis.z",
+                                                           "direction": "negative"}}},
+                     "angle_deg": 0.0,
+                 }},
+            ], holes=0),
+            code="SCHEMA_INVALID",
+            why="a draft of 0° is a feature that does nothing wearing the name of one that does",
+            by_contract=True,
         ),
         Refusal(
             id="shell-opening-a-face-that-is-not-there",

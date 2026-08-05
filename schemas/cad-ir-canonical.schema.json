@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.11",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.12",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -1497,6 +1497,100 @@
       "title": "DocumentMetadata",
       "type": "object"
     },
+    "DraftFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "feature.draft",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 0,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/DraftInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "DraftFeature",
+      "type": "object"
+    },
+    "DraftInputs": {
+      "additionalProperties": false,
+      "description": "Draw `faces` in by `angle_deg`, measured from the plane of `neutral_face`.\n\nThere is no `source_body`, for the reason a shell and a blend have none: the\nselectors' `from_result` already says whose faces these are, and a second way to\nsay it is a second thing that can disagree.",
+      "properties": {
+        "faces": {
+          "$ref": "#/$defs/FaceSelector"
+        },
+        "neutral_face": {
+          "$ref": "#/$defs/FaceSelector"
+        },
+        "angle_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "title": "Angle Deg"
+        }
+      },
+      "required": [
+        "faces",
+        "neutral_face",
+        "angle_deg"
+      ],
+      "title": "DraftInputs",
+      "type": "object"
+    },
     "DrivingDimension": {
       "additionalProperties": false,
       "description": "A named measurement of the sketch, stated and then verified.\n\nThe `id` is the stable name the roadmap asks for — `base_width`,\n`hole_pitch_x`, `wall_thickness` — and it becomes the variable's name in the\nKOMPAS model, so the same word appears in the document, in the delivered\nfile and in any later diff.\n\n`value` is what the document says the measurement is. The adapter reads what\nKOMPAS measured and refuses the difference: a dimension that disagrees with\nthe geometry it dimensions is a document contradicting itself.\n\nThese now genuinely drive. A dimension carries two KOMPAS constraints: one\nthat names its variable and one that fixes it. With only the first the number\nis an annotation — setting it changes nothing and a rebuild puts the\nmeasurement back — which is what 1.3 shipped before the second was found.\n\n`to` is named by an angle and by nothing else. An angle measures a relation\nbetween two entities; every other kind measures a property of one.",
@@ -2988,21 +3082,15 @@
     },
     "ScalarNegation": {
       "additionalProperties": false,
-      "description": "The same scalar, the other way — `{\"negate\": <scalar>}`.\n\nThe second thing one parameter could not do: drive both sides of a symmetric\noutline. `lever-plate`'s cap radius is 15 and its profile needs y = +15 *and*\ny = −15, so one of the two had to be a literal, and a document half-driven by\nits parameters is one where changing a dimension moves half the part.",
+      "description": "A parameter or a quotient, the other way — `{\"negate\": {\"parameter\": \"r\"}}`.\n\nThe second thing one parameter could not do: drive both sides of a symmetric\noutline. `lever-plate`'s cap radius is 15 and its profile needs y = +15 *and*\ny = −15, so one of the two had to be a literal, and a document half-driven by\nits parameters is one where changing a dimension moves half the part.",
       "properties": {
         "negate": {
           "anyOf": [
-            {
-              "type": "number"
-            },
             {
               "$ref": "#/$defs/ParameterRef"
             },
             {
               "$ref": "#/$defs/ScalarQuotient"
-            },
-            {
-              "$ref": "#/$defs/ScalarNegation"
             }
           ],
           "title": "Negate"
@@ -3016,24 +3104,10 @@
     },
     "ScalarQuotient": {
       "additionalProperties": false,
-      "description": "A scalar divided by a constant — `{\"divide\": <scalar>, \"by\": 2.0}`.\n\nAlmost every mechanical drawing dimensions **diameters**, and almost every\ncontour takes a **radius**. Until this existed the two could not be the same\nnumber: a `Scalar` was `float | ParameterRef` with no arithmetic, so a\ndocument that read \"Ø44\" off a drawing had to write `44` into a parameter and\nthen write `22` — or, as one real order did, write `44` again — as a literal\nbeside it.\n\nThat order is why this is here. It declared `bushing_outer_radius: 44`, the\n*diameter* value under a radius name, extruded a circle of radius 44, and\nrestated 88 in its own expectation so the check agreed. A Ø88 part, delivered,\nwith every measurement green — because the number that built it and the number\nthat checked it were the same copy, and the copy that came off the drawing was\ncompared against nothing.",
+      "description": "A parameter divided by a constant — `{\"divide\": {\"parameter\": \"d\"}, \"by\": 2.0}`.\n\nAlmost every mechanical drawing dimensions **diameters**, and almost every\ncontour takes a **radius**. Until this existed the two could not be the same\nnumber: a `Scalar` was `float | ParameterRef` with no arithmetic, so a\ndocument that read \"Ø44\" off a drawing had to write `44` into a parameter and\nthen write `22` — or, as one real order did, write `44` again — as a literal\nbeside it.\n\nThat order is why this is here. It declared `bushing_outer_radius: 44`, the\n*diameter* value under a radius name, extruded a circle of radius 44, and\nrestated 88 in its own expectation so the check agreed. A Ø88 part, delivered,\nwith every measurement green — because the number that built it and the number\nthat checked it were the same copy, and the copy that came off the drawing was\ncompared against nothing.",
       "properties": {
         "divide": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "$ref": "#/$defs/ParameterRef"
-            },
-            {
-              "$ref": "#/$defs/ScalarQuotient"
-            },
-            {
-              "$ref": "#/$defs/ScalarNegation"
-            }
-          ],
-          "title": "Divide"
+          "$ref": "#/$defs/ParameterRef"
         },
         "by": {
           "title": "By",
@@ -4095,8 +4169,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.11",
-      "default": "1.11",
+      "const": "1.12",
+      "default": "1.12",
       "title": "Schema Version",
       "type": "string"
     },
@@ -4131,6 +4205,7 @@
             "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
             "feature.boolean": "#/$defs/BooleanFeature",
             "feature.chamfer": "#/$defs/ChamferFeature",
+            "feature.draft": "#/$defs/DraftFeature",
             "feature.fillet": "#/$defs/FilletFeature",
             "feature.pattern": "#/$defs/PatternFeature",
             "feature.shell": "#/$defs/ShellFeature",
@@ -4171,6 +4246,9 @@
           },
           {
             "$ref": "#/$defs/ShellFeature"
+          },
+          {
+            "$ref": "#/$defs/DraftFeature"
           },
           {
             "$ref": "#/$defs/SolidSweepFeature"

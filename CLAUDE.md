@@ -31,13 +31,14 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.10** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.12** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
   and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
   (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`), 1.9 sweep and loft
-  (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`).
+  (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`), 1.11
+  scalar arithmetic (`docs/adr/ADR-034-*`), 1.12 draft (`docs/adr/ADR-035-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -252,6 +253,18 @@ is a sign somebody else chose. Both have closed-form arithmetic (the prismatoid 
 taper, exact to six decimal places), and neither is offered to the drawing cycle, because
 neither is something a drawing states in words the reading stage has.
 
+**The claim has since gained the word for a draft** (ADR-033's amendment,
+`docs/acceptance/POSTMVP-021-draft-in-the-claim.md`). `ShapeClaim.draft` names the parameter
+holding the angle, and it is the worst-hidden omission found so far: a *narrowing* draft
+keeps the sketch as the widest section, so a document that dropped it agrees with the
+drawing on the outline, the openings, the solid count **and the bounding box**, and holds a
+third less material — 20 × 20 × 10 comes back 2 720.752 mm³ against 4 000. The claim says
+the name and not the direction, measured rather than assumed: a positive taper narrows away
+from the sketch plane whichever way the extrusion travels, so `direction` cannot flip it and
+a `Scalar` with no arithmetic cannot negate it. A named angle holding **0°** is refused, as
+the one place the id and the value can be made to disagree. The offer is still held back —
+now by vision rather than by vocabulary.
+
 **The kernel's failure mode is a plausible answer**, and that is now three findings of one
 shape: a shell with no room returns the original solid, a sweep round too tight a bend
 returns a self-intersecting one, a draft past the closing point returns a stump 10 mm tall
@@ -286,18 +299,179 @@ restated 80 as a literal in its expectation. The rule that would refuse it
 (`PARAMETER_DRIVES_NOTHING`) was written, measured and **reverted**: a canonical `Scalar`
 is `float | ParameterRef` with no arithmetic, so a diameter cannot drive a radius and one
 parameter cannot drive both sides of a symmetric outline. Version 0.1.0 had expressions
-and the canonical form traded them away; this is the bill. Unblocking it needs a `Scalar`
-carrying at least negation and division by a constant — a CAD-IR version, an evaluator in
-trusted code, and a decision about how much expression language is safe to take from a
-model.
+and the canonical form traded them away; this is the bill.
+
+**CAD-IR 1.11 paid it** (ADR-034). `ScalarQuotient` and `ScalarNegation` cover both rows of
+the measured table — a diameter driving a radius, and one parameter driving both sides of a
+symmetric outline — and `PARAMETER_DRIVES_NOTHING` shipped with them, because arithmetic
+without the rule makes nothing use it. Structured nodes rather than the `{"expr": "d / 2"}`
+0.1.0 had: `"d/2"` and `"d / 2"` are one part with two hashes, which is what ADR-018 traded
+expressions away to prevent. Sums are refused for a stated reason — a difference of two
+dimensions is a relationship nobody drew unless the drawing draws it, and that argument is
+the one an up-to-face extrusion has to answer.
+
+The parser 0.1.0 used is still in the tree (`cad_ir.expression`: a fixed grammar, bounded
+input and result, three whitelisted functions and a test for `__import__('os').system(...)`),
+reachable only from the 0.1.0 validator nothing calls. It is worth knowing it exists: the
+question of how much expression language is safe was answered then, and what was actually
+blocked all along was the canonical representation.
+
+**One value, one spelling** (ADR-034's amendment). The two scalar nodes were written the
+general way — each taking a whole `Scalar` — which admitted four spellings of −p/2 and two
+of +p, so the byte-stable hash ADR-018 exists for did not identify a part. The fix adds
+nothing: a quotient divides a **reference** by a positive constant that is not 1, and a
+negation wraps a reference or a quotient. Three things fell out of it — the explicit depth
+bound became unnecessary (the grammar bounds it at two), `negates` became one line, and the
+output profile turned out to be **offering documents the validator would refuse**, which is
+the worst kind of rejection because the repair loop has nothing to read. A test now holds
+the profile and the contract to the same set.
+
+**A failure can be worth neither repairing nor retrying** (POSTMVP-025). `BuildFeedback`
+split failures in two — repairable by rewriting the document, or about the machine — and the
+cases are three: a quota that returns on a stated date is not repairable *and* not worth
+another attempt, so a machine failure on attempt 1 of 3 went quietly back to the queue.
+`WillBeTheSameNextTime` is the third answer, and the distinction is that **a retry cannot
+observe a change**: a container that would not start may start, and this service has one
+locally authenticated CLI on one machine, so a quota has no second account to find.
+
+The run that asked for it found the larger half. `RunClaimedJobAsync` caught
+`WorkerException`, and a Codex failure raises `CodexRunnerException` — same shape, neither
+deriving from the other — so it went past the reporting branch into the claim loop's blanket
+backoff. **No report on any attempt, for every Codex failure there is.** That is why the job
+stayed leased with an empty `output/` and the page said "waiting". `ClaimLoop.Typed` names a
+failure from either type; anything without a code still falls through, because an exception
+this worker did not name is a bug in the worker rather than a verdict about the drawing.
+
+One correction worth keeping: `CODEX_BUDGET_EXHAUSTED` is the worker's **own per-order run
+counter** and never comes from the CLI. An exhausted account quota arrives as
+`CODEX_CAPACITY_LIMIT`, because `MapExit` reads "limit" out of the message text. Classifying
+only the first would have left the measured failure retrying exactly as before.
 
 One defect outside the geometry was found by the runs and fixed: **the Codex child
 inherited the worker's own stdin**, so a pipe nobody closed made a stage fail with no
 events at all — indistinguishable from the model failing — and any bytes that did arrive
 would have been appended to the prompt. Redirected and closed at start.
 
-**What is next**: rib (P3.2, which needs `extrude(until=…)` investigating — it fails on
-the first attempt), then the rest of Gate P4. `docs/POST-MVP-ROADMAP.md` has the order.
+**Nothing is left leased forever** (P0-3 of the production audit). Two states a job
+could reach and never leave. `claim` selects `attempt < max_attempts`, so a worker that
+dies on its **last** attempt leaves the row unclaimable *and* un-failed — measured, and
+the two protocol implementations even spell it differently (the in-memory claim resets
+the lease to PENDING first, the SQL one leaves it LEASED), which is one disease with two
+names. And a quota that returns on a date is neither failed nor waiting.
+
+So `JobStatus.PAUSED` with a `retry_after`, and a **reaper** on a timer rather than on a
+claim — the case it exists for is the one where *nothing is claiming*. It requeues a
+lapsed lease with attempts left, fails one with none (`LEASE_LOST`, a code of its own,
+because the worker said nothing and that is what happened), and returns a pause when its
+time comes.
+
+**A pause hands the attempt back**, which a test caught by asserting the opposite: nothing
+was attempted, and spending one means a four-day outage burns every job's three tries in
+the first hour and then fails them all with a code that lies twice. The worker sends a
+*duration* rather than the date the CLI prints — parsing prose is the weakness `MapExit`
+already has — so a quota that is still out simply pauses again, hourly, for free.
+
+The page stops lying and stops polling: a pause reads as a pause with the time it will be
+retried, and the three-second poll now ends on READY and FAILED instead of running until
+the tab closes.
+
+**The raw upload never crosses into the pipeline** (P0-2 of the production audit,
+`docs/SECURE-INPUT-ADDENDUM.md`). What stood in the approved requirement's place was
+`payload = await request.body()`: the whole upload in memory, eight magic bytes checked, and
+the file a stranger sent written into the directory the worker downloads from. Three stages
+now, each doing what the next cannot — a **quarantine** that counts and hashes as it reads and
+*stops* at the limit rather than measuring what already happened, a **sanitizer in a child
+process** with no environment of ours and `RLIMIT_AS`/`RLIMIT_CPU` (the wall clock stays on
+our side, because a child that has stopped responding cannot enforce its own timeout), and a
+page **rebuilt from pixels** so nothing the decoder attached travels. Alpha is composited onto
+white rather than dropped — dropping it keeps the RGB the uploader believed was invisible. The
+answer is one JSON line, measured against the bytes on disk before it is believed, the way the
+CAD launcher treats the engine. Not done and not implied: the container image itself (the argv
+is asserted, the process mode is what runs), WEBP, and the PDF contour.
+
+**An order is a row, and there is one vocabulary for it** (P0-4, ADR-036, migration 0008).
+Jobs, artifacts and the ledger had been in PostgreSQL since 0001; the order — the thing the
+customer has — was two dictionaries in `app.main`, so a restart lost every order in flight and
+a second API process never saw the first one's. Reading the code found two things worse than
+that. The stored status was **written and never read**, so persisting it unchanged would have
+made a lie durable. And the API answered in **two vocabularies at once** — `READY` and
+`WAITING_FOR_USER_ANSWERS` from `OrderStatus`, `PENDING` and `LEASED` from `JobStatus` —
+depending on which branch fired.
+
+So the row holds what only the order knows and the job keeps progress, because copying it
+would be a second place for one truth to live. `pipeline_status` is the single translation:
+`LEASED` says a worker holds the job and says nothing about what it is doing, and the job's
+**type** is the only thing that does. `PAUSED` joins `OrderStatus` as **derived-only** —
+nothing transitions into or out of it, an empty transition set here means "not stored" rather
+than "terminal". And a **decision outranks an observation**: cancelling does not reach into
+the worker, so the build finishes and the order is still cancelled. That is what makes the
+stored status stop being write-only, and it is the column the moderation queue will write.
+Measured on a real PostgreSQL: one process creates and cancels an order, a second process
+reads it back cancelled — where before it would have found the order through the tracking
+file and reported `PENDING`.
+
+Regenerating the published contract for one new enum value found that `schemas/openapi.v1.json`
+had been **stale since 0007**. Neither existing check could see it: one validates the document's
+shape, the other only that nothing v1 promised has disappeared, and a field that never arrived
+fails neither. `generate_openapi.py --check` now runs in CI.
+
+**What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
+not run beside another one — two branches each holding a contract change is expensive to
+reconcile, which this repository has paid for once. Then the rest of Gate P4.
+`docs/POST-MVP-ROADMAP.md` has the order.
+
+**A draft names its walls** (POSTMVP-026, ADR-035), and it is the first operation admitted
+against the rule three milestones arrived at. POSTMVP-024 had measured that a drafted boss
+is *identical* either way — 26 689.1761 mm³ from `extrude(taper=10)` and from drafting the
+walls afterwards — so the case had to be two things composition cannot reach: **two walls
+of four** (29 178.7680 mm³, `a·h·(a − h·tanθ)`, bounding box unchanged because the walls
+the drawing leaves alone still stand) and **a body no extrusion made** (a turned tube's
+outer wall, 18 849.5559 → 14 678.4446, the frustum less the bore).
+
+The faces are named by selector and so is the **neutral face**, whose plane holds still —
+about the base 26 689.1761, about the top 37 974.1029, both valid. And its normal is turned
+**inward**, which is the one thing the engine decides rather than passes through: read
+straight off, a base face looks down and out of the part, so a positive angle would narrow
+the part downwards. Turned inward, the named face keeps its size and the answer is the same
+whichever end the document names — which is what makes the rule sayable: *positive draws
+the walls in as they leave the neutral face.*
+
+Two firsts in its failure modes. At exactly the closing angle the kernel returns the
+pyramid and **reports `is_valid` false** — the first time it has volunteered that its own
+answer is wrong, where the shell, the sweep, the taper and `until` all claimed validity.
+Past it, `Standard_ConstructionError` **with an empty message**, which without a wrap
+escapes as a crash rather than a refusal. Both are `DRAFT_TOO_STEEP`.
+
+**Rib itself needs no operation** (POSTMVP-022): a closed contour extruded both ways,
+31 468.0000 mm³ against a closed form of 31 468. What the roadmap listed beside it does.
+`feature.draft(faces, angle)` is the one selections are waiting on — POSTMVP-024 found the
+four upright walls of a boss are there to name, and then nothing in CAD-IR takes a set of
+wall faces: a fillet takes edges and a shell takes the faces it removes. It earns its place
+by the rule those three milestones arrived at, because it says what `taper_deg` cannot:
+*these* walls and not those, and a draft on a body a revolve or a boolean produced.
+
+**An up-to-face extrusion is designed and not built**
+(`docs/TASK-POSTMVP-P3-2-up-to-a-face.md`), and the investigation ends by dropping
+`extrude(until=…)` altogether. Sixteen
+cases: two are correct, three raise, and three succeed wrongly — a profile inside the
+material spikes 62.45 mm into open space and reports one valid solid, a cut to the next
+surface can remove nothing. `until` is also the first operation that would state **no
+number**, so the post-check pattern that caught the last three defects has nothing to
+compare against. So an up-to-face extrusion **names the terminating face with a selector**
+(ADR-019's rule, again) and trusted code computes the reach — `((p − o)·n)/(d·n)`, which
+reproduces the kernel's own answer to 0.000e+00 where `until=` works, gives the corpus a
+closed form the kernel used to keep to itself, and turns each failure into a refusal or into
+two solids that `body_count` already sees. Building it is a CAD-IR version.
+
+The local session probed the same thing independently and found two more of its lies
+(POSTMVP-022): `Until.NEXT` added 14 834.94 mm³ to a bracket — a slab rather than a rib, and
+closed-form from nothing — and `Until.LAST` added nothing at all, silently. The objection that
+decides it is upstream of whether it works: **`until` answers a question the drawing has
+already answered.** A rib is dimensioned, and answering by asking the kernel puts a number in
+the part that no document states and no expectation can check. Where a reach genuinely is not
+stated it is a *difference* of two dimensions, which is the one thing 1.11's arithmetic
+deliberately cannot express — so that, and not the rib, is what an up-to-face extrusion is
+for.
 
 **The migration's last leftovers are gone.** `WorkerCapability.KOMPAS_BUILD`,
 `ResourceStage.KOMPAS_STARTUP`, the manifest's `kompas_version` and the `M3D`

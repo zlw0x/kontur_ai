@@ -1,3 +1,4 @@
+using CadAi.CodexRunner;
 using CadAi.LocalWorker;
 using Xunit;
 
@@ -50,7 +51,20 @@ public sealed class ClaimedJobWiringTests : IDisposable
             // `fake: true` keeps this off a container and a real interpreter. The
             // question here is whether an engine arrives, not which one.
             WorkerEngine.EngineSelection.For(config: null, fake: true),
-            new ResourceLedger("job-wiring", 1));
+            new ResourceLedger("job-wiring", 1),
+            // And a stub runner for the same reason: constructing a real
+            // LocalCodexRunner searches the machine for the CLI and throws when it
+            // is absent, so these three assertions could only run where Codex is
+            // installed. Whether this machine can reach a model is not the question.
+            new UnusedRunner());
+
+    /// <summary>A runner these tests never call. They assert assembly, not a run.</summary>
+    private sealed class UnusedRunner : ICodexRunner
+    {
+        public Task<CodexStageResult> RunAsync(
+            CodexStageRequest request, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("a wiring test does not run a stage");
+    }
 
     /// <summary>
     /// The claimed-job pipeline is given something to check the document against.

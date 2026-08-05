@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/1.11",
-  "title": "CAD-IR 1.11, narrowed to the geometry this build can construct",
+  "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/1.12",
+  "title": "CAD-IR 1.12, narrowed to the geometry this build can construct",
   "description": "A subset of the canonical CAD-IR schema, expressed in the dialect the Codex structured-output API accepts: anyOf rather than oneOf, every node typed, every array with items, and every object listing all of its properties as required. The canonical schema says what version 1.2 can express; this says what may be generated, so the model is constrained at generation time instead of being corrected by a repair loop. Auxiliary planes and face selectors are part of 1.2 but not offered here: a selector's predicates are individually optional, and a dialect without optional properties would force the model to emit predicates the trusted validator rejects. Semantics the dialect cannot state — that a contour closes, for instance — are enforced by the adapter before anything reaches KOMPAS.",
   "type": "object",
   "properties": {
@@ -11,7 +11,7 @@
     },
     "schema_version": {
       "type": "string",
-      "const": "1.11"
+      "const": "1.12"
     },
     "document": {
       "type": "object",
@@ -212,15 +212,27 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9_.-]{1,63}$"
     },
+    "scalar_reference": {
+      "type": "object",
+      "properties": {
+        "parameter": {
+          "$ref": "#/$defs/identifier"
+        }
+      },
+      "required": [
+        "parameter"
+      ],
+      "additionalProperties": false
+    },
     "scalar_quotient": {
       "type": "object",
       "properties": {
         "divide": {
-          "$ref": "#/$defs/scalar"
+          "$ref": "#/$defs/scalar_reference"
         },
         "by": {
           "type": "number",
-          "minimum": -1000000,
+          "minimum": 1e-09,
           "maximum": 1000000
         }
       },
@@ -234,7 +246,14 @@
       "type": "object",
       "properties": {
         "negate": {
-          "$ref": "#/$defs/scalar"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/scalar_reference"
+            },
+            {
+              "$ref": "#/$defs/scalar_quotient"
+            }
+          ]
         }
       },
       "required": [
@@ -250,16 +269,7 @@
           "maximum": 1000000
         },
         {
-          "type": "object",
-          "properties": {
-            "parameter": {
-              "$ref": "#/$defs/identifier"
-            }
-          },
-          "required": [
-            "parameter"
-          ],
-          "additionalProperties": false
+          "$ref": "#/$defs/scalar_reference"
         },
         {
           "$ref": "#/$defs/scalar_quotient"
@@ -1342,6 +1352,85 @@
       ],
       "additionalProperties": false
     },
+    "topmost_face": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "type": "string",
+          "const": "face"
+        },
+        "from_result": {
+          "type": "string",
+          "const": "body.main"
+        },
+        "cardinality": {
+          "type": "string",
+          "const": "exactly_one"
+        },
+        "where": {
+          "type": "object",
+          "properties": {
+            "surface_type": {
+              "type": "string",
+              "const": "planar"
+            },
+            "normal": {
+              "type": "object",
+              "properties": {
+                "parallel_to": {
+                  "type": "string",
+                  "const": "axis.z"
+                },
+                "direction": {
+                  "type": "string",
+                  "const": "positive"
+                }
+              },
+              "required": [
+                "direction",
+                "parallel_to"
+              ],
+              "additionalProperties": false
+            },
+            "position": {
+              "type": "object",
+              "properties": {
+                "extreme_along": {
+                  "type": "string",
+                  "const": "axis.z"
+                },
+                "extreme": {
+                  "type": "string",
+                  "const": "maximum"
+                }
+              },
+              "required": [
+                "extreme",
+                "extreme_along"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "normal",
+            "position",
+            "surface_type"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "cardinality",
+        "from_result",
+        "id",
+        "kind",
+        "where"
+      ],
+      "additionalProperties": false
+    },
     "corner_fillet": {
       "type": "object",
       "properties": {
@@ -1555,7 +1644,14 @@
           "type": "object",
           "properties": {
             "faces": {
-              "$ref": "#/$defs/top_face"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/top_face"
+                },
+                {
+                  "$ref": "#/$defs/topmost_face"
+                }
+              ]
             },
             "thickness": {
               "$ref": "#/$defs/scalar"

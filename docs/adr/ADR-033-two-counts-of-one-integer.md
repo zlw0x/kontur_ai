@@ -118,3 +118,49 @@ sweep round too tight a bend returns a self-intersecting one; a draft past the c
 point returns a stump. Each is now a named code. The pattern is worth stating on its own:
 **this kernel's failure mode is a plausible answer, so every operation that can be
 over-driven gets a post-check comparing the result against what was asked.**
+
+## Amendment, 2026-08-04: the claim gained the word
+
+The sentence above — "a draft angle is a note the claim has no word for" — was true when
+it was written and is the reason `taper_deg` was not offered to the drawing cycle. It is
+now false: `ShapeClaim.draft` names the parameter holding the angle, checked as
+`DRAFT_PARAMETER`, and it lands on the same terms `wall` did in ADR-030. **The claim's
+word arrives before the offer, and that ordering is deliberate**: what the reading stage
+can state is settled first, and the output profile follows when the rest of ADR-029's
+walls come down.
+
+The measurement that decides its shape is that a draft is *worse* hidden than a shell.
+A 20 × 20 sketch extruded 10 mm:
+
+| taper | volume | x span | z span |
+|---|---|---|---|
+| none | 4 000.000 | ±10.000 | 0 … 10 |
+| +20° | 2 720.752 | **±10.000** | 0 … 10 |
+| −20° | 5 632.513 | ±13.640 | 0 … 10 |
+
+A narrowing draft — the one a cast part actually shows — keeps the sketch as the widest
+section, so the outline, the openings, the solid count *and the bounding box* are all the
+square part's. Only the volume knows, and the volume expectation is written by the same
+stage that chose the taper. A shell at least differs in material and shows a face the
+outside does not have; an omitted draft differs in nothing anything else measures.
+
+**The claim says the name and not the direction, and that is measured rather than
+assumed.** The kernel was asked which way a taper leans when the extrusion runs backwards:
+
+```
+amount=+10 taper=+20   x=[-10.000,+10.000]   far face 161.814 mm²
+amount=-10 taper=+20   x=[-10.000,+10.000]   far face 161.814 mm²
+```
+
+A positive taper narrows **away from the sketch plane** in both cases, so `direction`
+cannot flip the physical meaning. The sign lives in the parameter's value, and a canonical
+`Scalar` is a float or a reference with no arithmetic between them — so the compilation
+stage cannot negate an angle it was given. A claimed "narrows" could therefore only
+disagree with the reading stage's own number, which is a stage checking itself and not a
+check (ADR-018). One consequence is kept as a check anyway: a named angle that resolves to
+**0°** is square walls with a name on them, and is refused.
+
+What the claim still cannot see is *which* feature leans. A drawing that drafts a pocket
+against a document that drafts the outer wall by the right parameter agrees here. That is
+recorded rather than pretended away, and it is the same limit `wall` has — a claim of
+kinds and counts cannot say where.

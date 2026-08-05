@@ -347,6 +347,13 @@ public static class ClaimLoop
     /// **It was the last permitted attempt.** `max_attempts` now travels with the
     /// claim precisely so this does not have to be a number written down twice.
     ///
+    /// **Another attempt would be told the same thing.** The third case, and the one
+    /// a real run found: the Codex quota was exhausted until a stated date, so the
+    /// failure was not repairable and not the last attempt, and the job went quietly
+    /// back to the queue. Three retries later the page still said "waiting" and the
+    /// reason had reached nobody. `BuildFeedback.WillBeTheSameNextTime` names the
+    /// codes where the retry cannot observe a change.
+    ///
     /// Anything else is left to lapse, unchanged.
     ///
     /// Reporting is itself allowed to fail, and quietly: the lease is the fallback
@@ -372,14 +379,62 @@ public static class ClaimLoop
         {
             await ExecuteClaimedJobAsync(client, job, paths, selected, cancellation);
         }
-        catch (WorkerException error)
+        catch (Exception error) when (Typed(error) is { } failure)
         {
-            if (BuildFeedback.IsRepairable(error.Code) || job.attempt >= job.max_attempts)
-                await TryReportFailureAsync(client, job, error.Code, error.SafeMessage, cancellation);
+            if (EndsTheJob(failure.Code, job.attempt, job.max_attempts))
+                await TryReportFailureAsync(
+                    client, job, failure.Code, failure.Message,
+                    // A failure that will say the same thing next time is a *pause*
+                    // rather than an end, and the API needs to know when to look
+                    // again. Everything else reports with no date and is final.
+                    BuildFeedback.WillBeTheSameNextTime(failure.Code)
+                        ? DateTimeOffset.UtcNow + BuildFeedback.PauseFor
+                        : null,
+                    cancellation);
             Console.Error.WriteLine(
-                $"job {job.job_id} attempt {job.attempt}/{job.max_attempts} failed: {error.Code}");
+                $"job {job.job_id} attempt {job.attempt}/{job.max_attempts} failed: {failure.Code}");
         }
     }
+
+    /// <summary>
+    /// A failure this side can name, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// Two exception types carry a code and a safe message and **neither derives from
+    /// the other**. Only `WorkerException` was caught here, so every
+    /// `CodexRunnerException` — an exhausted quota, a timed-out run, a CLI that is not
+    /// installed — went straight past this method into the claim loop's blanket
+    /// backoff. Not retried three times and then reported: **never reported, on any
+    /// attempt**, because the branch that reports was in a `catch` the exception did
+    /// not match.
+    ///
+    /// That is the mechanism behind the run that ended with an empty `output/`, a job
+    /// still leased and an order page saying "waiting". The third case in
+    /// `BuildFeedback` decides the quota correctly and would not have fired, because
+    /// nothing asked it.
+    ///
+    /// Anything else still falls through to the backoff, which is right: an exception
+    /// with no code is a bug in this worker rather than a verdict about the job, and
+    /// reporting one as the job's failure would blame the drawing for it.
+    /// </remarks>
+    internal static (string Code, string Message)? Typed(Exception error) => error switch
+    {
+        WorkerException worker => (worker.Code, worker.SafeMessage),
+        CadAi.CodexRunner.CodexRunnerException codex => (codex.Code, codex.SafeMessage),
+        _ => null,
+    };
+
+    /// <summary>Is this the end of the job, or will something claim it again?</summary>
+    /// <remarks>
+    /// Three reasons to end it and they are different questions, which is why they are
+    /// not one bit: the agent cannot fix it by rewriting, another attempt would be told
+    /// the same thing, or there are no attempts left. Separated out so each is
+    /// assertable without an HTTP client and a lease.
+    /// </remarks>
+    internal static bool EndsTheJob(string code, int attempt, int maxAttempts) =>
+        BuildFeedback.IsRepairable(code)
+        || BuildFeedback.WillBeTheSameNextTime(code)
+        || attempt >= maxAttempts;
 
     /// <summary>Tell the API the job is over, or fail silently trying.</summary>
     private static async Task TryReportFailureAsync(
@@ -387,13 +442,14 @@ public static class ClaimLoop
         ClaimedJob job,
         string code,
         string message,
+        DateTimeOffset? retryAfter,
         CancellationToken cancellation)
     {
         try
         {
             using var response = await client.PostAsJsonAsync(
                 $"/api/v1/workers/jobs/{job.job_id}/fail",
-                new { job_id = job.job_id, code, message },
+                new { job_id = job.job_id, code, message, retry_after = retryAfter },
                 cancellation);
             response.EnsureSuccessStatusCode();
         }
@@ -431,12 +487,20 @@ public static class ClaimLoop
     /// is given, which is the thing no test could see before — every existing one
     /// hands the pipeline a stub engine of its own and is therefore blind to the
     /// wiring.
+    ///
+    /// <paramref name="runner"/> is injectable for the same reason the engine is
+    /// selectable: constructing a <see cref="CadAi.CodexRunner.LocalCodexRunner"/>
+    /// searches the machine for the CLI and throws when it is absent, so a wiring
+    /// test that built one could only run where Codex is installed. What is being
+    /// asserted is that an engine and the operator's flags arrive — not that this
+    /// machine can reach a model.
     /// </remarks>
     internal static DrawingPipeline CreateDrawingPipeline(
         WorkerPaths paths,
         WorkerEngine.EngineSelection selected,
-        ResourceLedger ledger) =>
-        new(new CadAi.CodexRunner.LocalCodexRunner(),
+        ResourceLedger ledger,
+        CadAi.CodexRunner.ICodexRunner? runner = null) =>
+        new(runner ?? new CadAi.CodexRunner.LocalCodexRunner(),
             ledger: ledger,
             engine: selected.Engine,
             disabledCapabilities: [.. FeatureFlags.Load(paths).Disabled]);

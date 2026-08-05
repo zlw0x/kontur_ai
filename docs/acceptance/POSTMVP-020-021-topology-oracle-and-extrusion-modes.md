@@ -145,6 +145,13 @@ and a draft angle is a note the claim has no word for. Offering them would be th
 ADR-029 forbids. The oracle needs no offer at all: it runs on every build, including
 every build the cycle already produces.
 
+> **Half of that is no longer true.** Two days later the claim gained the word:
+> `ShapeClaim.draft` names the parameter holding the angle
+> (`docs/acceptance/POSTMVP-021-draft-in-the-claim.md`, ADR-033's amendment). The offer is
+> still held back, now by ADR-029's vision wall rather than by the claim's vocabulary.
+> `both_directions` stands as written — a symmetric extrusion is a choice about where the
+> part sits, and nothing on a drawing states it.
+
 **It is not Gate P4 complete.** The oracle checks the genus two ways and the corpus checks
 face, edge and vertex counts against closed-form arithmetic on sixteen cases. What Gate P4
 also wants is that check on *every* golden model, and there are 59 rather than 100.
@@ -154,3 +161,13 @@ needs "extend to the next face", which is `extrude(until=…)` — probed and fa
 first attempt with `Extrusion is None`, so it needs its own investigation rather than a
 guess. The thread callout is a manufacturing note rather than geometry and belongs with
 the annotation work in P3.4.
+
+> **That investigation is done** (`docs/TASK-POSTMVP-P3-2-up-to-a-face.md`, 2026-08-04) and
+> it ends by dropping `until=` altogether. `Extrusion is None` turned out to be one geometry
+> rather than a general failure — two of sixteen cases are plainly correct — but three others
+> are worse than an exception: a profile inside the material spikes 62.45 mm into open space
+> and reports success. The design instead **names the terminating face with a selector and
+> computes the reach in trusted code**, which reproduces the kernel's own answer to
+> 0.000e+00 on the case where `until=` works and turns each of its failures into either a
+> refusal or something `body_count` already catches. Still designed rather than built: it is
+> a CAD-IR version.

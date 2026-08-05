@@ -44,6 +44,7 @@ from .base import (
     Provenance,
     Scalar,
     StrictModel,
+    stated_number,
 )
 from .selectors import Cardinality, ExactlyN, FaceSelector
 
@@ -116,11 +117,10 @@ class ShellInputs(StrictModel):
     @model_validator(mode="after")
     def validate_inputs(self) -> "ShellInputs":
         _require_countable_faces(self.faces)
-        if isinstance(self.thickness, ParameterRef):
-            # A promise about a number this module never sees. The engine resolves it
-            # and checks it again in front of the kernel.
-            return self
-        if float(self.thickness) <= 0:
+        # A scalar that reads a parameter is a promise about a number this module
+        # never sees. The engine resolves it and checks it again in front of the kernel.
+        thickness = stated_number(self.thickness)
+        if thickness is not None and thickness <= 0:
             raise ValueError("a wall thickness must be positive")
         return self
 

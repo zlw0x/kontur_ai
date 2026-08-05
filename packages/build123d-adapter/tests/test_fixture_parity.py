@@ -37,11 +37,12 @@ pytest.importorskip("build123d", reason="the CAD engine is not installed")
 from cad_ir.canonical_validator import validate_canonical  # noqa: E402
 
 from cad_engine_build123d.adapter import build  # noqa: E402
+from cad_ir_fixtures import fixture  # noqa: E402
+
 from cad_engine_build123d.adapter import build_part  # noqa: E402
 from cad_engine_build123d.topology import read_edges, read_faces  # noqa: E402
 from cad_engine_build123d.verify import Expectations, verify  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 @dataclass(frozen=True)
@@ -71,12 +72,12 @@ class Parity:
     kompas_edges: int | None = None
 
     def document(self):
-        return validate_canonical(json.loads((FIXTURES / self.name).read_text("utf-8")))
+        return validate_canonical(fixture(self.name))
 
 
 PARTS: tuple[Parity, ...] = (
     Parity(
-        name="plate.v1_11.json",
+        name="plate",
         source="TASK-009 40 × 20 × 10 plate; a box has six faces and twelve edges",
         bodies=1,
         faces={"planar": 6},
@@ -86,7 +87,7 @@ PARTS: tuple[Parity, ...] = (
         horizontal_areas={0.0: 800.0, 10.0: 800.0},
     ),
     Parity(
-        name="plate-with-hole.v1_11.json",
+        name="plate-with-hole",
         source="TASK-009 40 × 20 × 10 plate, one Ø6 through hole",
         bodies=1,
         faces={"planar": 6, "cylindrical": 1},
@@ -101,7 +102,7 @@ PARTS: tuple[Parity, ...] = (
         seam_edges=1,
     ),
     Parity(
-        name="constrained-plate.v1_11.json",
+        name="constrained-plate",
         source=(
             "docs/acceptance/POSTMVP-007: 1 body, bounding box [60, 30, 8]. "
             "docs/acceptance/POSTMVP-005 recorded 8 faces and 16 edges for a "
@@ -122,7 +123,7 @@ PARTS: tuple[Parity, ...] = (
         kompas_edges=16,
     ),
     Parity(
-        name="lever-plate.v1_11.json",
+        name="lever-plate",
         source="docs/acceptance/POSTMVP-006: 1 body, 17 faces (12 planar, 5 cylindrical)",
         bodies=1,
         faces={"planar": 12, "cylindrical": 5},
@@ -150,7 +151,7 @@ PARTS: tuple[Parity, ...] = (
     ),
 )
 
-IDS = [part.name.removesuffix(".v1_11.json") for part in PARTS]
+IDS = [part.name for part in PARTS]
 
 
 @pytest.fixture(scope="module", params=PARTS, ids=IDS)

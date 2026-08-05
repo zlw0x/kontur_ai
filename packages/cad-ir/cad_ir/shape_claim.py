@@ -37,7 +37,7 @@ from typing import Annotated
 
 from pydantic import Field
 
-from .base import Id, ParameterRef, StrictModel
+from .base import Id, StrictModel, negates, parameters_of, stated_number
 from .canonical import (
     BooleanFeature,
     CadIrDocument,
@@ -46,6 +46,7 @@ from .canonical import (
     CutLoftFeature,
     CutRevolveFeature,
     CutSweepFeature,
+    DraftFeature,
     FilletFeature,
     PatternFeature,
     ResultKind,
@@ -228,6 +229,21 @@ class ShapeClaim(StrictModel):
     #: times the material. Naming the parameter, rather than carrying the number,
     #: keeps the rule ADR-025 set — a claim states kinds and names, never sizes.
     wall: Id | None = None
+    #: The id of the parameter holding the draft angle, when the drawing marks one, and
+    #: nothing when the walls are square or the reader could not tell.
+    #:
+    #: The second thing the claim says about how much of the part is there rather than
+    #: what shape it is, and it is here for the same reason `wall` is: a drafted
+    #: extrusion and a square one agree on the outline, the openings, the solid count
+    #: and — for the narrowing draft a cast part actually shows — the bounding box too.
+    #: A 20 × 20 pad 10 mm tall drafted 20° holds 2 720.752 mm³ where the square one
+    #: holds 4 000, and nothing else the claim counts can tell them apart.
+    #:
+    #: A name, never an angle, and never a direction either: which way the walls lean
+    #: is the sign of the parameter's own value, and a canonical `Scalar` has no
+    #: arithmetic to flip it with (ADR-033). Measured rather than assumed — see
+    #: `_draft_disagreement`.
+    draft: Id | None = None
     #: The rounded and chamfered edges the drawing marks, by kind and count. Empty when
     #: the part has none or the reader could not see them — silence is not a claim.
     blends: Annotated[list[BlendClaim], Field(max_length=16)] = Field(default_factory=list)
@@ -296,6 +312,7 @@ def disagreements(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreeme
     found.extend(_opening_disagreements(document, claim, repeats, subtracted))
     found.extend(_thickness_disagreement(solids[0], claim))
     found.extend(_wall_disagreement(document, claim))
+    found.extend(_draft_disagreement(document, claim))
     found.extend(_blend_disagreements(document, claim))
     found.extend(_step_disagreement(solids, claim, repeats))
     return found
@@ -714,14 +731,16 @@ def _wall_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disag
                 ),
             )
         ]
+    # Through the arithmetic, not only at the top of it: a wall stated as half an
+    # overall thickness is driven by the parameter the drawing gave (ADR-034).
     named = {
-        str(shell.inputs.thickness.parameter)
-        for shell in shells
-        if isinstance(shell.inputs.thickness, ParameterRef)
+        name for shell in shells for name in parameters_of(shell.inputs.thickness)
     }
     if str(claim.wall) in named:
         return []
-    literals = [shell for shell in shells if not isinstance(shell.inputs.thickness, ParameterRef)]
+    literals = [
+        shell for shell in shells if not parameters_of(shell.inputs.thickness)
+    ]
     if literals:
         return [
             Disagreement(
@@ -747,21 +766,176 @@ def _wall_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disag
     ]
 
 
+def _draft_angle(feature):
+    """The angle a feature leans by, or `None` when it leans by nothing.
+
+    Two operations state one, and the claim treats them alike because a drawing does:
+    `taper_deg` on an extrusion (1.10) and `feature.draft` on walls that already exist
+    (1.12). What a reader saw was an angle on a wall; which of the two the compilation
+    reached for is not something the drawing says.
+
+    A reference is always an angle: what a parameter holds is looked at separately,
+    because a *named* zero is a different mistake from an unnamed one.
+    """
+    if isinstance(feature, DraftFeature):
+        return feature.inputs.angle_deg
+    taper = getattr(feature.inputs, "taper_deg", 0.0)
+    if taper is None:
+        return None
+    stated = stated_number(taper)
+    return taper if stated is None or stated != 0.0 else None
+
+
+def _drafted(document: CadIrDocument) -> list:
+    """Every enabled feature that leans a wall, in document order."""
+    return [
+        feature
+        for feature in document.features
+        if feature.enabled and _draft_angle(feature) is not None
+    ]
+
+
+def _draft_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disagreement]:
+    """A part read as drafted must be drafted by a named angle.
+
+    The same three mistakes `wall` catches, and the first is again the one worth the
+    check: a document that leaves the walls square. It builds, it is manifold, its
+    outline is the drawing's, its openings are the drawing's, and — this is what makes
+    a draft harder than a wall — **its bounding box is the drawing's too**. Measured:
+    a 20 × 20 sketch extruded 10 mm with a +20° taper still spans exactly ±10 in x,
+    because the taper narrows away from the sketch plane and the sketch is the widest
+    section. Only the volume knows, and the volume expectation is written by the same
+    stage that chose the taper.
+
+    (A *negative* taper widens as it travels, and there the same sketch spans ±13.640 —
+    so a widening draft the document invented is visible to a bounding box and a
+    narrowing one the document forgot is not. The common case on a cast part is the
+    invisible one.)
+
+    Two things this deliberately does not say. Not the angle: ADR-025's rule, and a
+    size is an expectation's job. Not the direction either — which way the walls lean is
+    the sign of the parameter's own value, and a canonical `Scalar` is a float or a
+    reference with no arithmetic between them, so the compilation cannot flip a sign it
+    was given. A claimed "narrows" could therefore only ever disagree with the reading
+    stage's own number, and a check that compares a stage against itself is not a check
+    (ADR-018).
+
+    What it also cannot see is *which* feature leans. A drawing that drafts a pocket and
+    a document that drafts the outside wall by the right parameter agree here.
+    """
+    if claim.draft is None:
+        return []
+    tapered = _drafted(document)
+    if not tapered:
+        return [
+            Disagreement(
+                code="DRAFT_PARAMETER",
+                claimed=str(claim.draft),
+                built="no taper",
+                detail=(
+                    f"the drawing was read as drafted by {claim.draft} and the document "
+                    "extrudes square"
+                ),
+            )
+        ]
+    named = {
+        name for feature in tapered for name in parameters_of(_draft_angle(feature))
+    }
+    if str(claim.draft) in named:
+        turned = [
+            feature
+            for feature in tapered
+            if str(claim.draft) in parameters_of(_draft_angle(feature))
+            and negates(_draft_angle(feature))
+        ]
+        if turned:
+            # The one thing ADR-034 took away. This claim says the parameter's name and
+            # deliberately not the direction, and the reason given was that a canonical
+            # `Scalar` had no arithmetic to flip a sign with — so the sign the reading
+            # cited to the drawing was the sign the kernel received. `ScalarNegation`
+            # ends that: `{"negate": {"parameter": "draft_angle"}}` names the parameter
+            # the reading gave and leans the walls the other way, which is a part whose
+            # outline, openings, solid count and bounding box are all the drawing's.
+            return [
+                Disagreement(
+                    code="DRAFT_PARAMETER",
+                    claimed=str(claim.draft),
+                    built=f"the negation of {claim.draft}",
+                    detail=(
+                        f"the drawing's draft was read as {claim.draft} and {turned[0].id} "
+                        "tapers by its negation, so the walls lean the other way"
+                    ),
+                )
+            ]
+        held = next(
+            (
+                parameter.value
+                for parameter in document.parameters
+                if str(parameter.id) == str(claim.draft)
+            ),
+            None,
+        )
+        if held is not None and float(held) == 0.0:
+            # A named zero: the document drafts by the right parameter and the parameter
+            # says the walls are vertical. Cheap to state and it holds the whole boundary
+            # together — the id and the value reach the document from the same reading,
+            # and this is where the two stop agreeing.
+            return [
+                Disagreement(
+                    code="DRAFT_PARAMETER",
+                    claimed=str(claim.draft),
+                    built=f"{claim.draft} = 0",
+                    detail=(
+                        f"the drawing was read as drafted and {claim.draft} holds 0°, so "
+                        "the walls are square whatever references it"
+                    ),
+                )
+            ]
+        return []
+    literals = [
+        feature for feature in tapered if not parameters_of(_draft_angle(feature))
+    ]
+    if literals:
+        return [
+            Disagreement(
+                code="DRAFT_PARAMETER",
+                claimed=str(claim.draft),
+                built=f"the literal {_draft_angle(literals[0])}",
+                detail=(
+                    f"the drawing's draft was read as parameter {claim.draft} and "
+                    f"{literals[0].id} tapers by a literal, so the angle lost its name"
+                ),
+            )
+        ]
+    return [
+        Disagreement(
+            code="DRAFT_PARAMETER",
+            claimed=str(claim.draft),
+            built=", ".join(sorted(named)),
+            detail=(
+                f"the drawing's draft was read as {claim.draft} and the document tapers "
+                f"by {', '.join(sorted(named))}"
+            ),
+        )
+    ]
+
+
 def _thickness_disagreement(base, claim: ShapeClaim) -> list[Disagreement]:
     if claim.thickness is None:
         return []
     distance = getattr(base.inputs, "distance", None)
-    if isinstance(distance, ParameterRef):
-        if str(distance.parameter) == str(claim.thickness):
+    driven = parameters_of(distance)
+    if driven:
+        if str(claim.thickness) in driven:
             return []
         return [
             Disagreement(
                 code="THICKNESS_PARAMETER",
                 claimed=str(claim.thickness),
-                built=str(distance.parameter),
+                built=", ".join(sorted(driven)),
                 detail=(
                     f"the drawing's thickness was read as {claim.thickness} and "
-                    f"{base.id} extrudes by {distance.parameter}"
+                    f"{base.id} extrudes by {', '.join(sorted(driven))}"
                 ),
             )
         ]

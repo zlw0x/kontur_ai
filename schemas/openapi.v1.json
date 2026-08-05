@@ -1253,7 +1253,7 @@
     "/api/v1/workers/jobs/{job_id}/fail": {
       "post": {
         "summary": "Fail Job",
-        "description": "A worker reporting that it has stopped trying, and why.\n\nThe counterpart to `complete`, and it did not exist. A build that failed\nraised out of the worker's job handler, was swallowed into a backoff, lost its\nlease, and came back round to be tried again — up to `max_attempts` and then\nnever again, sitting in PENDING for the rest of time. From the customer's page\nthat is \"waiting to start\", forever, with no way to tell it from a queue with\nno worker on it.\n\nRetrying stays the first answer. This is the *end* of retrying: the worker\nsends it once it has decided the next attempt would fail the same way, using\nthe split it already makes between a failure about the document and one about\nthe machine.",
+        "description": "A worker reporting that it has stopped trying, and why.\n\nThe counterpart to `complete`, and it did not exist. A build that failed\nraised out of the worker's job handler, was swallowed into a backoff, lost its\nlease, and came back round to be tried again — up to `max_attempts` and then\nnever again, sitting in PENDING for the rest of time. From the customer's page\nthat is \"waiting to start\", forever, with no way to tell it from a queue with\nno worker on it.\n\nRetrying stays the first answer. This is the *end* of retrying: the worker\nsends it once it has decided the next attempt would fail the same way, using\nthe split it already makes between a failure about the document and one about\nthe machine.\n\nA `retry_after` turns it into a **pause** instead. Some machine failures state\na date — an exhausted Codex quota returns on one — and such a job is neither\nfailed nor waiting for a worker: it will build, and no worker today can build\nit. The job goes to `PAUSED` and the reaper returns it when the time comes.\nA date already past is honoured the same way and swept on the next pass, which\nis one line less than special-casing it here.",
         "operationId": "fail_job_api_v1_workers_jobs__job_id__fail_post",
         "parameters": [
           {
@@ -2213,6 +2213,18 @@
           },
           "status": {
             "$ref": "#/components/schemas/JobStatus"
+          },
+          "retry_after": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After"
           }
         },
         "additionalProperties": false,
@@ -2242,6 +2254,18 @@
             "maxLength": 400,
             "minLength": 1,
             "title": "Message"
+          },
+          "retry_after": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After"
           }
         },
         "additionalProperties": false,
@@ -2317,7 +2341,8 @@
           "PENDING",
           "LEASED",
           "COMPLETED",
-          "FAILED"
+          "FAILED",
+          "PAUSED"
         ],
         "title": "JobStatus"
       },
@@ -2457,7 +2482,8 @@
           "MANUAL_REVIEW",
           "FAILED",
           "CANCELLED",
-          "EXPIRED"
+          "EXPIRED",
+          "PAUSED"
         ],
         "title": "OrderStatus"
       },

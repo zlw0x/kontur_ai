@@ -19,6 +19,7 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.drawing_fixture import TINY_PNG
 from app.contracts import JobStatus
 from app.main import app
 from app.workers.artifact_store import LocalArtifactStore
@@ -140,3 +141,75 @@ def test_a_failure_message_that_could_carry_a_path_is_refused(job):
         "job_id": claimed["job_id"], "code": "C:\\work\\build.exe", "message": "x"})
 
     assert refused.status_code == 422
+
+
+# --- a pause is not a failure -------------------------------------------------
+
+
+def test_a_worker_may_pause_a_job_until_a_stated_time(job):
+    """The state the quota run needed and did not have.
+
+    The job is not failed — the drawing is fine and it will build — and it is not
+    waiting for a worker, because every worker would be told the same thing today.
+    """
+    client, protocol, headers, claimed = job
+    back = "2026-08-08T08:44:00+00:00"
+
+    paused = client.post(
+        f"/api/v1/workers/jobs/{claimed['job_id']}/fail",
+        headers=headers,
+        json={"job_id": claimed["job_id"], "code": "CODEX_CAPACITY_LIMIT",
+              "message": "The model quota is exhausted until 8 August.",
+              "retry_after": back},
+    )
+
+    assert paused.status_code == 200
+    assert paused.json()["status"] == "PAUSED"
+    assert paused.json()["retry_after"].startswith("2026-08-08T08:44")
+    row = protocol.repo.jobs[UUID(claimed["job_id"])]
+    assert row.status is JobStatus.PAUSED
+    # The attempt is handed back: nothing was attempted. Otherwise a four-day
+    # outage burns every job's three tries in the first hour.
+    assert row.attempt == 0
+
+
+def test_the_order_page_shows_a_pause_as_a_pause(monkeypatch, tmp_path):
+    """What the customer sees, which is the whole point of the state.
+
+    A real drawing order rather than a manual CAD job, because the drawing page is
+    the page a customer looks at — and a paused order must not carry the scheduler's
+    "no worker has capacity" summary. That sentence is true, it is not the reason,
+    and it is what made the quota run look like a stalled queue.
+    """
+    memory_protocol(monkeypatch)
+    monkeypatch.setattr("app.main.artifact_store", LocalArtifactStore(tmp_path, 1_000_000))
+    client = TestClient(app)
+    created = client.post(
+        "/api/v1/drawing-jobs",
+        headers={**MANUAL, "content-type": "image/png"},
+        content=TINY_PNG,
+    )
+    assert created.status_code == 201
+    order_id = created.json()["order_id"]
+
+    headers, worker_id = _enrol(client, name="paused-drawing-worker")
+    claimed = client.post("/api/v1/workers/claim", headers=headers, json={
+        "protocol_version": "1.0", "worker_id": worker_id,
+        "capabilities": ["AI_DRAWING", "CAD_BUILD"], "supported_cad_ir": [CAD_IR_VERSION],
+        "available_slots": 1, "capability_manifest": mvp_manifest(),
+    }).json()["job"]
+
+    client.post(
+        f"/api/v1/workers/jobs/{claimed['job_id']}/fail",
+        headers=headers,
+        json={"job_id": claimed["job_id"], "code": "CODEX_CAPACITY_LIMIT",
+              "message": "The model quota is exhausted until 8 August.",
+              "retry_after": "2026-08-08T08:44:00+00:00"},
+    )
+
+    body = client.get(f"/api/v1/drawing-jobs/{order_id}", headers=MANUAL).json()
+
+    assert body["status"] == "PAUSED"
+    assert body["failure_code"] == "CODEX_CAPACITY_LIMIT"
+    assert body["retry_after"].startswith("2026-08-08T08:44")
+    assert body["waiting_reason"] is None

@@ -63,6 +63,17 @@ class LocalArtifactStore:
                 pass
         raise ArtifactIntegrityError("drawing was not found")
 
+    def put_input_manifest(self, job_id: UUID, manifest: dict) -> StoredObject:
+        """The immutable record of what was accepted and under which policy.
+
+        Written beside the page rather than into it: an audit has to be able to say
+        which limits a file was admitted under, and a PNG carries no metadata by the
+        time it gets here — deliberately, since stripping it is the point.
+        """
+        payload = json.dumps(manifest, ensure_ascii=False, sort_keys=True,
+                             separators=(",", ":")).encode()
+        return self._write(f"jobs/{job_id}/input/page-001.manifest.json", payload, len(payload))
+
     def put_answers(self, job_id: UUID, value: dict) -> StoredObject:
         payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
         return self._write(f"jobs/{job_id}/input/user-answers.json", payload, len(payload))
@@ -96,6 +107,17 @@ class LocalArtifactStore:
         source_job_id: UUID,
         round_number: int,
     ) -> StoredObject:
+        """The pre-0008 tracking format. No longer written by the request path.
+
+        Until the `orders` table existed this file was how the drawing cycle
+        survived a restart, because the order itself lived in a dictionary in the
+        API process. It is kept — with its writer — for one reason: `drawing_tracking`
+        still reads it, so that orders created before the migration are adopted
+        rather than stranded, and the test that proves adoption works must produce
+        exactly the bytes the reader expects. A test hand-writing that JSON could
+        drift from it, and the drift would show up as an adoption path that passes
+        its test and fails on a real file.
+        """
         payload = json.dumps(
             {
                 "latest_job_id": str(latest_job_id),

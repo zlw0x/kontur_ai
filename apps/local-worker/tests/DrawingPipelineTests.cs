@@ -45,7 +45,7 @@ public sealed class DrawingPipelineTests
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
                 FindRepositoryRoot(),
-                "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var invalid = valid.Replace(
                 @"""type"": ""solid.extrude""",
                 @"""type"": ""cut.extrude""",
@@ -76,7 +76,7 @@ public sealed class DrawingPipelineTests
         {
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var engine = new StubValidatingEngine();
             var result = await new DrawingPipeline(
                 new FakeRunner(AnalysisWithShape(), valid), engine: engine)
@@ -113,7 +113,7 @@ public sealed class DrawingPipelineTests
         {
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var engine = new StubValidatingEngine();
             var result = await new DrawingPipeline(
                 new FakeRunner(ReadyAnalysis(), valid), engine: engine)
@@ -145,7 +145,7 @@ public sealed class DrawingPipelineTests
         {
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var invalid = valid.Replace(
                 @"""type"": ""solid.extrude""", @"""type"": ""cut.extrude""",
                 StringComparison.Ordinal);
@@ -158,12 +158,16 @@ public sealed class DrawingPipelineTests
             var compilation = runner.Prompts[1];
             var repair = runner.Prompts[2];
 
-            // The version arrives as itself, not wrapped and not spelled out.
-            Assert.Contains("canonical CAD-IR 1.11", compilation);
-            Assert.Contains("CAD-IR 1.11 output schema", repair);
+            // The version arrives as itself, not wrapped and not spelled out — and it
+            // is read from the one declaration rather than written here, because a
+            // literal is a copy waiting to fall behind. This one fell behind on the
+            // 1.12 bump, in the one spelling the fixture-version guard does not see:
+            // a version inside a sentence rather than inside a filename.
+            Assert.Contains($"canonical CAD-IR {CadIr.Version}", compilation);
+            Assert.Contains($"CAD-IR {CadIr.Version} output schema", repair);
             foreach (var prompt in runner.Prompts)
             {
-                Assert.DoesNotContain("{1.10}", prompt);
+                Assert.DoesNotContain($"{{{CadIr.Version}}}", prompt);
                 Assert.DoesNotContain("CadIrVersion", prompt);
                 Assert.DoesNotContain("PromptVersion", prompt);
             }
@@ -192,7 +196,7 @@ public sealed class DrawingPipelineTests
         {
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var runner = new FakeRunner(AnalysisWithShape(), valid);
             await new DrawingPipeline(runner, engine: new StubValidatingEngine())
                 .RunAsync(workspace, [image]);
@@ -236,7 +240,7 @@ public sealed class DrawingPipelineTests
         {
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var runner = new FakeRunner(AnalysisWithShape(), valid);
             await new DrawingPipeline(runner, engine: new StubValidatingEngine())
                 .RunAsync(workspace, [image]);
@@ -263,7 +267,7 @@ public sealed class DrawingPipelineTests
         {
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var engine = new StubValidatingEngine();
             await new DrawingPipeline(
                 new FakeRunner(AnalysisWithHollowShape(), valid), engine: engine)
@@ -294,7 +298,7 @@ public sealed class DrawingPipelineTests
         {
             var image = CreateImagePlaceholder(workspace);
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var engine = new StubValidatingEngine();
             await new DrawingPipeline(
                 new FakeRunner(AnalysisWithShape(), valid), engine: engine)
@@ -377,7 +381,7 @@ public sealed class DrawingPipelineTests
             var answers = Path.Combine(workspace, "context", "user-answers.json");
             File.WriteAllText(answers, """{"schema_version":"0.1.0","answers":[]}""");
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var runner = new FakeRunner(valid);
 
             var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())
@@ -427,7 +431,7 @@ public sealed class DrawingPipelineTests
             var answers = Path.Combine(workspace, "context", "user-answers.json");
             File.WriteAllText(answers, """{"schema_version":"0.1.0","answers":[]}""");
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var runner = new FakeRunner(ReadyAnalysis(), valid);
 
             var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())
@@ -456,7 +460,7 @@ public sealed class DrawingPipelineTests
             var answers = Path.Combine(workspace, "context", "user-answers.json");
             File.WriteAllText(answers, """{"schema_version":"0.1.0","answers":[]}""");
             var valid = File.ReadAllText(Path.Combine(
-                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", "plate.v1_11.json"));
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
             var runner = new FakeRunner(ReadyAnalysis(), valid);
 
             var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())

@@ -38,6 +38,7 @@ from cad_ir.canonical import (
     Direction,
     FilletFeature,
     PatternFeature,
+    DraftFeature,
     ShellFeature,
     SolidExtrudeFeature,
     SolidLoftFeature,
@@ -58,6 +59,7 @@ from .parameters import Parameters
 from .revolves import axis_points, require_profile_clear_of_axis, world_axis
 from .selectors import require_one, resolve_faces
 from .lofts import require_distinct_planes
+from .drafts import draft
 from .shells import shell
 from .sweeps import (
     path_wire,
@@ -191,6 +193,14 @@ def build_part(document: CadIrDocument, gate: CapabilityGate | None = None):
             # body the selector's `from_result` names.
             target = bodies.locate(str(feature.inputs.faces.from_result), str(feature.id))
             bodies.replace(target, shell(feature, bodies.solid_at(target), params))
+            continue
+
+        if isinstance(feature, DraftFeature):
+            # The walls are resolved against the part as it is here, and the neutral
+            # face with them: a draft applied before a boss exists would be measured
+            # from a plane the finished part does not have.
+            target = bodies.locate(str(feature.inputs.faces.from_result), str(feature.id))
+            bodies.replace(target, draft(feature, bodies.solid_at(target), params))
             continue
 
         if isinstance(feature, BooleanFeature):

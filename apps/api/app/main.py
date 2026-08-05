@@ -1,3 +1,7 @@
+import asyncio
+import contextlib
+import shutil
+from pathlib import Path
 import logging
 import json
 import hashlib
@@ -9,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError
 from cad_ir import CadIrValidationError
 from cad_ir.canonical import CAD_IR_VERSION, DocumentMetadata
 from cad_ir.normalizer import normalize as normalize_cad_ir
@@ -44,6 +49,8 @@ from .contracts import (
     DrawingAnswersRequest,
     ClarificationAnswer,
 )
+from .input.quarantine import InputRejected, Quarantine
+from .input.sanitizer import Sanitizer, SanitizerUnavailable
 from .workers.artifact_store import ArtifactIntegrityError, LocalArtifactStore
 from .workers.capabilities import required_capability_keys
 from .workers.diagnostics import SchedulerDiagnostics
@@ -54,9 +61,10 @@ from .workers.protocol import (
     WorkerProtocolService,
 )
 from .contracts import JobType, OrderStatus, WorkerCapability
+from .orders.progress import order_status
+from .orders.repository import InMemoryOrderRepository, SqlOrderRepository
 from .orders.state_machine import (
     OrderRecord,
-    OrderStateService,
     OrderTransitionError,
 )
 from .workers.sql_protocol import SqlWorkerProtocolService
@@ -82,6 +90,20 @@ def build_worker_protocol():
     return SqlWorkerProtocolService(sessions, settings.worker_enrollment_token)
 
 
+def build_order_repository():
+    """Same switch as the worker protocol, deliberately: one setting, not two.
+
+    `memory` is what the isolated API tests run on. Everything else keeps orders in
+    PostgreSQL, which is the whole point — they were in a dictionary in this module
+    until 0008, so a restart lost every order in flight and a second API process
+    never saw the first one's.
+    """
+    if settings.worker_repository_mode == "memory":
+        return InMemoryOrderRepository()
+    _, sessions = create_session_factory(settings.database_url)
+    return SqlOrderRepository(sessions)
+
+
 def build_resource_ledger():
     """The ledger is always SQL-backed; `memory` mode gets a disposable one.
 
@@ -96,10 +118,53 @@ def build_resource_ledger():
     return ResourceLedgerService(sessions)
 
 
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Run the reaper while the API is up.
+
+    On a timer rather than on each claim, because the failure it exists for is the
+    one where **nothing is claiming**: a worker that died on its last attempt leaves
+    a job leased, unclaimable and un-failed, and the only other party that could
+    have reported it is the process that died. A queue that looks broken is exactly
+    when no worker is polling to trigger a sweep.
+
+    Failures are logged and swallowed. A reaper that takes the API down with it
+    would turn a stuck job into an outage, and the next pass is thirty seconds away.
+    """
+    task = None
+    if settings.reaper_interval_seconds > 0:
+        task = asyncio.create_task(_reap_forever(settings.reaper_interval_seconds))
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+async def _reap_forever(interval: int) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            outcome = await asyncio.to_thread(worker_protocol.reap)
+        except Exception as error:  # noqa: BLE001 - a sweep must not end the API
+            logging.getLogger("cad_ai.reaper").warning("reap failed: %s", error)
+            continue
+        if outcome.moved:
+            # Only when something moved. A quiet queue should be quiet in the log,
+            # or the one line that matters is buried under a thousand that do not.
+            logging.getLogger("cad_ai.reaper").info(
+                "reaped: requeued=%d failed=%d resumed=%d",
+                outcome.requeued, outcome.failed, outcome.resumed,
+            )
+
+
 app = FastAPI(
     title="CAD AI Service API",
     version="1.0.0",
     responses={409: {"model": ProblemDetails, "description": "Conflict"}},
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -115,9 +180,12 @@ app.add_middleware(
 worker_protocol = build_worker_protocol()
 resource_ledger = build_resource_ledger()
 artifact_store = LocalArtifactStore(settings.artifact_store_root, settings.max_artifact_bytes)
-order_state_service = OrderStateService()
-order_records: dict[uuid.UUID, OrderRecord] = {}
-drawing_orders: dict[uuid.UUID, dict] = {}
+#: Uploads nothing else can read, and the program that cleans them. Kept apart from
+#: the artifact store on purpose: that is what the worker downloads from, and a raw
+#: upload must never be in it.
+quarantine = Quarantine(Path(settings.artifact_store_root).parent / "quarantine")
+sanitizer = Sanitizer(image=settings.sanitizer_image or None)
+orders = build_order_repository()
 
 
 @app.middleware("http")
@@ -147,16 +215,14 @@ def transition_order(
     x_manual_api_token: str | None = Header(default=None),
 ) -> OrderSnapshot:
     authenticated_manual_api(x_manual_api_token)
-    order = order_records.get(order_id)
-    if order is None:
+    if orders.get(order_id) is None:
         raise HTTPException(status_code=404, detail="order was not found")
-    updated, _ = order_state_service.transition(
-        order,
+    updated, _ = orders.transition(
+        order_id,
         target=request.target_status,
         expected_version=request.expected_version,
         reason=request.reason,
     )
-    order_records[order_id] = updated
     return OrderSnapshot(
         id=updated.id,
         status=updated.status,
@@ -304,12 +370,7 @@ def create_manual_cad_job(
         ) from error
     normalization_ms = (time.perf_counter() - started) * 1000
     order_id, job_id = uuid.uuid4(), uuid.uuid4()
-    order_records[order_id] = OrderRecord(
-        order_id,
-        OrderStatus.WAITING_FOR_LOCAL_WORKER,
-        0,
-        datetime.now(timezone.utc),
-    )
+    orders.create(order_id, OrderStatus.WAITING_FOR_LOCAL_WORKER, latest_job_id=job_id)
     stored = artifact_store.put_cad_ir(job_id, json.loads(normalized.canonical_json))
     idempotency_key = "sha256:" + hashlib.sha256(
         f"{order_id}:{stored.sha256}".encode()
@@ -374,23 +435,53 @@ async def create_drawing_job(
     x_manual_api_token: str | None = Header(default=None),
 ) -> DrawingJobResponse:
     authenticated_manual_api(x_manual_api_token)
-    normalized_type = (content_type or "").split(";", 1)[0].strip().lower()
-    extension = { "image/png": ".png", "image/jpeg": ".jpg" }.get(normalized_type)
-    if extension is None:
-        raise HTTPException(status_code=415, detail="drawing must be PNG or JPEG")
-    payload = await request.body()
-    if not (
-        (extension == ".png" and payload.startswith(b"\x89PNG\r\n\x1a\n"))
-        or (extension == ".jpg" and payload.startswith(b"\xff\xd8"))
-    ):
-        raise HTTPException(status_code=422, detail="drawing content does not match content type")
+    # Quarantine, sanitize, then store — and never the upload itself. The addendum's
+    # central invariant is that the worker, Codex and the browser see only cleaned
+    # pages, and what stood here read the whole body into memory with `request.body()`
+    # and wrote the raw file straight into the job directory the worker downloads.
+    declared = request.headers.get("content-length")
+    try:
+        held = await quarantine.accept(
+            request.stream(),
+            content_type,
+            int(declared) if declared and declared.isdigit() else None,
+        )
+    except InputRejected as refused:
+        raise HTTPException(status_code=refused.status_code,
+                            detail=refused.message) from refused
+
     order_id, job_id = uuid.uuid4(), uuid.uuid4()
-    stored = artifact_store.put_drawing(job_id, payload, extension)
-    order_records[order_id] = OrderRecord(
-        order_id, OrderStatus.WAITING_FOR_LOCAL_WORKER, 0, datetime.now(timezone.utc)
+    try:
+        page = sanitizer.sanitize(held, quarantine.root / f"{held.file_id}-out")
+    except InputRejected as refused:
+        raise HTTPException(status_code=refused.status_code,
+                            detail=refused.message) from refused
+    except SanitizerUnavailable as broken:
+        # The machine, not the drawing. A 503 says "come back", a 422 would tell a
+        # customer their file is malformed because an operator has not installed a
+        # decoder — and the service would say it again every time.
+        logger.error("sanitizer unavailable: %s", broken)
+        raise HTTPException(
+            status_code=503, detail="The drawing service is temporarily unavailable."
+        ) from broken
+    finally:
+        # §5: the raw upload goes as soon as processing ends. Nothing downstream can
+        # reach quarantine, so what is left here is only a window — and a window is
+        # worth closing.
+        quarantine.discard(held.file_id)
+        shutil.rmtree(quarantine.root / f"{held.file_id}-out", ignore_errors=True)
+
+    stored = artifact_store.put_drawing(job_id, page.png, ".png")
+    artifact_store.put_input_manifest(job_id, page.manifest())
+    # One row, and no longer also a JSON file beside the artifacts. The file was
+    # what kept the drawing cycle alive across a restart while the order itself sat
+    # in a dictionary; the row does that with transactions and a version behind it.
+    orders.create(
+        order_id,
+        OrderStatus.WAITING_FOR_LOCAL_WORKER,
+        latest_job_id=job_id,
+        source_job_id=job_id,
     )
-    drawing_orders[order_id] = {"latest_job_id": job_id, "source_job_id": job_id, "round": 0}
-    artifact_store.put_drawing_tracking(order_id, job_id, job_id, 0)
     worker_protocol.enqueue(Job(
         job_id,
         order_id,
@@ -408,22 +499,55 @@ async def create_drawing_job(
     )
 
 
+def _drawing_order(order_id: uuid.UUID) -> OrderRecord:
+    """The order's row, adopting one written before the table existed.
+
+    Until 0008 the drawing cycle's tracking was a JSON file in the artifact store —
+    a database with no transactions and no constraints, which is why it is gone.
+    Orders created before the migration have only that file, and deleting the read
+    would strand every one of them. So it is read once, a row is written from it,
+    and every later request takes the row. The same order migration 0006 used: the
+    rows come first, the name goes second.
+    """
+    order = orders.get(order_id)
+    if order is not None:
+        return order
+    try:
+        tracking = artifact_store.drawing_tracking(order_id)
+    except ArtifactIntegrityError:
+        raise HTTPException(status_code=404, detail="drawing order was not found") from None
+    try:
+        adopted = orders.create(
+            order_id,
+            OrderStatus.WAITING_FOR_LOCAL_WORKER,
+            latest_job_id=tracking["latest_job_id"],
+            source_job_id=tracking["source_job_id"],
+        )
+    except IntegrityError:
+        # Two polls of the same pre-0008 order arriving together. The page polls
+        # every three seconds, so this is not hypothetical; the second insert loses
+        # to the primary key and reads what the first one wrote.
+        existing = orders.get(order_id)
+        if existing is None:
+            raise
+        return existing
+    if tracking["round"]:
+        adopted = orders.record_round(
+            order_id,
+            latest_job_id=tracking["latest_job_id"],
+            clarification_round=tracking["round"],
+        )
+    return adopted
+
+
 @app.get("/api/v1/drawing-jobs/{order_id}")
 def get_drawing_job(
     order_id: uuid.UUID,
     x_manual_api_token: str | None = Header(default=None),
 ) -> dict:
     authenticated_manual_api(x_manual_api_token)
-    tracking = drawing_orders.get(order_id)
-    if tracking is None:
-        try:
-            tracking = artifact_store.drawing_tracking(order_id)
-            drawing_orders[order_id] = tracking
-        except ArtifactIntegrityError:
-            pass
-    if tracking is None:
-        raise HTTPException(status_code=404, detail="drawing order was not found")
-    job_id = tracking["latest_job_id"]
+    order = _drawing_order(order_id)
+    job_id = order.latest_job_id
     job = worker_protocol.get_job(job_id)
     if job is None:
         # The tracking file outlived the job row. A 500 here told the customer
@@ -440,29 +564,46 @@ def get_drawing_job(
             questions = []
     present = {item["type"].upper() for item in artifacts}
     has_model = all(kind in present for kind in DELIVERED_MODEL_ARTIFACTS)
-    status = (
-        "READY" if has_model
-        else "WAITING_FOR_USER_ANSWERS" if questions
-        else job.status.value
-    )
+    # One vocabulary, computed in one place. What stood here answered with
+    # `OrderStatus` on two branches and `JobStatus` on the third, so which set of
+    # words a customer got depended on which branch fired.
+    status = order_status(order, job, has_model=has_model, has_questions=bool(questions))
     # Only while the order is genuinely waiting on the scheduler. Once it is
-    # ready, failed, or the user has been asked something, the ball is not here.
+    # ready, failed, paused, or the user has been asked something, the ball is not
+    # here — and a paused order least of all: the scheduler's summary would say no
+    # worker has capacity, which is true and is not the reason.
+    settled = {
+        OrderStatus.READY,
+        OrderStatus.WAITING_FOR_USER_ANSWERS,
+        OrderStatus.FAILED,
+        OrderStatus.PAUSED,
+        OrderStatus.CANCELLED,
+        OrderStatus.EXPIRED,
+        OrderStatus.MANUAL_REVIEW,
+    }
     waiting_reason = (
-        scheduler_diagnostics().report(job).summary
-        if status not in ("READY", "WAITING_FOR_USER_ANSWERS", "FAILED")
-        else None
+        scheduler_diagnostics().report(job).summary if status not in settled else None
     )
+    stopped = status in (OrderStatus.FAILED, OrderStatus.PAUSED)
     return {
         "order_id": str(order_id),
         "job_id": str(job_id),
-        "status": status,
+        "status": status.value,
         "waiting_reason": waiting_reason,
-        # Present only on a failure, and safe to show: the worker sends a typed
-        # code and text it has already stripped of paths and hosts. A FAILED with
-        # no reason would be barely better than the silence it replaces.
-        "failure_code": job.failure_code if status == "FAILED" else None,
-        "failure_message": job.failure_message if status == "FAILED" else None,
-        "round": tracking["round"],
+        # Present on a failure and on a pause, and safe to show: the worker sends a
+        # typed code and text it has already stripped of paths and hosts. A FAILED
+        # with no reason would be barely better than the silence it replaces, and a
+        # PAUSED with no reason would be worse — it would read as a stall.
+        "failure_code": job.failure_code if stopped else None,
+        "failure_message": job.failure_message if stopped else None,
+        # When the service expects to try again. Only on a pause, because it is the
+        # only state where anybody knows.
+        "retry_after": (
+            job.retry_after.isoformat()
+            if status == OrderStatus.PAUSED and job.retry_after
+            else None
+        ),
+        "round": order.clarification_round,
         "questions": questions,
         "artifacts": [
             {
@@ -481,16 +622,8 @@ def answer_drawing_questions(
     x_manual_api_token: str | None = Header(default=None),
 ) -> DrawingJobResponse:
     authenticated_manual_api(x_manual_api_token)
-    tracking = drawing_orders.get(order_id)
-    if tracking is None:
-        try:
-            tracking = artifact_store.drawing_tracking(order_id)
-            drawing_orders[order_id] = tracking
-        except ArtifactIntegrityError:
-            pass
-    if tracking is None:
-        raise HTTPException(status_code=404, detail="drawing order was not found")
-    prior_job_id = tracking["latest_job_id"]
+    order = _drawing_order(order_id)
+    prior_job_id = order.latest_job_id
     try:
         question_document = json.loads(
             artifact_store.artifact(prior_job_id, "CLARIFICATION_QUESTIONS").path.read_text(encoding="utf-8")
@@ -505,10 +638,10 @@ def answer_drawing_questions(
         problem = _answer_matches(asked[answer.question_id], answer)
         if problem is not None:
             raise HTTPException(status_code=422, detail=problem)
-    if tracking["round"] >= 3:
+    if order.clarification_round >= 3:
         raise HTTPException(status_code=409, detail="clarification round limit reached")
     job_id = uuid.uuid4()
-    source = artifact_store.drawing(tracking["source_job_id"])
+    source = artifact_store.drawing(order.source_job_id)
     stored = artifact_store.put_drawing(job_id, source.path.read_bytes(), source.path.suffix.lower())
     artifact_store.put_answers(job_id, {
         "schema_version": "0.1.0",
@@ -531,7 +664,7 @@ def answer_drawing_questions(
         )
     except ArtifactIntegrityError:
         pass
-    round_number = tracking["round"] + 1
+    round_number = order.clarification_round + 1
     worker_protocol.enqueue(Job(
         job_id,
         order_id,
@@ -543,13 +676,11 @@ def answer_drawing_questions(
         CAD_IR_VERSION,
         required_capability_keys(JobType.ANALYZE_DRAWING),
     ))
-    tracking.update(latest_job_id=job_id, round=round_number)
-    artifact_store.put_drawing_tracking(
-        order_id,
-        tracking["latest_job_id"],
-        tracking["source_job_id"],
-        tracking["round"],
-    )
+    # After the job is enqueued, not before: a round recorded against a job that was
+    # never queued is an order pointing at nothing, and the page would poll it
+    # forever. This way the worst case is a queued job the order has not caught up
+    # to, which the next request fixes.
+    orders.record_round(order_id, latest_job_id=job_id, clarification_round=round_number)
     return DrawingJobResponse(
         order_id=order_id,
         job_id=job_id,
@@ -795,12 +926,21 @@ def fail_job(job_id: uuid.UUID, request: JobFailureRequest, authorization: str |
     sends it once it has decided the next attempt would fail the same way, using
     the split it already makes between a failure about the document and one about
     the machine.
+
+    A `retry_after` turns it into a **pause** instead. Some machine failures state
+    a date — an exhausted Codex quota returns on one — and such a job is neither
+    failed nor waiting for a worker: it will build, and no worker today can build
+    it. The job goes to `PAUSED` and the reaper returns it when the time comes.
+    A date already past is honoured the same way and swept on the next pass, which
+    is one line less than special-casing it here.
     """
     if request.job_id != job_id:
         raise HTTPException(status_code=400, detail="job_id path/body mismatch")
     worker = authenticated_bearer(authorization)
-    job = worker_protocol.fail(worker, job_id, request.code, request.message)
-    return JobFailureAck(job_id=job_id, status=job.status)
+    job = worker_protocol.fail(
+        worker, job_id, request.code, request.message, request.retry_after
+    )
+    return JobFailureAck(job_id=job_id, status=job.status, retry_after=job.retry_after)
 
 
 @app.post("/api/v1/workers/jobs/{job_id}/complete", response_model=JobCompletionAck)

@@ -19,15 +19,16 @@ from pydantic import ValidationError
 
 from cad_ir.boolean import BooleanFeature, BooleanInputs, BooleanOp
 from cad_ir.canonical import CAD_IR_SCHEMA, CAD_IR_VERSION, SolidExtrudeInputs
+from cad_ir_fixtures import fixture
+
 from cad_ir.canonical_validator import validate_canonical
 from cad_ir.errors import CadIrValidationError
 from cad_ir.shape_claim import ShapeClaim, disagreements
 
-FIXTURES = Path(__file__).parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "boolean-bracket.v1_11.json").read_text("utf-8"))
+    return fixture("boolean-bracket")
 
 
 def feature(value: dict, name: str) -> dict:

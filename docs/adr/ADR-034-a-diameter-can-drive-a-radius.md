@@ -139,3 +139,108 @@ validator refuses such a document a step earlier, and says it of every dimension
 rather than only of that one. What the claim still owns is a dimension built from
 the **wrong** parameter — a document the validator is right to accept and only a
 reader can contradict.
+
+## Amendment, 2026-08-04: what widening `Scalar` broke, and one place it changed a claim
+
+Two consequences of going from two members to four, both found by running the merged tree
+and neither visible from either side alone.
+
+### Seven range checks stopped being range checks
+
+Every size in this contract is guarded the same way: a literal can be checked here, and a
+named one is a promise about a number the contract never sees, which the engine resolves and
+re-checks in front of the kernel. Each guard was written as
+
+```python
+if isinstance(value, ParameterRef):
+    return
+if float(value) <= 0:
+    raise ValueError(...)
+```
+
+which is correct for two members and wrong for four. `float(ScalarQuotient(...))` raises
+**`TypeError` from inside a pydantic validator** — not a refusal. It escapes as a raw type
+error, reaches the caller as `SCHEMA_INVALID` carrying "float() argument must be a string or
+a real number", and the check it was guarding never runs.
+
+Seven of nine sites did this: a fillet radius, three chamfer sizes, a wall thickness, a
+pattern spacing and an extrusion taper. So a document that drove a fillet radius from a
+diameter — the thing this ADR exists to allow — was refused with a Python diagnostic the
+repair loop cannot act on.
+
+`base.stated_number` replaces all nine: *the number a scalar states outright, or nothing
+when it depends on a parameter.* One function, so the next member of `Scalar` cannot
+reintroduce the shape. `test_cad_ir_derived_scalars.py` states every size twice — once
+derived, once literal-and-out-of-range — so a new size added without the helper fails there.
+
+### The shape claim reads a parameter through the arithmetic
+
+`thickness`, `wall` and `draft` each name the parameter a drawing's dimension was recorded
+as, and each asked whether the geometry's scalar *is* a `ParameterRef` of that name. A
+thickness written as half a stated overall height is driven by that parameter and was
+reported as "the literal …" — the check telling the compiling agent to fix something it had
+done right, which is the one failure mode a claim must not have. `base.parameters_of` reads
+through the arithmetic.
+
+### And one argument this ADR retired
+
+ADR-033's amendment gave `ShapeClaim.draft` a name and deliberately not a direction, on two
+grounds. The first stands: a positive taper narrows away from the sketch plane whichever way
+the extrusion travels, measured. The second was that a canonical `Scalar` is a float or a
+reference *with no arithmetic between them*, so the compilation stage could not negate an
+angle it was handed — and this ADR ends that. `{"negate": {"parameter": "draft_angle"}}`
+names exactly the parameter the reading cited and leans the walls the other way, giving a
+part whose outline, openings, solid count **and bounding box** are all the drawing's.
+
+So the claim gains the narrowest possible answer rather than a direction: a taper that
+**negates** the parameter the claim named is a `DRAFT_PARAMETER` disagreement. `base.negates`
+answers every spelling — a negation, a negative divisor, and two negations cancelling — in
+one place, because a sign that can hide in three shapes is a sign a check will miss in one of
+them.
+
+## Amendment, 2026-08-04: one value, one spelling
+
+The two nodes were written the general way — each takes a whole `Scalar` — and that
+admitted **four spellings of −p/2**:
+
+```json
+{"negate": {"divide": {"parameter": "p"}, "by": 2.0}}
+{"divide":  {"negate": {"parameter": "p"}}, "by": 2.0}
+{"divide":  {"parameter": "p"}, "by": -2.0}
+```
+
+three hashes for one number, and two more of `+p`: the plain reference, and a pair of
+negations that cancel. Also `divide(p, 1)`, `divide(80, 2)` for the literal 40, and
+`divide(divide(p, 2), 3)` for `p/6`.
+
+Every one was legal, which means **the property this ADR's own reasoning rests on did
+not hold**. It argues against the string form `{"expr": "d / 2"}` because `"d/2"` and
+`"d / 2"` are one part with two byte-stable hashes — and then shipped structured nodes
+with the same defect in a different alphabet.
+
+Closed by narrowing what each node accepts, rather than by adding anything:
+
+```
+quotient := divide(<reference>, k)     k finite, k > 0, k ≠ 1
+negation := negate(<reference> | <quotient>)
+```
+
+Every value now has exactly one spelling. Three things follow, and each is worth more
+than the rule itself:
+
+**The depth bound is gone.** `_MAX_SCALAR_DEPTH = 3` existed because both nodes were
+recursive and nothing else stopped a tower a thousand deep from being schema-valid. The
+grammar bounds it at two by construction, and a check that cannot fail is not a check.
+
+**`negates` became one line.** It walked the tree and answered for three spellings; there
+is now one place a sign can be, which is what `ShapeClaim.draft` needs it to be.
+
+**The output profile was offering documents the validator would refuse.** Its two scalar
+nodes recursed back into `scalar`, correctly mirroring the contract as it was. A model
+writing `divide(negate(p), 2)` from that schema would have had its document rejected for
+a rule the schema never told it about — the worst kind of refusal, because the repair
+loop has nothing to read. The profile now states the same grammar, and a test asserts
+that what it offers and what the contract accepts are the same set.
+
+Nothing in the repository used a spelling that is now refused: every derived scalar in
+every fixture is `negate(<reference>)`, the simplest form there is.

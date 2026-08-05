@@ -18,16 +18,17 @@ import pytest
 from pydantic import ValidationError
 
 from cad_ir.canonical import CAD_IR_SCHEMA, CAD_IR_VERSION, FeatureType
+from cad_ir_fixtures import fixture
+
 from cad_ir.canonical_validator import validate_canonical
 from cad_ir.errors import CadIrValidationError
 from cad_ir.pattern import PatternFeature, PatternInputs, instance_count
 from cad_ir.shape_claim import ShapeClaim, disagreements
 
-FIXTURES = Path(__file__).parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 def flange() -> dict:
-    return json.loads((FIXTURES / "patterned-flange.v1_11.json").read_text("utf-8"))
+    return fixture("patterned-flange")
 
 
 def feature(value: dict, name: str) -> dict:

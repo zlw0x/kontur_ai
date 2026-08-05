@@ -307,10 +307,9 @@ def test_a_loft_between_sections_in_one_plane_is_refused_by_name():
 
 
 def duct() -> dict:
-    import json
+    from cad_ir_fixtures import fixture
 
-    fixtures = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
-    return json.loads((fixtures / "transition-duct.v1_11.json").read_text("utf-8"))
+    return fixture("transition-duct")
 
 
 def test_the_transition_duct_is_the_arithmetic_of_its_drawing():

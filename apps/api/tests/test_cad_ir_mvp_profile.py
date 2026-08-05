@@ -16,9 +16,10 @@ from cad_ir.canonical import CAD_IR_VERSION
 from cad_ir.canonical_validator import validate_canonical
 from cad_ir.errors import CadIrValidationError
 
+from cad_ir_fixtures import fixture
+
 ROOT = Path(__file__).parents[3]
 PROFILE = json.loads((ROOT / "schemas" / "cad-ir-mvp-output.schema.json").read_text(encoding="utf-8"))
-FIXTURES = ROOT / "tests" / "fixtures" / "cad-ir"
 
 
 @pytest.fixture(scope="module")
@@ -28,7 +29,8 @@ def profile() -> Draft202012Validator:
 
 
 def canonical_fixture(name: str) -> dict:
-    return json.loads((FIXTURES / f"{name}.v1_11.json").read_text(encoding="utf-8"))
+    """The named fixture, at whatever version this build speaks."""
+    return fixture(name)
 
 
 def profile_shaped_document() -> dict:
@@ -320,10 +322,19 @@ def treated(fid: str, type_name: str, edges: dict, size: str, value: float) -> d
             "inputs": {"edges": edges, size: value}}
 
 
-def hollowed() -> dict:
+#: The same face on a part that has more than one facing up. A run on a flanged
+#: bushing stopped at `SELECTOR_AMBIGUOUS` because the shoulder and the sleeve end
+#: both matched the shape above, and `exactly_one` cannot choose.
+TOPMOST_FACE = {**TOP_FACE, "id": "selector.topmost",
+                "where": {**TOP_FACE["where"],
+                          "position": {"extreme_along": "axis.z", "extreme": "maximum"}}}
+
+
+def hollowed(faces: dict | None = None) -> dict:
     return {"id": "feature.hollow", "type": "feature.shell", "enabled": True,
             "depends_on": ["feature.base"], "produces": [],
-            "inputs": {"faces": TOP_FACE, "thickness": 2.0, "direction": "inward"}}
+            "inputs": {"faces": faces or TOP_FACE, "thickness": 2.0,
+                       "direction": "inward"}}
 
 
 LINEAR = {"kind": "linear", "direction": "+X", "spacing_mm": 20.0, "count": 3}
@@ -512,3 +523,78 @@ def test_the_rules_are_the_ones_the_previously_accepted_schema_obeyed():
 
     assert accepted["properties"]["schema_version"]["const"] == "0.1.0"
     assert dialect_violations(accepted) == []
+
+
+def test_a_shell_may_name_the_topmost_face_as_well_as_the_upward_one(profile):
+    """Two named shapes for the shell's open face, and the reading stage picks.
+
+    The run this exists for stopped at `SELECTOR_AMBIGUOUS` on a flanged bushing:
+    "planar face facing +Z" found the shoulder and the sleeve end. Narrowing the single
+    offer to the topmost would have made every such document resolve — including the
+    ones where the drawing shows the *shoulder* open, which would then be a silent wrong
+    part rather than a refusal. Two selections, and the model chooses between shapes
+    written here, which is the whole of what ADR-032 permits it to do.
+    """
+    document = with_features(base_feature(), hollowed(TOPMOST_FACE))
+
+    assert list(profile.iter_errors(document)) == []
+    assert validate_canonical(document).schema_version == CAD_IR_VERSION
+
+
+def test_the_shell_still_refuses_a_face_shape_nobody_wrote_here(profile):
+    """Two offers, not a widened predicate set. `area_mm2` is the third thing a drawing
+    might mean by "the top" and is deliberately absent: a selector states an area as a
+    measurement, so offering it would ask the model for a number off the part rather
+    than a shape off the drawing.
+    """
+    composed = {**TOP_FACE, "where": {**TOP_FACE["where"],
+                                      "area_mm2": {"value": 2400.0, "tolerance": 0.5}}}
+    document = with_features(base_feature(), hollowed(composed))
+
+    assert validate_canonical(document).schema_version == CAD_IR_VERSION
+    assert list(profile.iter_errors(document)) != []
+
+
+# --- the profile may not offer what the contract refuses ----------------------
+
+
+def derived_width(value: dict) -> dict:
+    """The plate, with its outline's width stated through 1.11's arithmetic."""
+    document = with_features(base_feature())
+    document["parameters"] = profile_shaped_document()["parameters"][:1]
+    document["features"][0]["inputs"]["sketch"]["outer"]["width"] = value
+    return document
+
+
+@pytest.mark.parametrize(
+    ("what", "value"),
+    [
+        ("a negation inside a quotient",
+         {"divide": {"negate": {"parameter": "p_width"}}, "by": 2.0}),
+        ("a negative divisor", {"divide": {"parameter": "p_width"}, "by": -2.0}),
+        ("two negations", {"negate": {"negate": {"parameter": "p_width"}}}),
+        ("a divided literal", {"divide": 80.0, "by": 2.0}),
+    ],
+)
+def test_the_profile_cannot_offer_a_scalar_the_contract_refuses(profile, what, value):
+    """The half of ADR-034's amendment that lives here.
+
+    The profile's two scalar nodes recursed back into `scalar`, which was right while
+    the contract allowed it. Once the contract closed the grammar — one value, one
+    spelling — the profile was offering documents the validator would reject, and a
+    model writing one from this schema would be refused for a rule the schema never
+    told it about. The two say the same thing now, and this is what keeps them saying it.
+    """
+    document = derived_width(value)
+
+    assert list(profile.iter_errors(document)) != [], what
+    with pytest.raises(CadIrValidationError):
+        validate_canonical(document)
+
+
+def test_the_one_spelling_the_contract_keeps_is_still_offered(profile):
+    """Both halves of it: a quotient of a reference, and a negation of that."""
+    for value in ({"divide": {"parameter": "param.width"}, "by": 2.0},
+                  {"negate": {"divide": {"parameter": "param.width"}, "by": 2.0}},
+                  {"negate": {"parameter": "param.width"}}):
+        assert list(profile.iter_errors(derived_width(value))) == [], value

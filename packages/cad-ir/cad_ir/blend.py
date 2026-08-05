@@ -48,6 +48,7 @@ from .base import (
     Provenance,
     Scalar,
     StrictModel,
+    stated_number,
 )
 from .selectors import Cardinality, EdgeSelector, ExactlyN, FaceSelector
 
@@ -87,15 +88,14 @@ def _require_countable_edges(selector: EdgeSelector) -> None:
 
 
 def _require_positive(value: Scalar, what: str) -> None:
-    """A literal size has to be positive; a named one is the engine's to resolve.
+    """A literal size has to be positive; a derived one is the engine's to resolve.
 
-    Checked here only where it can be: a `ParameterRef` is a promise about a number
-    this module never sees, and the engine resolves and re-checks it in front of the
-    kernel.
+    Checked here only where it can be: a scalar that reads a parameter — directly or
+    through 1.11's arithmetic — is a promise about a number this module never sees, and
+    the engine resolves and re-checks it in front of the kernel.
     """
-    if isinstance(value, ParameterRef):
-        return
-    if float(value) <= 0:
+    size = stated_number(value)
+    if size is not None and size <= 0:
         raise ValueError(f"{what} must be positive")
 
 

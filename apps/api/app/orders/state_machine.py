@@ -28,7 +28,33 @@ ALLOWED_TRANSITIONS: Final[dict[OrderStatus, frozenset[OrderStatus]]] = {
     OrderStatus.FAILED: frozenset(),
     OrderStatus.CANCELLED: frozenset(),
     OrderStatus.EXPIRED: frozenset(),
+    OrderStatus.PAUSED: frozenset(),
 }
+
+#: Statuses the API reads off the job rather than storing on the order.
+#:
+#: `PAUSED` is one because a pause is a fact about a job — the worker set
+#: `retry_after` on it and the reaper will return it — and copying that onto the
+#: order would be a second place for one truth to live, which is the arrangement
+#: `drawing-tracking.json` and `order_records` were already in. Nothing transitions
+#: into or out of it: the reaper moves the *job*, and the derived answer follows on
+#: the next read. Its empty transition set therefore means "not stored", not
+#: "terminal", and `is_decided` is what tells the two apart.
+DERIVED_FROM_THE_JOB: Final[frozenset[OrderStatus]] = frozenset({OrderStatus.PAUSED})
+
+#: Statuses that are somebody's decision rather than an observation of a job, and
+#: which therefore outrank whatever the pipeline is doing. An operator cancelling an
+#: order does not stop the worker mid-build; the build finishes and its artifacts are
+#: stored, and the customer's order is still cancelled.
+DECIDED: Final[frozenset[OrderStatus]] = frozenset({
+    OrderStatus.CANCELLED,
+    OrderStatus.EXPIRED,
+    OrderStatus.MANUAL_REVIEW,
+})
+
+
+def is_decided(status: OrderStatus) -> bool:
+    return status in DECIDED
 
 
 class OrderTransitionError(Exception):
@@ -49,6 +75,15 @@ class OrderRecord:
     status: OrderStatus
     version: int
     updated_at: datetime
+    # What the drawing cycle needs to find its way back: the job answering now, the
+    # job holding the page every round copies, and how many rounds have been spent.
+    # Defaulted because a manual CAD-IR submission has none of them, and because
+    # `transition` is a pure function over the first four fields and should not have
+    # to be handed the rest to say whether a status change is legal.
+    latest_job_id: UUID | None = None
+    source_job_id: UUID | None = None
+    clarification_round: int = 0
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)

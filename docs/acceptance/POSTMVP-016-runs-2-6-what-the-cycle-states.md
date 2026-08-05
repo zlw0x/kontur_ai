@@ -484,6 +484,19 @@ Until then the position is: the finding stands, the check is correct in principl
 and it is **blocked by the contract rather than by effort**. Recording which of
 those it is was the point of trying.
 
+> **Done, in CAD-IR 1.11** (`docs/adr/ADR-034-*`). `ScalarQuotient` and `ScalarNegation`
+> cover both rows of the table that arithmetic can fix — a diameter driving a radius and one
+> parameter driving both sides of a symmetric outline — and `PARAMETER_DRIVES_NOTHING`
+> shipped with them, because arithmetic without the rule makes nothing use it.
+>
+> Two of the three things this section said were needed were already in the tree when it was
+> written. `cad_ir/expression.py` is a recursive-descent parser with a fixed grammar, bounded
+> input and result, three whitelisted functions and a test for `__import__('os').system(...)`
+> — reachable only from the 0.1.0 validator nothing calls, but shipped and tested. The
+> question of how much expression language is safe was answered in 0.1.0; what was actually
+> blocked was the **canonical representation**, and ADR-034 answers it with structured nodes
+> for the reason ADR-018 removed the string form.
+
 ---
 
 ## Run 6 — a count that disagrees

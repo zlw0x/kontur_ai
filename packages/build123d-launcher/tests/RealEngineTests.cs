@@ -107,11 +107,21 @@ public sealed class RealEngineTests
         }
     }
 
-    private static string JobWith(string fixture)
+    /// <summary>
+    /// A job directory holding the named fixture, at whatever version this build speaks.
+    /// </summary>
+    /// <remarks>
+    /// The name carries no version. It used to, and three of the sibling container tests
+    /// still named one a bump had renamed away — they skip themselves unless
+    /// `CAD_ENGINE_IMAGE` is set, and a skip in the summary line looks exactly like a
+    /// pass. What is not executed is not checked.
+    /// </remarks>
+    private static string JobWith(string name)
     {
         var job = Directory.CreateTempSubdirectory("cad-real-").FullName;
         File.Copy(
-            Path.Combine(RealEngine.Root, "tests", "fixtures", "cad-ir", fixture),
+            Path.Combine(RealEngine.Root, "tests", "fixtures", "cad-ir",
+                         $"{name}.{CadIr.FileSuffix}.json"),
             Path.Combine(job, "cad-ir.json"));
         return job;
     }
@@ -124,7 +134,7 @@ public sealed class RealEngineTests
 
         Assert.Equal("build123d", report.Engine.EngineId);
         Assert.Equal("opencascade", report.Engine.KernelId);
-        Assert.Equal("1.10", report.Engine.CadIrVersion);
+        Assert.Equal(CadIr.Version, report.Engine.CadIrVersion);
         Assert.NotEmpty(report.Engine.EngineVersion);
         Assert.Equal(["STEP", "STL"], report.Engine.Artifacts.Select(item => item.Kind));
 
@@ -154,7 +164,7 @@ public sealed class RealEngineTests
     [EngineFact]
     public async Task ARealFixtureBuildsAndTheArtifactsMatchWhatTheEngineReported()
     {
-        var job = JobWith("lever-plate.v1_11.json");
+        var job = JobWith("lever-plate");
         var result = await new Build123dProcessEngine(RealEngine.Options())
             .BuildAsync(new CadDocumentBuildRequest(job, []), CancellationToken.None);
 
@@ -172,7 +182,7 @@ public sealed class RealEngineTests
         // The whole rollback path, end to end: a key on this side becomes an
         // argument, the engine refuses the document, and the refusal arrives
         // back here as the code it was raised with rather than as an exit status.
-        var job = JobWith("lever-plate.v1_11.json");
+        var job = JobWith("lever-plate");
         var refused = await Assert.ThrowsAsync<CadAdapterException>(() =>
             new Build123dProcessEngine(RealEngine.Options()).BuildAsync(
                 new CadDocumentBuildRequest(job, ["sketch.arc"]),
@@ -190,7 +200,7 @@ public sealed class RealEngineTests
         // The whole point of the shape claim, end to end. This document is valid,
         // builds, and measures exactly what it claims to measure; the only thing
         // wrong with it is that it is not the outline the drawing was read as.
-        var job = JobWith("lever-plate.v1_11.json");
+        var job = JobWith("lever-plate");
         var claim = Path.Combine(job, "shape-claim.json");
         File.WriteAllText(
             claim,
@@ -208,7 +218,7 @@ public sealed class RealEngineTests
     [EngineFact]
     public async Task AnHonestReadingOfTheSameDocumentValidates()
     {
-        var job = JobWith("lever-plate.v1_11.json");
+        var job = JobWith("lever-plate");
         var claim = Path.Combine(job, "shape-claim.json");
         File.WriteAllText(
             claim,

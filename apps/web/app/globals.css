@@ -803,8 +803,13 @@ svg {
   box-shadow: 0 0 10px rgba(186, 242, 98, .6);
 }
 
-.status-pill.status-leased i,
-.status-pill.status-pending i {
+/* The order's own vocabulary: the API answered in the job's until the orders
+   table landed, so these were `status-leased` and `status-pending`. */
+.status-pill.status-waiting_for_local_worker i,
+.status-pill.status-drawing_analysis i,
+.status-pill.status-cad_building i,
+.status-pill.status-cad_validation i,
+.status-pill.status-paused i {
   background: #f2c662;
   box-shadow: 0 0 9px rgba(242, 198, 98, .45);
 }

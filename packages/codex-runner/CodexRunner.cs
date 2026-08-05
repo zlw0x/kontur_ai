@@ -437,7 +437,24 @@ public sealed class LocalCodexRunner : ICodexRunner
         throw Failure("CODEX_NOT_INSTALLED", "Standalone Codex CLI was not found.");
     }
 
-    private static string MapExit(CodexEventParser parser) =>
+    /// <summary>
+    /// Which code a failed run carries, read off what the CLI said.
+    /// </summary>
+    /// <remarks>
+    /// Internal rather than private so it can be tested. The worker's decision about
+    /// whether a failure is worth retrying is made from the code, and a real run
+    /// showed the two are easy to confuse: an exhausted account quota says "You've
+    /// hit your usage limit", which lands here as `CODEX_CAPACITY_LIMIT` — not as
+    /// `CODEX_BUDGET_EXHAUSTED`, which is this worker's own per-order run counter and
+    /// never comes from the CLI at all.
+    ///
+    /// Matched on text because the CLI reports the condition in prose and there is
+    /// nothing else to match on. That is a weakness worth stating: a message reworded
+    /// upstream reads as `CODEX_RUN_FAILED` and goes back to the queue. The two words
+    /// are broad on purpose for that reason, and the fallback is a retry rather than a
+    /// wrong answer.
+    /// </remarks>
+    internal static string MapExit(CodexEventParser parser) =>
         parser.ErrorText.Contains("rate", StringComparison.OrdinalIgnoreCase) ||
         parser.ErrorText.Contains("limit", StringComparison.OrdinalIgnoreCase)
             ? "CODEX_CAPACITY_LIMIT"

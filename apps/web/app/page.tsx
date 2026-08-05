@@ -30,6 +30,8 @@ type OrderState = {
   // safe to show: a typed code and text already stripped of paths and hosts.
   failure_code?: string | null;
   failure_message?: string | null;
+  // Present only on a pause: when the service expects to be able to try again.
+  retry_after?: string | null;
   round: number;
   questions: Question[];
   artifacts: Artifact[];
@@ -59,13 +61,29 @@ type IconName =
 // The order results are shown in: two files and the report they were checked
 // with, which is ADR-023's whole answer to what a customer gets.
 const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT"];
+// One vocabulary. The API used to answer with `OrderStatus` on two branches and
+// `JobStatus` on the third — READY and WAITING_FOR_USER_ANSWERS from one set,
+// PENDING and LEASED from the other — so this map had to cover both and which
+// half a customer saw depended on which branch fired. Since the orders table it
+// is `OrderStatus` throughout.
 const statusCopy: Record<string, string> = {
-  PENDING: "Ожидает запуска",
-  LEASED: "Создаём модель",
+  WAITING_FOR_LOCAL_WORKER: "Ожидает запуска",
+  DRAWING_ANALYSIS: "Читаем чертёж",
+  CAD_BUILDING: "Создаём модель",
+  CAD_VALIDATION: "Проверяем геометрию",
   WAITING_FOR_USER_ANSWERS: "Уточните размеры",
   READY: "Модель готова",
   FAILED: "Нужна проверка",
+  PAUSED: "Пауза, вернёмся",
+  MANUAL_REVIEW: "Смотрит инженер",
+  CANCELLED: "Заказ отменён",
+  EXPIRED: "Срок заказа истёк",
 };
+
+// The states where a worker is holding the order and the page should look busy.
+// A set rather than a comparison with "LEASED": the stage is now named, and three
+// names mean three places to forget one.
+const working = new Set(["DRAWING_ANALYSIS", "CAD_BUILDING", "CAD_VALIDATION"]);
 const materialOptions: { value: Material; label: string; color: string }[] = [
   { value: "aluminum", label: "Алюминий", color: "#c8d2d5" },
   { value: "steel", label: "Сталь", color: "#aeb7c1" },
@@ -143,16 +161,37 @@ export default function Home() {
           setOrder(value);
           if (value.status === "READY") setViewMode("model");
           setError("");
+          reschedule(value.status);
         }
       } catch (reason) {
         if (!cancelled) setError(message(reason));
       }
     };
+
+    /*
+      How soon to ask again, from what the last answer was.
+
+      A fixed three-second interval never stopped. A finished order was polled for
+      as long as the tab stayed open, and a *paused* one — an exhausted model quota
+      returns on a date — would be polled roughly a hundred thousand times over four
+      days to be told the same thing.
+
+      READY and FAILED are ends: nothing else will happen and the timer stops. PAUSED
+      is not an end, so it is asked about once a minute rather than never: the pause
+      lifts on the server, and a page that had stopped looking would show a stale
+      pause until somebody reloaded.
+    */
+    let timer: number | undefined;
+    const reschedule = (status: string) => {
+      window.clearTimeout(timer);
+      if (cancelled || status === "READY" || status === "FAILED") return;
+      timer = window.setTimeout(poll, status === "PAUSED" ? 60_000 : 3_000);
+    };
+
     void poll();
-    const timer = window.setInterval(poll, 3000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
     };
   }, [orderId, token]);
 
@@ -274,7 +313,7 @@ export default function Home() {
         setOrder({
           order_id: localOrderId,
           job_id: localOrderId,
-          status: "LEASED",
+          status: "DRAWING_ANALYSIS",
           waiting_reason: null,
           round: 0,
           questions: [],
@@ -352,7 +391,7 @@ export default function Home() {
         Object.values(box).every((value) => Number.isFinite(value) && value > 0) ? box : null,
       );
       if (!token) {
-        setOrder({ ...order, status: "LEASED", questions: [] });
+        setOrder({ ...order, status: "CAD_BUILDING", questions: [] });
         await delay(1100);
         setOrder({
           ...order,
@@ -687,21 +726,21 @@ export default function Home() {
 
               {file && viewMode === "model" && order?.status !== "READY" && (
                 <div className="model-state-card">
-                  <span className={busy || order?.status === "LEASED" ? "pulse" : ""}>
+                  <span className={busy || working.has(order?.status ?? "") ? "pulse" : ""}>
                     <Icon name={order?.questions.length ? "settings" : "sparkles"} />
                   </span>
                   <div>
                     <strong>
                       {order?.questions.length
                         ? "Почти готово"
-                        : order?.status === "LEASED"
+                        : working.has(order?.status ?? "")
                           ? "Создаём геометрию"
                           : "Чертёж готов к обработке"}
                     </strong>
                     <small>
                       {order?.questions.length
                         ? "Подтвердите размеры ниже"
-                        : order?.status === "LEASED"
+                        : working.has(order?.status ?? "")
                           ? "Собираем объёмную модель"
                           : "Запустите построение в левой панели"}
                     </small>
@@ -751,7 +790,28 @@ export default function Home() {
               </p>
             </div>
           )}
-          {order?.waiting_reason && order.status !== "FAILED" && (
+          {order?.status === "PAUSED" && (
+            <div className="notice-card notice-waiting">
+              <span className="eyebrow">Заказ на паузе</span>
+              <p>{order.failure_message ?? "Сервис временно не может обратиться к модели."}</p>
+              {/*
+                A pause is not a failure and not a queue. The order will build, and no
+                worker can build it right now — an exhausted model quota is the case
+                this exists for. Saying when we look again is the whole point: without
+                it a pause is the same silence that "waiting to start" was.
+              */}
+              {order.retry_after && (
+                <p className="notice-hint">
+                  Попробуем снова{" "}
+                  {new Date(order.retry_after).toLocaleString("ru-RU", {
+                    hour: "2-digit", minute: "2-digit", day: "numeric", month: "long",
+                  })}
+                  . Ничего делать не нужно — чертёж сохранён.
+                </p>
+              )}
+            </div>
+          )}
+          {order?.waiting_reason && order.status !== "FAILED" && order.status !== "PAUSED" && (
             <div className="notice-card notice-waiting">
               <span className="eyebrow">Заказ ждёт</span>
               <p>{order.waiting_reason}</p>
@@ -1155,11 +1215,15 @@ function getProgress(status: string) {
   return {
     EMPTY: 0,
     DRAFT: 18,
-    PENDING: 30,
-    LEASED: 68,
+    WAITING_FOR_LOCAL_WORKER: 30,
+    DRAWING_ANALYSIS: 52,
     WAITING_FOR_USER_ANSWERS: 46,
+    CAD_BUILDING: 68,
+    CAD_VALIDATION: 84,
     READY: 100,
     FAILED: 62,
+    PAUSED: 30,
+    MANUAL_REVIEW: 62,
   }[status] ?? 0;
 }
 

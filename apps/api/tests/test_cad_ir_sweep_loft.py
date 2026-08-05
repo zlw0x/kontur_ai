@@ -273,3 +273,82 @@ def test_neither_has_an_extrusion_thickness_for_a_claim_to_name():
         ShapeClaim(profile=ProfileKind.CIRCLE, openings=[], solids=1, thickness="p_depth"),
     )
     assert [item.code for item in found] == ["THICKNESS_PARAMETER"]
+
+
+# --- the rotation a section cannot record ----------------------------------
+#
+# The half of Gate P4 that ADR-031's kind-and-count rule left open. Measured on the
+# engine before the rule was written, lofting a 40 x 40 square 30 mm to another
+# 40 x 40 square:
+#
+#     0°   48 000.0000   a prism
+#    15°   47 454.8132   a twist
+#    45°   43 313.7085   a twist
+#    90°   48 000.0000   a prism, and the document said a quarter turn
+#
+# Nothing is wrong with the kernel. A square turned 90° is the same set of points, so
+# both readings fit the sections as stated and it picks one.
+
+
+def square(side: float, rotation: float = 0.0) -> dict:
+    return {"type": "rectangle", "center": [0.0, 0.0], "width": side, "height": side,
+            "rotation_deg": rotation}
+
+
+def oblong(width: float, height: float, rotation: float = 0.0) -> dict:
+    return {"type": "rectangle", "center": [0.0, 0.0], "width": width, "height": height,
+            "rotation_deg": rotation}
+
+
+def turned(first: dict, second: dict) -> LoftInputs:
+    return LoftInputs(sections=[sketch("a", first), sketch("b", second, ON_TOP)])
+
+
+@pytest.mark.parametrize("rotation", [0.0, 15.0, 45.0, 89.9])
+def test_a_rotation_inside_the_contours_symmetry_is_a_twist_the_sections_record(rotation):
+    """Under a quarter turn, the two vertex sets differ and the pairing is decided."""
+    turned(square(40.0), square(40.0, rotation))
+
+
+@pytest.mark.parametrize("rotation", [90.0, 135.0, 180.0, 270.0])
+def test_a_rotation_of_a_whole_symmetry_or_more_is_refused(rotation):
+    """At and beyond the symmetry, the sections cannot say which of two solids is meant.
+
+    90° and 180° are the same vertex set as 0°; 135° is the same as 45°. In every case
+    the document states one rotation and the sections record another, so the kernel is
+    left choosing — and it chooses silently.
+    """
+    with pytest.raises(ValidationError):
+        turned(square(40.0), square(40.0, rotation))
+
+
+def test_the_symmetry_is_the_contours_own_and_not_a_constant():
+    """A square repeats every quarter turn; an oblong every half; a hexagon every 60°.
+
+    An oblong turned 90° is a genuinely different pair of sections — it is the case a
+    single constant would have refused wrongly.
+    """
+    turned(oblong(40.0, 20.0), oblong(40.0, 20.0, 90.0))
+    with pytest.raises(ValidationError):
+        turned(oblong(40.0, 20.0), oblong(40.0, 20.0, 180.0))
+
+    turned(polygon(6), {**polygon(6), "rotation_deg": 30.0})
+    with pytest.raises(ValidationError):
+        turned(polygon(6), {**polygon(6), "rotation_deg": 60.0})
+
+
+def test_a_contour_with_no_vertices_to_pair_is_not_affected():
+    """A circle has no corners, so there is no correspondence to be undecided about."""
+    LoftInputs(sections=[sketch("a", circle(20.0)), sketch("b", circle(8.0), ON_TOP)])
+
+
+def test_a_rotation_stated_as_a_parameter_is_left_alone():
+    """The check is arithmetic on numbers the document states.
+
+    A rotation given as a name is a number this module never sees, and guessing at it
+    would refuse documents on the strength of a value nobody here read.
+    """
+    LoftInputs(sections=[
+        sketch("a", square(40.0)),
+        sketch("b", {**square(40.0), "rotation_deg": {"parameter": "p_turn"}}, ON_TOP),
+    ])

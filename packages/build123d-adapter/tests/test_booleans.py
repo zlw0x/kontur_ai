@@ -26,21 +26,25 @@ import pytest
 pytest.importorskip("build123d", reason="the CAD engine is not installed")
 
 from cad_ir.canonical import CAD_IR_VERSION  # noqa: E402
+from cad_ir_fixtures import fixture  # noqa: E402
 from cad_ir.canonical_validator import validate_canonical  # noqa: E402
+from conftest import pruned  # noqa: E402
 
 from cad_engine_build123d.adapter import build_part  # noqa: E402
 from cad_engine_build123d.errors import CadEngineError  # noqa: E402
 from cad_engine_build123d.verify import Expectations, verify  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cad-ir"
 
 
 def bracket() -> dict:
-    return json.loads((FIXTURES / "boolean-bracket.v1_11.json").read_text("utf-8"))
+    return fixture("boolean-bracket")
 
 
 def built(value: dict):
-    return build_part(validate_canonical(value))
+    """`pruned` first: several tests here cut features out of the fixture or replace a
+    referenced dimension with a literal, and CAD-IR 1.11 refuses a document that
+    declares a dimension nothing drives. See `conftest.pruned`."""
+    return build_part(validate_canonical(pruned(value)))
 
 
 def feature(value: dict, name: str) -> dict:
@@ -111,7 +115,7 @@ def test_two_bodies_with_no_holes_are_genus_zero():
         {"id": "inv_bodies", "type": "body_count", "value": 2},
         {"id": "inv_holes", "type": "through_hole_count", "value": 0},
     ]
-    checked = report(validate_canonical(value))
+    checked = report(validate_canonical(pruned(value)))
     assert checked.mesh.genus == 0
     assert checked.valid, [item for item in checked.checks if not item.passed]
 
