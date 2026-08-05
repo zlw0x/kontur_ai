@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.11",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.12",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -1495,6 +1495,100 @@
         "generator_version"
       ],
       "title": "DocumentMetadata",
+      "type": "object"
+    },
+    "DraftFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "feature.draft",
+          "title": "Type",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "title": "Depends On",
+          "type": "array"
+        },
+        "produces": {
+          "items": {
+            "$ref": "#/$defs/FeatureResult"
+          },
+          "maxItems": 0,
+          "title": "Produces",
+          "type": "array"
+        },
+        "inputs": {
+          "$ref": "#/$defs/DraftInputs"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Provenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "inputs"
+      ],
+      "title": "DraftFeature",
+      "type": "object"
+    },
+    "DraftInputs": {
+      "additionalProperties": false,
+      "description": "Draw `faces` in by `angle_deg`, measured from the plane of `neutral_face`.\n\nThere is no `source_body`, for the reason a shell and a blend have none: the\nselectors' `from_result` already says whose faces these are, and a second way to\nsay it is a second thing that can disagree.",
+      "properties": {
+        "faces": {
+          "$ref": "#/$defs/FaceSelector"
+        },
+        "neutral_face": {
+          "$ref": "#/$defs/FaceSelector"
+        },
+        "angle_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "title": "Angle Deg"
+        }
+      },
+      "required": [
+        "faces",
+        "neutral_face",
+        "angle_deg"
+      ],
+      "title": "DraftInputs",
       "type": "object"
     },
     "DrivingDimension": {
@@ -4095,8 +4189,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.11",
-      "default": "1.11",
+      "const": "1.12",
+      "default": "1.12",
       "title": "Schema Version",
       "type": "string"
     },
@@ -4131,6 +4225,7 @@
             "datum.plane.offset": "#/$defs/DatumPlaneOffsetFeature",
             "feature.boolean": "#/$defs/BooleanFeature",
             "feature.chamfer": "#/$defs/ChamferFeature",
+            "feature.draft": "#/$defs/DraftFeature",
             "feature.fillet": "#/$defs/FilletFeature",
             "feature.pattern": "#/$defs/PatternFeature",
             "feature.shell": "#/$defs/ShellFeature",
@@ -4171,6 +4266,9 @@
           },
           {
             "$ref": "#/$defs/ShellFeature"
+          },
+          {
+            "$ref": "#/$defs/DraftFeature"
           },
           {
             "$ref": "#/$defs/SolidSweepFeature"

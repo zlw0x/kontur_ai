@@ -46,6 +46,7 @@ from .canonical import (
     CutLoftFeature,
     CutRevolveFeature,
     CutSweepFeature,
+    DraftFeature,
     FilletFeature,
     PatternFeature,
     ResultKind,
@@ -765,22 +766,32 @@ def _wall_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disag
     ]
 
 
-def _drafted(document: CadIrDocument) -> list:
-    """Every enabled feature whose extrusion leans, in document order.
+def _draft_angle(feature):
+    """The angle a feature leans by, or `None` when it leans by nothing.
 
-    `taper_deg` defaults to a plain 0.0 and every other operation has none, so this is
-    a list of the features that actually draft something. A reference is always counted:
-    what a parameter holds is looked at separately, because a *named* zero is a
-    different mistake from an unnamed angle.
+    Two operations state one, and the claim treats them alike because a drawing does:
+    `taper_deg` on an extrusion (1.10) and `feature.draft` on walls that already exist
+    (1.12). What a reader saw was an angle on a wall; which of the two the compilation
+    reached for is not something the drawing says.
+
+    A reference is always an angle: what a parameter holds is looked at separately,
+    because a *named* zero is a different mistake from an unnamed one.
     """
+    if isinstance(feature, DraftFeature):
+        return feature.inputs.angle_deg
+    taper = getattr(feature.inputs, "taper_deg", 0.0)
+    if taper is None:
+        return None
+    stated = stated_number(taper)
+    return taper if stated is None or stated != 0.0 else None
+
+
+def _drafted(document: CadIrDocument) -> list:
+    """Every enabled feature that leans a wall, in document order."""
     return [
         feature
         for feature in document.features
-        if feature.enabled
-        and (
-            (taper := getattr(feature.inputs, "taper_deg", 0.0)) is not None
-            and (stated_number(taper) is None or stated_number(taper) != 0.0)
-        )
+        if feature.enabled and _draft_angle(feature) is not None
     ]
 
 
@@ -828,14 +839,14 @@ def _draft_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disa
             )
         ]
     named = {
-        name for feature in tapered for name in parameters_of(feature.inputs.taper_deg)
+        name for feature in tapered for name in parameters_of(_draft_angle(feature))
     }
     if str(claim.draft) in named:
         turned = [
             feature
             for feature in tapered
-            if str(claim.draft) in parameters_of(feature.inputs.taper_deg)
-            and negates(feature.inputs.taper_deg)
+            if str(claim.draft) in parameters_of(_draft_angle(feature))
+            and negates(_draft_angle(feature))
         ]
         if turned:
             # The one thing ADR-034 took away. This claim says the parameter's name and
@@ -882,14 +893,14 @@ def _draft_disagreement(document: CadIrDocument, claim: ShapeClaim) -> list[Disa
             ]
         return []
     literals = [
-        feature for feature in tapered if not parameters_of(feature.inputs.taper_deg)
+        feature for feature in tapered if not parameters_of(_draft_angle(feature))
     ]
     if literals:
         return [
             Disagreement(
                 code="DRAFT_PARAMETER",
                 claimed=str(claim.draft),
-                built=f"the literal {literals[0].inputs.taper_deg}",
+                built=f"the literal {_draft_angle(literals[0])}",
                 detail=(
                     f"the drawing's draft was read as parameter {claim.draft} and "
                     f"{literals[0].id} tapers by a literal, so the angle lost its name"

@@ -1,0 +1,238 @@
+{
+  "document": {
+    "coordinate_system": "right_handed",
+    "name": "plate",
+    "part_type": "single_part",
+    "units": "mm"
+  },
+  "expectations": [
+    {
+      "id": "expect.bounds",
+      "type": "bounding_box",
+      "size_mm": {
+        "x": 60.0,
+        "y": 40.0,
+        "z": 40.0
+      },
+      "tolerance_mm": 0.05
+    },
+    {
+      "id": "expect.bodies",
+      "type": "body_count",
+      "value": 1
+    },
+    {
+      "id": "expect.holes",
+      "type": "through_hole_count",
+      "value": 0
+    }
+  ],
+  "features": [
+    {
+      "id": "feature.base",
+      "type": "solid.extrude",
+      "enabled": true,
+      "depends_on": [],
+      "produces": [
+        {
+          "id": "body.main",
+          "kind": "solid_body"
+        }
+      ],
+      "inputs": {
+        "sketch": {
+          "id": "sketch.base",
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          },
+          "outer": {
+            "type": "rectangle",
+            "center": [
+              0.0,
+              0.0
+            ],
+            "width": {
+              "parameter": "base_length"
+            },
+            "height": {
+              "parameter": "base_width"
+            },
+            "rotation_deg": 0.0
+          },
+          "inner": [],
+          "construction": [],
+          "constraints": [],
+          "dimensions": []
+        },
+        "direction": "+Z",
+        "distance": {
+          "parameter": "base_thickness"
+        }
+      }
+    },
+    {
+      "id": "feature.wall",
+      "type": "solid.extrude",
+      "enabled": true,
+      "depends_on": [
+        "feature.base"
+      ],
+      "produces": [],
+      "inputs": {
+        "sketch": {
+          "id": "sketch.wall",
+          "plane": {
+            "on": "base",
+            "plane": "YZ"
+          },
+          "outer": {
+            "type": "rectangle",
+            "center": [
+              0.0,
+              20.0
+            ],
+            "width": {
+              "parameter": "base_width"
+            },
+            "height": {
+              "parameter": "wall_height"
+            },
+            "rotation_deg": 0.0
+          },
+          "inner": [],
+          "construction": [],
+          "constraints": [],
+          "dimensions": []
+        },
+        "direction": "+X",
+        "distance": {
+          "parameter": "wall_thickness"
+        },
+        "both_directions": true
+      }
+    },
+    {
+      "id": "feature.rib",
+      "type": "solid.extrude",
+      "enabled": true,
+      "depends_on": [
+        "feature.wall"
+      ],
+      "produces": [],
+      "inputs": {
+        "sketch": {
+          "id": "sketch.rib",
+          "plane": {
+            "on": "base",
+            "plane": "XZ"
+          },
+          "outer": {
+            "type": "path",
+            "segments": [
+              {
+                "type": "line",
+                "start": [
+                  4.0,
+                  8.0
+                ],
+                "end": [
+                  30.0,
+                  8.0
+                ]
+              },
+              {
+                "type": "line",
+                "start": [
+                  30.0,
+                  8.0
+                ],
+                "end": [
+                  4.0,
+                  34.0
+                ]
+              },
+              {
+                "type": "line",
+                "start": [
+                  4.0,
+                  34.0
+                ],
+                "end": [
+                  4.0,
+                  8.0
+                ]
+              }
+            ]
+          },
+          "inner": [],
+          "construction": [],
+          "constraints": [],
+          "dimensions": []
+        },
+        "direction": "+Y",
+        "distance": {
+          "parameter": "rib_thickness"
+        },
+        "both_directions": true
+      }
+    }
+  ],
+  "metadata": {
+    "generator": "cad-ir-normalizer",
+    "generator_version": "1.2"
+  },
+  "parameters": [
+    {
+      "id": "base_length",
+      "type": "length",
+      "value": 60.0,
+      "unit": "mm",
+      "name": "Base length",
+      "status": "confirmed"
+    },
+    {
+      "id": "base_width",
+      "type": "length",
+      "value": 40.0,
+      "unit": "mm",
+      "name": "Base width",
+      "status": "confirmed"
+    },
+    {
+      "id": "base_thickness",
+      "type": "length",
+      "value": 8.0,
+      "unit": "mm",
+      "name": "Base thickness",
+      "status": "confirmed"
+    },
+    {
+      "id": "wall_height",
+      "type": "length",
+      "value": 40.0,
+      "unit": "mm",
+      "name": "Wall height",
+      "status": "confirmed"
+    },
+    {
+      "id": "wall_thickness",
+      "type": "length",
+      "value": 8.0,
+      "unit": "mm",
+      "name": "Wall thickness",
+      "status": "confirmed"
+    },
+    {
+      "id": "rib_thickness",
+      "type": "length",
+      "value": 6.0,
+      "unit": "mm",
+      "name": "Rib thickness",
+      "status": "confirmed"
+    }
+  ],
+  "reference_geometry": [],
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.12"
+}

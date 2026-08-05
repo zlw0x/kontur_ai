@@ -158,12 +158,16 @@ public sealed class DrawingPipelineTests
             var compilation = runner.Prompts[1];
             var repair = runner.Prompts[2];
 
-            // The version arrives as itself, not wrapped and not spelled out.
-            Assert.Contains("canonical CAD-IR 1.11", compilation);
-            Assert.Contains("CAD-IR 1.11 output schema", repair);
+            // The version arrives as itself, not wrapped and not spelled out — and it
+            // is read from the one declaration rather than written here, because a
+            // literal is a copy waiting to fall behind. This one fell behind on the
+            // 1.12 bump, in the one spelling the fixture-version guard does not see:
+            // a version inside a sentence rather than inside a filename.
+            Assert.Contains($"canonical CAD-IR {CadIr.Version}", compilation);
+            Assert.Contains($"CAD-IR {CadIr.Version} output schema", repair);
             foreach (var prompt in runner.Prompts)
             {
-                Assert.DoesNotContain("{1.10}", prompt);
+                Assert.DoesNotContain($"{{{CadIr.Version}}}", prompt);
                 Assert.DoesNotContain("CadIrVersion", prompt);
                 Assert.DoesNotContain("PromptVersion", prompt);
             }

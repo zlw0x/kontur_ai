@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/1.11",
-  "title": "CAD-IR 1.11, narrowed to the geometry this build can construct",
+  "$id": "https://cad.example.com/schemas/cad-ir-mvp-output/1.12",
+  "title": "CAD-IR 1.12, narrowed to the geometry this build can construct",
   "description": "A subset of the canonical CAD-IR schema, expressed in the dialect the Codex structured-output API accepts: anyOf rather than oneOf, every node typed, every array with items, and every object listing all of its properties as required. The canonical schema says what version 1.2 can express; this says what may be generated, so the model is constrained at generation time instead of being corrected by a repair loop. Auxiliary planes and face selectors are part of 1.2 but not offered here: a selector's predicates are individually optional, and a dialect without optional properties would force the model to emit predicates the trusted validator rejects. Semantics the dialect cannot state — that a contour closes, for instance — are enforced by the adapter before anything reaches KOMPAS.",
   "type": "object",
   "properties": {
@@ -11,7 +11,7 @@
     },
     "schema_version": {
       "type": "string",
-      "const": "1.11"
+      "const": "1.12"
     },
     "document": {
       "type": "object",

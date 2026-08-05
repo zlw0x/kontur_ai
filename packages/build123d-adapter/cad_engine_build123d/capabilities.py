@@ -39,6 +39,7 @@ from cad_ir.canonical import (
     CutRevolveFeature,
     CutSweepFeature,
     DatumPlaneOffsetFeature,
+    DraftFeature,
     FilletFeature,
     LinearPattern,
     MirrorPattern,
@@ -109,6 +110,12 @@ FEATURE_CHAMFER_ASYMMETRIC = "feature.chamfer.asymmetric"
 # seen a part come out 6 mm too big in every direction wants to stop that one alone.
 FEATURE_SHELL_INWARD = "feature.shell.inward"
 FEATURE_SHELL_OUTWARD = "feature.shell.outward"
+#: Drafting the walls of a body that already exists (CAD-IR 1.12, ADR-035). Separate
+#: from `taper_deg`, which is part of an extrusion and has no key of its own, because
+#: this is the operation an operator would roll back on its own: it names faces, and a
+#: selector that lands on the wrong ones is a part of the right size with the wrong
+#: walls leaning.
+FEATURE_DRAFT = "feature.draft"
 SELECTOR_EDGE_CONVEXITY = "selector.edge.convexity"
 EXPORT_STEP = "export.step"
 EXPORT_STL = "export.stl"
@@ -195,6 +202,9 @@ DECLARED: Mapping[str, Declaration] = {
     FEATURE_CHAMFER_ASYMMETRIC: Declaration("experimental"),
     FEATURE_SHELL_INWARD: Declaration("beta"),
     FEATURE_SHELL_OUTWARD: Declaration("beta"),
+    # Experimental until the corpus has more than the two shapes that
+    # earned it: some walls of a block, and the outer wall of a turned part.
+    FEATURE_DRAFT: Declaration("experimental"),
     SELECTOR_EDGE_CONVEXITY: Declaration("beta"),
     EXPORT_STEP: Declaration("beta"),
     EXPORT_STL: Declaration("beta"),
@@ -384,6 +394,8 @@ def requirements(document) -> dict[str, str]:
                 else FEATURE_SHELL_OUTWARD,
                 f"the shell {feature.id}",
             )
+        elif isinstance(feature, DraftFeature):
+            need(FEATURE_DRAFT, f"the draft {feature.id}")
         elif isinstance(feature, FilletFeature):
             need(FEATURE_FILLET_CONSTANT, f"the fillet {feature.id}")
         elif isinstance(feature, ChamferFeature):

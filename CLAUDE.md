@@ -31,14 +31,14 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.11** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.12** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
   and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
   (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`), 1.9 sweep and loft
   (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`), 1.11
-  scalar arithmetic (`docs/adr/ADR-034-*`).
+  scalar arithmetic (`docs/adr/ADR-034-*`), 1.12 draft (`docs/adr/ADR-035-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -347,10 +347,32 @@ inherited the worker's own stdin**, so a pipe nobody closed made a stage fail wi
 events at all — indistinguishable from the model failing — and any bytes that did arrive
 would have been appended to the prompt. Redirected and closed at start.
 
-**What is next**: an up-to-face extrusion and `feature.draft`, both CAD-IR versions and
-**not at the same time** — two branches each holding one is expensive to reconcile, which
-this repository has now paid for once. Then the rest of Gate P4.
+**What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
+not run beside another one — two branches each holding a contract change is expensive to
+reconcile, which this repository has paid for once. Then the rest of Gate P4.
 `docs/POST-MVP-ROADMAP.md` has the order.
+
+**A draft names its walls** (POSTMVP-026, ADR-035), and it is the first operation admitted
+against the rule three milestones arrived at. POSTMVP-024 had measured that a drafted boss
+is *identical* either way — 26 689.1761 mm³ from `extrude(taper=10)` and from drafting the
+walls afterwards — so the case had to be two things composition cannot reach: **two walls
+of four** (29 178.7680 mm³, `a·h·(a − h·tanθ)`, bounding box unchanged because the walls
+the drawing leaves alone still stand) and **a body no extrusion made** (a turned tube's
+outer wall, 18 849.5559 → 14 678.4446, the frustum less the bore).
+
+The faces are named by selector and so is the **neutral face**, whose plane holds still —
+about the base 26 689.1761, about the top 37 974.1029, both valid. And its normal is turned
+**inward**, which is the one thing the engine decides rather than passes through: read
+straight off, a base face looks down and out of the part, so a positive angle would narrow
+the part downwards. Turned inward, the named face keeps its size and the answer is the same
+whichever end the document names — which is what makes the rule sayable: *positive draws
+the walls in as they leave the neutral face.*
+
+Two firsts in its failure modes. At exactly the closing angle the kernel returns the
+pyramid and **reports `is_valid` false** — the first time it has volunteered that its own
+answer is wrong, where the shell, the sweep, the taper and `until` all claimed validity.
+Past it, `Standard_ConstructionError` **with an empty message**, which without a wrap
+escapes as a crash rather than a refusal. Both are `DRAFT_TOO_STEEP`.
 
 **Rib itself needs no operation** (POSTMVP-022): a closed contour extruded both ways,
 31 468.0000 mm³ against a closed form of 31 468. What the roadmap listed beside it does.
