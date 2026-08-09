@@ -76,3 +76,65 @@ def test_postgres_order_round_trip_and_version_conflict():
         with pytest.raises(OrderVersionConflict):
             repository.transition(order_id, target=OrderStatus.EXPIRED, expected_version=0)
         assert repository.get(order_id).status == OrderStatus.CANCELLED
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="requires opt-in PostgreSQL")
+def test_postgres_accounts_sessions_and_ownership():
+    """Accounts on the database that actually runs, including the two constraints.
+
+    SQLite enforces UNIQUE, so the duplicate-address check would pass there too.
+    What it does *not* enforce by default is the foreign key, and `orders.owner_id`
+    references `users(id)` — so an order pointing at an account that does not exist
+    is a thing only this test can catch.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy.exc import IntegrityError
+
+    import app.accounts.models  # noqa: F401  (registers users and sessions)
+    from app.accounts import Role, SqlAccountRepository
+    from app.accounts.service import AccountService
+    from app.accounts.principal import Principal, may_see_order
+
+    with disposable_schema() as sessions:
+        accounts = AccountService(SqlAccountRepository(sessions))
+        ivan, _ = accounts.register("Ivan@Example.com", "correct horse battery staple")
+        assert ivan.role is Role.CUSTOMER
+
+        # Case-folded uniqueness, on the real UNIQUE constraint.
+        with pytest.raises(Exception) as clash:
+            accounts.register("ivan@example.com", "another perfectly fine password")
+        assert clash.type.__name__ in {"EmailAlreadyRegistered", "IntegrityError"}
+
+        issued = accounts.issue(ivan)
+        # A second service over the same database: a restarted API, or the other
+        # process behind the same load balancer. Before 0009 there was no second
+        # process that could resolve a session at all, because there were none.
+        elsewhere = AccountService(SqlAccountRepository(sessions))
+        resolved = elsewhere.resolve(issued.token)
+        assert resolved is not None and resolved[0].user_id == ivan.id
+
+        elsewhere.sign_out(issued.session.id)
+        assert accounts.resolve(issued.token) is None
+
+        orders = SqlOrderRepository(sessions)
+        order_id = uuid4()
+        orders.create(order_id, OrderStatus.WAITING_FOR_LOCAL_WORKER, owner_id=ivan.id)
+        assert SqlOrderRepository(sessions).get(order_id).owner_id == ivan.id
+        assert may_see_order(Principal(role=Role.CUSTOMER, user_id=ivan.id), ivan.id)
+        assert not may_see_order(Principal(role=Role.CUSTOMER, user_id=uuid4()), ivan.id)
+
+        # The foreign key, which is the half SQLite does not check.
+        with pytest.raises(IntegrityError):
+            orders.create(uuid4(), OrderStatus.WAITING_FOR_LOCAL_WORKER, owner_id=uuid4())
+
+        # And an expiry stored as `timestamptz` comes back aware, so comparing it
+        # against `now` is a comparison and not a `TypeError`.
+        stale = accounts.repository.create_session(
+            user_id=ivan.id,
+            token_sha256="0" * 64,
+            csrf_sha256="0" * 64,
+            expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+        )
+        assert stale.expires_at.tzinfo is not None
+        assert accounts.resolve("whatever that token was") is None

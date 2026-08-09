@@ -83,22 +83,6 @@
               "format": "uuid",
               "title": "Order Id"
             }
-          },
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
-            }
           }
         ],
         "requestBody": {
@@ -118,6 +102,201 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrderSnapshot"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "summary": "Register Account",
+        "description": "A customer account, and signed in straight away.\n\nOnly ever a customer. An operator account is made by an admin through\n`/api/v1/admin/users`, because a public form that can hand out the role which\nreads everybody's drawings is not a form, it is a door.",
+        "operationId": "register_account_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/sign-in": {
+      "post": {
+        "summary": "Sign In",
+        "operationId": "sign_in_api_v1_auth_sign_in_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/sign-out": {
+      "post": {
+        "summary": "Sign Out",
+        "operationId": "sign_out_api_v1_auth_sign_out_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "summary": "Current Account",
+        "description": "Who the cookie says you are, and a fresh CSRF token to go with it.\n\nA page reloaded after the CSRF token was only ever held in memory has to be able\nto get it back without signing in again, and this is that. It is a GET, so it is\nnot itself CSRF-protected — and it need not be, because it changes nothing and\na cross-origin page cannot read the reply.",
+        "operationId": "current_account_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users": {
+      "post": {
+        "summary": "Create User",
+        "operationId": "create_user_api_v1_admin_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUserResponse"
                 }
               }
             }
@@ -391,33 +570,15 @@
       "post": {
         "summary": "Create Manual Cad Job",
         "operationId": "create_manual_cad_job_api_v1_manual_cad_jobs_post",
-        "parameters": [
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ManualCadJobRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -473,22 +634,6 @@
               ],
               "title": "Content-Type"
             }
-          },
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
-            }
           }
         ],
         "responses": {
@@ -538,22 +683,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Order Id"
-            }
-          },
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
             }
           }
         ],
@@ -606,22 +735,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Order Id"
-            }
-          },
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
             }
           }
         ],
@@ -683,22 +796,6 @@
               "format": "uuid",
               "title": "Job Id"
             }
-          },
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
-            }
           }
         ],
         "responses": {
@@ -751,22 +848,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Job Id"
-            }
-          },
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
             }
           }
         ],
@@ -826,22 +907,6 @@
             "schema": {
               "type": "string",
               "title": "Artifact Type"
-            }
-          },
-          {
-            "name": "x-manual-api-token",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Manual-Api-Token"
             }
           }
         ],
@@ -2006,6 +2071,72 @@
         "title": "ClarificationAnswer",
         "description": "One answer, in the shape its question asked for.\n\nThis was `{question_id, value: float, unit: \"mm\"}` and nothing else, which\nmade most of what the reading stage actually asks unanswerable. Of the six\nquestions the acceptance runs produced, four could not be sent: two asked for\na pair of distances, and two asked whether an opening went through — which is\na choice, and has no millimetre value at all. The order was a dead end: the\nAPI refuses an answer set that is not a complete match, so a question with no\nexpressible answer stops the job forever.\n\nA number still carries `unit`, because a dimension without one is a number\nsomebody has to guess the meaning of. A choice carries none, because \"through\"\nis not measured in millimetres.\n\nWhich shape is valid is not decided here — it is decided by the question, and\nchecked against the question when the answers arrive (`_answer_matches`). The\nreading stage says how each of its questions is answered, so the customer is\nnever offered a field that cannot hold the answer."
       },
+      "CreateUserRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 12,
+            "title": "Password"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "role"
+        ],
+        "title": "CreateUserRequest",
+        "description": "An admin making somebody an operator. Not a public registration."
+      },
+      "CreateUserResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "totp_secret": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp Secret"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "role"
+        ],
+        "title": "CreateUserResponse"
+      },
       "DrawingAnswersRequest": {
         "properties": {
           "answers": {
@@ -2638,6 +2769,29 @@
         ],
         "title": "ReasoningEffort"
       },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 12,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest"
+      },
       "ResourceEvent": {
         "properties": {
           "event_key": {
@@ -2900,6 +3054,82 @@
         ],
         "title": "ServiceTier"
       },
+      "SessionResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "csrf_token": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 16,
+            "title": "Csrf Token"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "role",
+          "csrf_token",
+          "expires_at"
+        ],
+        "title": "SessionResponse",
+        "description": "Who you are now, and the token every mutating request has to echo.\n\nThe CSRF token is in the body as well as in a cookie so a client can hold it in\nmemory and never read `document.cookie`. The session token itself is not here\nand never will be: it exists only in a cookie the page's JavaScript cannot read,\nwhich is the whole point of `httpOnly`."
+      },
+      "SignInRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 12,
+            "title": "Password"
+          },
+          "totp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8,
+                "minLength": 6
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "SignInRequest"
+      },
       "TokenSource": {
         "type": "string",
         "enum": [
@@ -2941,6 +3171,16 @@
           "target_status"
         ],
         "title": "TransitionOrderRequest"
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "customer",
+          "operator",
+          "admin"
+        ],
+        "title": "UserRole",
+        "description": "Mirrors `app.accounts.principal.Role` at the API boundary.\n\nA second spelling of the same three words, which normally would be a smell.\nIt is here because `contracts` is what generates the published OpenAPI document\nand must not import the service's internals to do it — the same reason\n`JobStatus` lives here and not in the worker protocol. A test holds the two\nsets equal, so they cannot drift."
       },
       "ValidationError": {
         "properties": {

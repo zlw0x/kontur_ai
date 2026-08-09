@@ -5,4 +5,8 @@ pytest==8.4.1
 httpx==0.28.1
 jsonschema==4.25.1
 SQLAlchemy==2.0.43
+# Password hashing. Present in the tree already as a transitive dependency;
+# named here because "a bare SHA-256 is not a password hash" is a requirement of
+# this service and not an accident of somebody else's dependency graph.
+bcrypt==5.0.0
 psycopg[binary]==3.2.13

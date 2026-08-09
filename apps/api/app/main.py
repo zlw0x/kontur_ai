@@ -10,7 +10,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
@@ -18,6 +18,21 @@ from cad_ir import CadIrValidationError
 from cad_ir.canonical import CAD_IR_VERSION, DocumentMetadata
 from cad_ir.normalizer import normalize as normalize_cad_ir
 
+from .accounts import (
+    CSRF_COOKIE,
+    CSRF_HEADER,
+    SESSION_COOKIE,
+    AccountService,
+    AuthenticationFailed,
+    EmailAlreadyRegistered,
+    InMemoryAccountRepository,
+    Principal,
+    Role,
+    SessionRecord,
+    SqlAccountRepository,
+    may_see_order,
+)
+from .accounts.passwords import WeakPassword
 from .config import settings
 from .database import Base, create_session_factory
 from .ledger.service import LedgerError, ResourceLedgerService
@@ -48,6 +63,12 @@ from .contracts import (
     DrawingJobResponse,
     DrawingAnswersRequest,
     ClarificationAnswer,
+    CreateUserRequest,
+    CreateUserResponse,
+    RegisterRequest,
+    SessionResponse,
+    SignInRequest,
+    UserRole,
 )
 from .input.quarantine import InputRejected, Quarantine
 from .input.sanitizer import Sanitizer, SanitizerUnavailable
@@ -102,6 +123,19 @@ def build_order_repository():
         return InMemoryOrderRepository()
     _, sessions = create_session_factory(settings.database_url)
     return SqlOrderRepository(sessions)
+
+
+def build_account_repository():
+    """Same switch again. Three stores, one setting, and no third answer.
+
+    The in-memory one is not a stub: it raises the same `IntegrityError` on a
+    duplicate address that the UNIQUE constraint does, so a test cannot pass by
+    being run against the more forgiving of the two.
+    """
+    if settings.worker_repository_mode == "memory":
+        return InMemoryAccountRepository()
+    _, sessions = create_session_factory(settings.database_url)
+    return SqlAccountRepository(sessions)
 
 
 def build_resource_ledger():
@@ -173,9 +207,13 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ])),
-    allow_credentials=False,
+    # Cookies now carry the session, and a browser sends none cross-origin unless
+    # this is on. The origin list stays explicit — `allow_credentials` with `*` is
+    # refused by every browser, and rightly, because it would let any page on the
+    # internet make authenticated requests on a signed-in user's behalf.
+    allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["content-type", "x-manual-api-token", "x-request-id"],
+    allow_headers=["content-type", "x-manual-api-token", "x-request-id", CSRF_HEADER],
 )
 worker_protocol = build_worker_protocol()
 resource_ledger = build_resource_ledger()
@@ -193,6 +231,7 @@ sanitizer = Sanitizer(
     allow_unconfined_process=settings.environment.lower() == "local",
 )
 orders = build_order_repository()
+accounts = AccountService(build_account_repository())
 
 
 @app.middleware("http")
@@ -218,17 +257,25 @@ def api_health() -> dict[str, str]:
 @app.post("/api/v1/orders/{order_id}/transition", response_model=OrderSnapshot)
 def transition_order(
     order_id: uuid.UUID,
-    request: TransitionOrderRequest,
-    x_manual_api_token: str | None = Header(default=None),
+    body: TransitionOrderRequest,
+    request: Request,
 ) -> OrderSnapshot:
-    authenticated_manual_api(x_manual_api_token)
-    if orders.get(order_id) is None:
+    principal = require_principal(request)
+    order = orders.get(order_id)
+    if order is None or not may_see_order(principal, order.owner_id):
         raise HTTPException(status_code=404, detail="order was not found")
+    if not principal.is_staff and body.target_status not in CUSTOMER_TRANSITIONS:
+        # A customer owns their order and may give it up; they do not get to declare
+        # it READY, or send it to manual review, or move it into a stage the pipeline
+        # is supposed to reach on its own. Whitelisted rather than blacklisted: a new
+        # status added to `OrderStatus` is then unreachable by a customer until
+        # somebody decides otherwise, which is the direction a default should fail in.
+        raise HTTPException(status_code=403, detail="a customer may only cancel an order")
     updated, _ = orders.transition(
         order_id,
-        target=request.target_status,
-        expected_version=request.expected_version,
-        reason=request.reason,
+        target=body.target_status,
+        expected_version=body.expected_version,
+        reason=body.reason,
     )
     return OrderSnapshot(
         id=updated.id,
@@ -293,6 +340,266 @@ def authenticated_manual_api(token: str | None) -> None:
         raise HTTPException(status_code=401, detail="manual API token is required")
 
 
+# --- who is asking -------------------------------------------------------------
+#
+# Two credentials reach these handlers and they are not equals.
+#
+# A **session cookie** is a person: it names a user, so an order they create is
+# theirs and an order somebody else created is not visible to them.
+#
+# The **manual API token** is not a person. It is `MANUAL_API_TOKEN`, and this
+# service's standing rule is that it stays a diagnostic operator key and never
+# becomes a client authorization. Giving it the operator role rather than some
+# phantom customer's is what keeps that true: it can look at everything, the way an
+# operator can, and it owns nothing, so nothing created with it becomes an order
+# belonging to a user who does not exist.
+
+#: Methods that cannot change anything, and so cannot be worth forging.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+#: The only status a customer may move their own order to.
+#:
+#: A whitelist rather than a list of forbidden ones, so that a status added to
+#: `OrderStatus` later is unreachable by a customer until somebody decides
+#: otherwise. `EXPIRED` is not here on purpose: expiry is something the service
+#: observes about an order, not something its owner announces.
+CUSTOMER_TRANSITIONS = frozenset({OrderStatus.CANCELLED})
+
+
+def _identify(request: Request) -> tuple[Principal, SessionRecord | None] | None:
+    session_token = request.cookies.get(SESSION_COOKIE)
+    if session_token:
+        resolved = accounts.resolve(session_token)
+        if resolved is not None:
+            return resolved
+        # A cookie that no longer resolves falls through rather than refusing here.
+        # An expired session plus a valid operator token is a request an operator
+        # should be able to make, and the alternative is a 401 they cannot explain
+        # without being told to clear their cookies.
+    manual = request.headers.get("x-manual-api-token")
+    if manual and secrets.compare_digest(manual, settings.manual_api_token):
+        return Principal(role=Role.OPERATOR), None
+    return None
+
+
+def require_principal(request: Request) -> Principal:
+    """Who is asking, refusing if nobody, and checking CSRF when it can apply.
+
+    CSRF is checked **only for a cookie**, and that is not laziness. The attack is
+    a page on another origin causing the browser to send a request the user did not
+    intend, and the browser attaches cookies to such a request by itself. It does
+    not attach an `x-manual-api-token` header, because setting a custom header
+    cross-origin requires a preflight the API answers only for its own origins.
+    A credential that has to be typed in cannot be sent by accident.
+    """
+    identified = _identify(request)
+    if identified is None:
+        raise HTTPException(status_code=401, detail="sign in to continue")
+    principal, session = identified
+    if principal.from_cookie and request.method.upper() not in SAFE_METHODS:
+        if session is None or not accounts.csrf_matches(session, request.headers.get(CSRF_HEADER)):
+            raise HTTPException(status_code=403, detail="CSRF token is missing or wrong")
+    return principal
+
+
+def require_staff(request: Request) -> Principal:
+    principal = require_principal(request)
+    if not principal.is_staff:
+        # 404 rather than 403 on the operator surface, for the same reason an order
+        # somebody does not own is a 404: a 403 confirms that the endpoint is there
+        # and worth attacking, which is the one thing it need not say.
+        raise HTTPException(status_code=404, detail="not found")
+    return principal
+
+
+def visible_order(order_id: uuid.UUID, principal: Principal) -> OrderRecord:
+    """An order this principal may see, or a 404.
+
+    **404 and not 403.** A 403 answers the question "does this order exist?" for
+    anybody willing to guess an id, and the existence of an order is itself
+    information about somebody else's business. The two answers are deliberately
+    the same and deliberately indistinguishable.
+    """
+    order = _drawing_order(order_id)
+    if not may_see_order(principal, order.owner_id):
+        raise HTTPException(status_code=404, detail="drawing order was not found")
+    return order
+
+
+def visible_job_order(job_id: uuid.UUID, principal: Principal):
+    """The same rule, reached from a job id instead of an order id.
+
+    The artifact endpoints are keyed by job, and a customer downloading their own
+    STEP file goes through them — so "the manual API is for operators" cannot mean
+    "only operators may download". What it means is that the job's order decides,
+    and this is the one translation from one to the other.
+    """
+    job = worker_protocol.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job was not found")
+    if principal.is_staff:
+        return job
+    order = orders.get(job.order_id)
+    if order is None or not may_see_order(principal, order.owner_id):
+        raise HTTPException(status_code=404, detail="job was not found")
+    return job
+
+
+def _set_session_cookies(response: Response, issued) -> None:
+    max_age = int(accounts.lifetime.total_seconds())
+    response.set_cookie(
+        SESSION_COOKIE,
+        issued.token,
+        # The three that matter, and each one is doing something:
+        # `httponly` keeps the token out of reach of any script on the page, so an
+        # XSS bug steals nothing durable; `secure` stops it travelling over plain
+        # HTTP; `samesite=lax` means the browser does not attach it to a
+        # cross-site POST, which removes most of CSRF before the token below is
+        # even consulted. Lax rather than Strict so that following a link into the
+        # site from an email does not land on a signed-out page.
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=max_age,
+        path="/",
+    )
+    response.set_cookie(
+        CSRF_COOKIE,
+        issued.csrf_token,
+        # Readable on purpose: the client has to copy it into a header, and a
+        # header is the thing a cross-origin page cannot set. `httponly` here would
+        # break the mechanism it is meant to protect.
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=max_age,
+        path="/",
+    )
+
+
+def _session_response(issued) -> SessionResponse:
+    return SessionResponse(
+        user_id=issued.user.id,
+        email=issued.user.email,
+        role=UserRole(issued.user.role.value),
+        csrf_token=issued.csrf_token,
+        expires_at=issued.session.expires_at,
+    )
+
+
+@app.post("/api/v1/auth/register", response_model=SessionResponse, status_code=201)
+def register_account(request: RegisterRequest, response: Response) -> SessionResponse:
+    """A customer account, and signed in straight away.
+
+    Only ever a customer. An operator account is made by an admin through
+    `/api/v1/admin/users`, because a public form that can hand out the role which
+    reads everybody's drawings is not a form, it is a door.
+    """
+    try:
+        user, _ = accounts.register(request.email, request.password, Role.CUSTOMER)
+    except EmailAlreadyRegistered:
+        # The one place the service admits an address is known. A registration form
+        # cannot hide it and still work; sign-in can, and does.
+        raise HTTPException(status_code=409, detail="this address is already registered") from None
+    except WeakPassword as refused:
+        raise HTTPException(status_code=422, detail=str(refused)) from None
+    issued = accounts.issue(user)
+    _set_session_cookies(response, issued)
+    return _session_response(issued)
+
+
+@app.post("/api/v1/auth/sign-in", response_model=SessionResponse)
+def sign_in(request: SignInRequest, response: Response) -> SessionResponse:
+    try:
+        issued = accounts.sign_in(request.email, request.password, request.totp)
+    except AuthenticationFailed:
+        # One refusal for unknown address, wrong password, disabled account and
+        # missing second factor. Anything else is a form that tells a stranger which
+        # addresses have accounts here, and the drawings behind those accounts are
+        # somebody's commercial secret.
+        raise HTTPException(status_code=401, detail="email or password is wrong") from None
+    _set_session_cookies(response, issued)
+    return _session_response(issued)
+
+
+@app.post("/api/v1/auth/sign-out", status_code=204)
+def sign_out(request: Request, response: Response) -> None:
+    identified = _identify(request)
+    if identified is not None and identified[0].session_id is not None:
+        accounts.sign_out(identified[0].session_id)
+    # Cleared whatever happened, so a browser holding a session this server has
+    # never heard of does not keep presenting it.
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
+
+
+@app.get("/api/v1/auth/me", response_model=SessionResponse)
+def current_account(request: Request) -> SessionResponse:
+    """Who the cookie says you are, and a fresh CSRF token to go with it.
+
+    A page reloaded after the CSRF token was only ever held in memory has to be able
+    to get it back without signing in again, and this is that. It is a GET, so it is
+    not itself CSRF-protected — and it need not be, because it changes nothing and
+    a cross-origin page cannot read the reply.
+    """
+    identified = _identify(request)
+    if identified is None:
+        raise HTTPException(status_code=401, detail="sign in to continue")
+    principal, session = identified
+    if session is None or principal.user_id is None:
+        # The manual operator key. It authenticates but it is not an account, and
+        # answering with an invented user would be the exact confusion this service
+        # keeps that token out of.
+        raise HTTPException(status_code=404, detail="the manual API token is not an account")
+    user = accounts.repository.user(principal.user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="sign in to continue")
+    return SessionResponse(
+        user_id=user.id,
+        email=user.email,
+        role=UserRole(user.role.value),
+        # Re-issued from the session's own secret would be ideal; the stored value
+        # is a hash, so what is returned is a new token for a new session. Rotating
+        # on a page load is cheap and closes the window where an old one is still
+        # accepted.
+        csrf_token=_reissued_csrf(session),
+        expires_at=session.expires_at,
+    )
+
+
+def _reissued_csrf(session: SessionRecord) -> str:
+    """A CSRF token this session will accept, without touching the session token.
+
+    Stored as a hash, so the original cannot be handed back — a new one is minted
+    and written over the old. The session cookie is untouched, so the browser stays
+    signed in; only the value the header must carry changes.
+    """
+    token = secrets.token_urlsafe(32)
+    accounts.repository.rotate_csrf(session.id, hashlib.sha256(token.encode()).hexdigest())
+    return token
+
+
+@app.post("/api/v1/admin/users", response_model=CreateUserResponse, status_code=201)
+def create_user(request: Request, body: CreateUserRequest) -> CreateUserResponse:
+    principal = require_principal(request)
+    if principal.role is not Role.ADMIN:
+        raise HTTPException(status_code=404, detail="not found")
+    try:
+        user, secret = accounts.register(body.email, body.password, Role(body.role.value))
+    except EmailAlreadyRegistered:
+        raise HTTPException(status_code=409, detail="this address is already registered") from None
+    except WeakPassword as refused:
+        raise HTTPException(status_code=422, detail=str(refused)) from None
+    return CreateUserResponse(
+        user_id=user.id,
+        email=user.email,
+        role=UserRole(user.role.value),
+        # Shown once. It is stored to verify against, not to display, which is the
+        # property an authenticator app depends on.
+        totp_secret=secret,
+    )
+
+
 @app.post("/api/v1/workers/register", response_model=WorkerRegistrationResponse, status_code=201)
 def register_worker(request: WorkerRegistrationRequest) -> WorkerRegistrationResponse:
     worker, credential = worker_protocol.register(
@@ -351,17 +658,21 @@ def renew_job_lease(job_id: uuid.UUID, request: JobHeartbeatRequest, authorizati
 
 @app.post("/api/v1/manual/cad-jobs", response_model=ManualCadJobResponse, status_code=201)
 def create_manual_cad_job(
-    request: ManualCadJobRequest,
-    x_manual_api_token: str | None = Header(default=None),
+    body: ManualCadJobRequest,
+    request: Request,
 ) -> ManualCadJobResponse:
-    authenticated_manual_api(x_manual_api_token)
+    # Staff only, and this is the endpoint the manual token is *for*: handing a
+    # CAD-IR document straight to a worker bypasses the reading stage, the shape
+    # claim and every check that stands between a drawing and a part. A customer
+    # has no business here; an operator diagnosing the engine has nothing else.
+    principal = require_staff(request)
     # A submission may still be written against 0.1.0. It is lifted into the
     # canonical form here so the worker only ever sees one shape, and the
     # lineage records both ends of that translation.
     started = time.perf_counter()
     try:
         normalized = normalize_cad_ir(
-            request.cad_ir,
+            body.cad_ir,
             metadata=DocumentMetadata(generator="manual-api", generator_version=API_VERSION),
         )
     except CadIrValidationError as error:
@@ -377,7 +688,12 @@ def create_manual_cad_job(
         ) from error
     normalization_ms = (time.perf_counter() - started) * 1000
     order_id, job_id = uuid.uuid4(), uuid.uuid4()
-    orders.create(order_id, OrderStatus.WAITING_FOR_LOCAL_WORKER, latest_job_id=job_id)
+    orders.create(
+        order_id,
+        OrderStatus.WAITING_FOR_LOCAL_WORKER,
+        latest_job_id=job_id,
+        owner_id=principal.user_id,
+    )
     stored = artifact_store.put_cad_ir(job_id, json.loads(normalized.canonical_json))
     idempotency_key = "sha256:" + hashlib.sha256(
         f"{order_id}:{stored.sha256}".encode()
@@ -439,9 +755,8 @@ def _record_normalization(job_id: uuid.UUID, normalized, elapsed_ms: float) -> N
 async def create_drawing_job(
     request: Request,
     content_type: str | None = Header(default=None),
-    x_manual_api_token: str | None = Header(default=None),
 ) -> DrawingJobResponse:
-    authenticated_manual_api(x_manual_api_token)
+    principal = require_principal(request)
     # Quarantine, sanitize, then store — and never the upload itself. The addendum's
     # central invariant is that the worker, Codex and the browser see only cleaned
     # pages, and what stood here read the whole body into memory with `request.body()`
@@ -488,6 +803,10 @@ async def create_drawing_job(
         OrderStatus.WAITING_FOR_LOCAL_WORKER,
         latest_job_id=job_id,
         source_job_id=job_id,
+        # None when the manual operator key made this, which is correct rather than
+        # a gap: that token is not a person, and inventing an owner for it would put
+        # a phantom user in the column the ownership rule reads.
+        owner_id=principal.user_id,
     )
     worker_protocol.enqueue(Job(
         job_id,
@@ -548,12 +867,8 @@ def _drawing_order(order_id: uuid.UUID) -> OrderRecord:
 
 
 @app.get("/api/v1/drawing-jobs/{order_id}")
-def get_drawing_job(
-    order_id: uuid.UUID,
-    x_manual_api_token: str | None = Header(default=None),
-) -> dict:
-    authenticated_manual_api(x_manual_api_token)
-    order = _drawing_order(order_id)
+def get_drawing_job(order_id: uuid.UUID, request: Request) -> dict:
+    order = visible_order(order_id, require_principal(request))
     job_id = order.latest_job_id
     job = worker_protocol.get_job(job_id)
     if job is None:
@@ -625,11 +940,10 @@ def get_drawing_job(
 @app.post("/api/v1/drawing-jobs/{order_id}/answers", response_model=DrawingJobResponse, status_code=201)
 def answer_drawing_questions(
     order_id: uuid.UUID,
-    request: DrawingAnswersRequest,
-    x_manual_api_token: str | None = Header(default=None),
+    body: DrawingAnswersRequest,
+    request: Request,
 ) -> DrawingJobResponse:
-    authenticated_manual_api(x_manual_api_token)
-    order = _drawing_order(order_id)
+    order = visible_order(order_id, require_principal(request))
     prior_job_id = order.latest_job_id
     try:
         question_document = json.loads(
@@ -638,10 +952,10 @@ def answer_drawing_questions(
     except (ArtifactIntegrityError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=409, detail="order is not waiting for answers") from error
     asked = {item["id"]: item for item in question_document.get("questions", [])}
-    supplied_ids = {item.question_id for item in request.answers}
+    supplied_ids = {item.question_id for item in body.answers}
     if supplied_ids != set(asked):
         raise HTTPException(status_code=422, detail="answers must match the current question set")
-    for answer in request.answers:
+    for answer in body.answers:
         problem = _answer_matches(asked[answer.question_id], answer)
         if problem is not None:
             raise HTTPException(status_code=422, detail=problem)
@@ -652,7 +966,7 @@ def answer_drawing_questions(
     stored = artifact_store.put_drawing(job_id, source.path.read_bytes(), source.path.suffix.lower())
     artifact_store.put_answers(job_id, {
         "schema_version": "0.1.0",
-        "answers": [item.model_dump() for item in request.answers],
+        "answers": [item.model_dump() for item in body.answers],
     })
     # The reading that produced these questions travels with the answers.
     #
@@ -677,7 +991,7 @@ def answer_drawing_questions(
         order_id,
         JobType.ANALYZE_DRAWING,
         "sha256:" + hashlib.sha256(
-            f"{order_id}:{stored.sha256}:{round_number}:{request.model_dump_json()}".encode()
+            f"{order_id}:{stored.sha256}:{round_number}:{body.model_dump_json()}".encode()
         ).hexdigest(),
         {WorkerCapability.AI_DRAWING, WorkerCapability.CAD_BUILD},
         CAD_IR_VERSION,
@@ -697,14 +1011,8 @@ def answer_drawing_questions(
 
 
 @app.get("/api/v1/manual/cad-jobs/{job_id}")
-def get_manual_cad_job(
-    job_id: uuid.UUID,
-    x_manual_api_token: str | None = Header(default=None),
-) -> dict:
-    authenticated_manual_api(x_manual_api_token)
-    job = worker_protocol.get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job was not found")
+def get_manual_cad_job(job_id: uuid.UUID, request: Request) -> dict:
+    job = visible_job_order(job_id, require_principal(request))
     artifacts = worker_protocol.get_artifacts(job_id)
     return {
         "job_id": str(job.id),
@@ -725,19 +1033,13 @@ def get_manual_cad_job(
     "/api/v1/manual/cad-jobs/{job_id}/claimability",
     response_model=JobClaimabilityReport,
 )
-def get_job_claimability(
-    job_id: uuid.UUID,
-    x_manual_api_token: str | None = Header(default=None),
-) -> JobClaimabilityReport:
+def get_job_claimability(job_id: uuid.UUID, request: Request) -> JobClaimabilityReport:
     """Explain whether a job can currently be leased, and if not, why.
 
     Read-only and outside the claim transaction: diagnosing a job must never
     be able to change whether it is picked up.
     """
-    authenticated_manual_api(x_manual_api_token)
-    job = worker_protocol.get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="job was not found")
+    job = visible_job_order(job_id, require_principal(request))
     return scheduler_diagnostics().report(job)
 
 
@@ -745,11 +1047,14 @@ def get_job_claimability(
 def download_manual_artifact(
     job_id: uuid.UUID,
     artifact_type: str,
-    x_manual_api_token: str | None = Header(default=None),
+    request: Request,
 ) -> FileResponse:
-    authenticated_manual_api(x_manual_api_token)
-    job = worker_protocol.get_job(job_id)
-    if job is None or job.status.value != "COMPLETED":
+    # The customer's own download goes through here — the page fetches STEP and STL
+    # from this path — so "the manual API is for operators" cannot mean "only
+    # operators may download". What it means is that the job's *order* decides, and
+    # `visible_job_order` is the single translation from one to the other.
+    job = visible_job_order(job_id, require_principal(request))
+    if job.status.value != "COMPLETED":
         raise HTTPException(status_code=404, detail="completed artifact was not found")
     try:
         stored = artifact_store.artifact(job_id, artifact_type)

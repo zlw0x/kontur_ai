@@ -261,6 +261,10 @@ export default function StlPreview({
       }
       const response = await fetch(url, {
         headers: token ? { "x-manual-api-token": token } : undefined,
+        // The session is a cookie on another origin, so without this the browser
+        // sends nothing and a signed-in customer's own STL comes back 401. No CSRF
+        // header: this is a GET, and a read is not what CSRF is about.
+        credentials: "include",
       });
       if (!response.ok) throw new Error("Не удалось открыть 3D-модель.");
       const geometry = new STLLoader().parse(await response.arrayBuffer());

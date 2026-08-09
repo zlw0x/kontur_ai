@@ -28,6 +28,21 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    @property
+    def cookie_secure(self) -> bool:
+        """Whether a session cookie is marked `Secure`, and so refused over plain HTTP.
+
+        Derived rather than configured, because the one deployment where it must be
+        off is the one where it can be recognised without asking: local development
+        serves the API on `http://localhost`, and a `Secure` cookie there is simply
+        never sent, which looks like sign-in silently not working.
+
+        A setting would be a footgun with a default — the safe value breaks the
+        laptop and the convenient value ships to production. This cannot be set to
+        the wrong thing because it cannot be set at all.
+        """
+        return self.environment.lower() != "local"
+
     @model_validator(mode="after")
     def reject_development_secrets_outside_local(self):
         if self.environment.lower() != "local" and (

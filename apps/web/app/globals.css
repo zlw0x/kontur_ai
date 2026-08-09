@@ -2508,3 +2508,63 @@ button.result-file:hover .file-download {
 .viewer-welcome button.ghost:hover {
   opacity: 1;
 }
+
+/* --- signing in (P0-1) -------------------------------------------------------
+   The page had no way in of its own: a shared operator token typed into
+   `sessionStorage` was the only credential, so placing a real order meant holding
+   the key that reads everybody else's. */
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .03);
+}
+.auth-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.auth-hint { margin: 0; font-size: 13px; line-height: 1.5; opacity: .68; }
+.auth-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.auth-fields label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.auth-fields label span { opacity: .74; }
+.auth-fields label em { font-style: normal; opacity: .55; }
+.auth-fields input {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .25);
+  color: inherit;
+  font: inherit;
+}
+.auth-fields input:focus { outline: 2px solid rgba(184, 243, 90, .55); outline-offset: 1px; }
+.auth-card .primary-button { align-self: flex-start; }
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  opacity: .72;
+}
+.link-button:hover { opacity: 1; }
+.account-email {
+  max-width: 220px;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .78;
+}
+.account-email em { font-style: normal; opacity: .6; }

@@ -22,10 +22,15 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+# `orders.owner_id` references `users.id`, and SQLAlchemy resolves that by table
+# name at mapper-configuration time — so the module defining `users` has to have
+# been imported by then. Imported here rather than left to the caller, because the
+# caller that forgets gets `NoReferencedTableError` from somewhere unrelated.
+import app.accounts.models  # noqa: F401,E402
 
 
 class OrderRow(Base):
@@ -47,6 +52,25 @@ class OrderRow(Base):
     latest_job_id: Mapped[str | None] = mapped_column(String(36), index=True)
     source_job_id: Mapped[str | None] = mapped_column(String(36))
     clarification_round: Mapped[int] = mapped_column(Integer, default=0)
+    # Whose order this is (0009). Nullable and staying nullable: every order created
+    # before accounts existed has no owner and there is nothing to fill it with, and
+    # inventing one would be worse than admitting it. Those orders are readable by an
+    # operator and by nobody else, which `app.accounts.principal.may_see_order`
+    # decides in one place rather than in every handler.
+    #
+    # The `ForeignKey` is here as well as in the migration, and it was not at first.
+    # Leaving it out looked harmless — SQLite does not enforce foreign keys by
+    # default, so the tests would not have noticed either way — and it meant the
+    # schema `create_all` builds and the schema `migrate.sh` builds disagreed on a
+    # constraint. A test against real PostgreSQL found it by inserting an order
+    # owned by an account that does not exist and watching it succeed.
+    #
+    # `latest_job_id` still has none, and that is a different case rather than an
+    # inconsistency: it is also absent from the migration, because a job row can be
+    # pruned while its order is kept.
+    owner_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), index=True
+    )
 
 
 __all__ = ["OrderRow"]

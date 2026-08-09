@@ -415,6 +415,62 @@ had been **stale since 0007**. Neither existing check could see it: one validate
 shape, the other only that nothing v1 promised has disappeared, and a field that never arrived
 fails neither. `generate_openapi.py --check` now runs in CI.
 
+**An order belongs to somebody** (P0-1, ADR-037, migration 0009). The only
+authentication the service had was `authenticated_manual_api` — one static token shared
+by everyone who held it — and `orders` had no column saying whose an order was. Anybody
+with the token could read and cancel anybody else's drawing. It is the one audit item
+that directly blocks letting strangers in, and it could not be fixed in the handlers:
+thirty checks are thirty chances to forget one, and no check can consult a column that
+does not exist.
+
+So `users`, `sessions`, and `orders.owner_id` — **nullable, and staying nullable**. Every
+order created before 0009 has no owner and there is nothing to fill it with; a backfill
+would have to invent an answer, and handing those orders to whoever asks first is not a
+guess but a giveaway. They are visible to an operator and to nobody else, decided by
+`may_see_order` in one place rather than in every handler.
+
+Three decisions carry the rest. **404 and not 403** — a 403 answers "does this order
+exist?" for anybody guessing an id, and the existence of an order is itself information
+about somebody's business; an order you do not own and an id that was never issued return
+the same status and the same body. **A session is a row**, because revoking has to take
+effect on the next request rather than at expiry, and nothing can recall a self-contained
+signed token without keeping a list — at which point the token has bought nothing.
+And **`MANUAL_API_TOKEN` becomes an operator, not a customer**: it authenticates as staff
+with no `user_id`, so it can look at everything the way an operator can and owns nothing,
+which is what keeps "a diagnostic operator key and never a client authorization" true
+while the client paths move onto sessions.
+
+CSRF is **bound to the session** rather than compared cookie-to-header: the naive double
+submit loses to anything that can write a cookie on a sibling subdomain, since an attacker
+who sets both halves passes a check that only compares them to each other. It is checked
+for cookie-borne writes only — a credential that has to be typed into a header cannot be
+sent by accident.
+
+bcrypt and not Argon2id, recorded rather than hidden: `argon2-cffi` is not in the tree and
+`bcrypt` is, and the difference that matters is between *a hash* and *a hash that costs
+something*. Two details are not optional — the 72-byte pre-hash (bcrypt ignores everything
+past 72, so two passphrases sharing a prefix would be one password and both users could
+still sign in) and the **decoy hash**, because saying the same words in a microsecond for
+an unknown address and a quarter of a second for a real one is an account-enumeration
+oracle bolted to a form that was careful about its wording.
+
+Two defects older than the task came out of it. `orders.owner_id REFERENCES users(id)` was
+in the migration and not in the ORM, and nothing could see it: the tests build their schema
+with `create_all`, and SQLite does not enforce foreign keys, so an order owned by a
+nonexistent account inserted cleanly everywhere and would have been refused in production.
+Real PostgreSQL found it; `test_migration_parity` now compares **constraints and not only
+columns**, which is what would have found it without a database.
+
+**Neither environment sees the project whole**, and that is now three findings of one
+shape. The cloud cannot collect `packages/build123d-adapter` or read a drawing; this
+machine could not run the sanitizer at all (`import resource` is POSIX, so the child died
+with an empty stdout and every upload came back 503) and does not collect the adapter
+either unless the run uses `.venv-cad`, where build123d actually is. A summary line that
+does not say what it left out is not a result. The sanitizer's answer to it is the pattern
+worth copying: the child **reports which ceilings it got**, in every answer including its
+refusals, and this side asks twice — the platform before the file is handed over, the
+process that ran after it answers — with the unconfined mode allowed only in `local`.
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.

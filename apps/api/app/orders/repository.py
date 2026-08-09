@@ -41,6 +41,7 @@ class OrderRepository(Protocol):
         *,
         latest_job_id: UUID | None = None,
         source_job_id: UUID | None = None,
+        owner_id: UUID | None = None,
     ) -> OrderRecord: ...
 
     def get(self, order_id: UUID) -> OrderRecord | None: ...
@@ -78,6 +79,7 @@ class InMemoryOrderRepository:
         *,
         latest_job_id: UUID | None = None,
         source_job_id: UUID | None = None,
+        owner_id: UUID | None = None,
     ) -> OrderRecord:
         if order_id in self._orders:
             # What the primary key does in SQL, so the two implementations answer a
@@ -95,6 +97,7 @@ class InMemoryOrderRepository:
             latest_job_id=latest_job_id,
             source_job_id=source_job_id,
             clarification_round=0,
+            owner_id=owner_id,
         )
         self._orders[order_id] = record
         return record
@@ -130,6 +133,7 @@ class InMemoryOrderRepository:
             latest_job_id=latest_job_id,
             source_job_id=current.source_job_id,
             clarification_round=clarification_round,
+            owner_id=current.owner_id,
         )
         self._orders[order_id] = updated
         return updated
@@ -155,6 +159,7 @@ class SqlOrderRepository:
         *,
         latest_job_id: UUID | None = None,
         source_job_id: UUID | None = None,
+        owner_id: UUID | None = None,
     ) -> OrderRecord:
         now = self._clock()
         with self.sessions.begin() as session:
@@ -167,6 +172,7 @@ class SqlOrderRepository:
                 latest_job_id=str(latest_job_id) if latest_job_id else None,
                 source_job_id=str(source_job_id) if source_job_id else None,
                 clarification_round=0,
+                owner_id=str(owner_id) if owner_id else None,
             )
             session.add(row)
             session.flush()
@@ -224,6 +230,7 @@ def _record(row: OrderRow) -> OrderRecord:
         latest_job_id=UUID(row.latest_job_id) if row.latest_job_id else None,
         source_job_id=UUID(row.source_job_id) if row.source_job_id else None,
         clarification_round=row.clarification_round,
+        owner_id=UUID(row.owner_id) if row.owner_id else None,
     )
 
 

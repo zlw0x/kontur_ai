@@ -107,10 +107,36 @@ dotnet run --project apps/local-worker/CadAi.LocalWorker.csproj -- logout
 
 This does not remove the user's independent Codex CLI login.
 
+## Accounts
+
+Since 0009 a customer signs in rather than typing a shared token. The first
+administrator is made on the machine, because there is deliberately no public way
+to create one — a form that hands out the role which reads everybody's drawings is
+a door rather than a form:
+
+```bash
+CAD_AI_NEW_PASSWORD='...' python scripts/create_user.py --email ops@example.com --role admin
+```
+
+The password is read from the environment rather than from an argument, which
+would be in `ps` and in the shell history. A TOTP secret is printed **once** for
+`operator` and `admin`; enrol it in an authenticator app straight away, because it
+is stored to verify codes against and is never shown again. Customers have no
+second factor on purpose — a customer locked out of their own drawing by a flat
+phone is a worse trade than the risk it removes.
+
+Every account after the first is made through `POST /api/v1/admin/users` by an
+admin. Customers create their own from the page.
+
+`MANUAL_API_TOKEN` still works and is still what it always was: **a diagnostic
+operator key, never a client authorization**. The API treats it as an operator, so
+it can read any order and owns none — an order created with it has no owner rather
+than belonging to an invented user.
+
 ## Smoke test
 
-Open the web page, enter `MANUAL_API_TOKEN`, and either press **Попробовать на
-образце** — which loads `apps/web/public/sample-drawing.png`, the same 60 x 30 x 8
+Open the web page, sign in (or register — it signs you in), and either press
+**Попробовать на образце** — which loads `apps/web/public/sample-drawing.png`, the same 60 x 30 x 8
 plate the acceptance runs build — or upload a clear PNG/JPEG drawing of a
 rectangular plate with dimensions in millimetres and optional circular
 through-holes. The expected state sequence is:

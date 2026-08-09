@@ -84,6 +84,13 @@ class OrderRecord:
     source_job_id: UUID | None = None
     clarification_round: int = 0
     created_at: datetime | None = None
+    #: Whose order this is, and None for one created before accounts existed.
+    #:
+    #: Down here with the rest for the same reason they are: `transition` is a pure
+    #: function of the first four fields, and whether a status change is legal has
+    #: nothing to do with who owns it. Ownership decides whether the request gets
+    #: this far, which is a question asked before the state machine is reached.
+    owner_id: UUID | None = None
 
 
 @dataclass(frozen=True)

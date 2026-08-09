@@ -384,6 +384,86 @@ class DrawingAnswersRequest(StrictModel):
 
 
 # --------------------------------------------------------------------------
+# Accounts and sessions (P0-1, ADR-037)
+#
+# What a browser sends and gets back. The rules these carry are in
+# `app.accounts`; these models only bound the shapes, and one bound is worth
+# noticing: a password has a maximum length here as well as a minimum. Hashing is
+# deliberately slow, and an unauthenticated field with no ceiling is a free way to
+# make the server work.
+# --------------------------------------------------------------------------
+
+
+#: Bounded rather than open, and the ceiling is not decoration: the local part and
+#: the domain of an address together are at most 320 octets, and anything longer is
+#: not an address somebody has.
+EmailAddress = Annotated[str, Field(min_length=3, max_length=320)]
+Password = Annotated[str, Field(min_length=12, max_length=1024)]
+
+
+class UserRole(StrEnum):
+    """Mirrors `app.accounts.principal.Role` at the API boundary.
+
+    A second spelling of the same three words, which normally would be a smell.
+    It is here because `contracts` is what generates the published OpenAPI document
+    and must not import the service's internals to do it — the same reason
+    `JobStatus` lives here and not in the worker protocol. A test holds the two
+    sets equal, so they cannot drift.
+    """
+
+    CUSTOMER = "customer"
+    OPERATOR = "operator"
+    ADMIN = "admin"
+
+
+class RegisterRequest(StrictModel):
+    email: EmailAddress
+    password: Password
+
+
+class SignInRequest(StrictModel):
+    email: EmailAddress
+    password: Password
+    #: Present only for the roles that need one, and never for a customer. A
+    #: six-digit string rather than an integer: `012345` is a valid code and is not
+    #: the number 12345.
+    totp: Annotated[str | None, Field(min_length=6, max_length=8)] = None
+
+
+class SessionResponse(StrictModel):
+    """Who you are now, and the token every mutating request has to echo.
+
+    The CSRF token is in the body as well as in a cookie so a client can hold it in
+    memory and never read `document.cookie`. The session token itself is not here
+    and never will be: it exists only in a cookie the page's JavaScript cannot read,
+    which is the whole point of `httpOnly`.
+    """
+
+    user_id: UUID
+    email: EmailAddress
+    role: UserRole
+    csrf_token: Annotated[str, Field(min_length=16, max_length=128)]
+    expires_at: datetime
+
+
+class CreateUserRequest(StrictModel):
+    """An admin making somebody an operator. Not a public registration."""
+
+    email: EmailAddress
+    password: Password
+    role: UserRole
+
+
+class CreateUserResponse(StrictModel):
+    user_id: UUID
+    email: EmailAddress
+    role: UserRole
+    #: The TOTP secret, shown exactly once because it is stored to verify against
+    #: rather than to display. Null for a role that needs no second factor.
+    totp_secret: Annotated[str | None, Field(max_length=64)] = None
+
+
+# --------------------------------------------------------------------------
 # Resource ledger (POSTMVP-001)
 #
 # The worker measures; it never prices.  Every counter is optional because an

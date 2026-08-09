@@ -28,6 +28,11 @@ def memory_protocol(monkeypatch):
     # an isolated API test runs against, and a test that forgot would not fail — it
     # would try to open a connection and fail somewhere unrelated.
     monkeypatch.setattr("app.main.orders", InMemoryOrderRepository())
+    # And accounts, for the third time and the same reason: a store left over from
+    # the previous test is a test that passes because of what another one did.
+    from app.accounts import AccountService, InMemoryAccountRepository
+
+    monkeypatch.setattr("app.main.accounts", AccountService(InMemoryAccountRepository()))
     return protocol
 
 

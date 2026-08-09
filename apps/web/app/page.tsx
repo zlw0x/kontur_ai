@@ -36,6 +36,16 @@ type OrderState = {
   questions: Question[];
   artifacts: Artifact[];
 };
+/**
+ * Who the browser is signed in as.
+ *
+ * The session token itself is never here and never can be: it lives in an
+ * httpOnly cookie the page cannot read, which is what makes an XSS bug on this
+ * page unable to steal a lasting credential. What the page does hold is the CSRF
+ * token, which it has to echo into a header on every mutating request — a header
+ * being exactly the thing a page on another origin cannot set.
+ */
+type Session = { user_id: string; email: string; role: string; csrf_token: string };
 type Dimensions = { length: number; width: number; height: number };
 type ViewMode = "model" | "drawing";
 type Material = "aluminum" | "steel" | "polymer";
@@ -93,7 +103,12 @@ const materialOptions: { value: Material; label: string; color: string }[] = [
 export default function Home() {
   const [showLanding, setShowLanding] = useState(true);
   const fileInput = useRef<HTMLInputElement>(null);
+  // The operator's diagnostic key. It still works, and it is not how a customer
+  // signs in: `MANUAL_API_TOKEN` is a diagnostic operator key and never a client
+  // authorization, so the API treats it as an operator and it owns no orders.
   const [token, setToken] = useState("");
+  const [session, setSession] = useState<Session | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -123,6 +138,37 @@ export default function Home() {
   const [measured, setMeasured] = useState<Dimensions | null>(null);
   /** The sizes the visitor confirmed, shown until a model has been measured. */
   const [confirmed, setConfirmed] = useState<Dimensions | null>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authTotp, setAuthTotp] = useState("");
+  const [authMode, setAuthMode] = useState<"sign-in" | "register">("sign-in");
+
+  /**
+   * Whether anything sent from this page reaches the service at all.
+   *
+   * It used to be `token`, and that made "signed in" and "holding the operator's
+   * diagnostic key" one condition — so the only way to place a real order was to
+   * be handed the key that reads everybody's. A session is the customer's way in;
+   * the token stays for an operator, and either one makes the page real rather
+   * than a demonstration.
+   */
+  const authed = Boolean(session || token);
+
+  /**
+   * One place that decides what credentials a request carries.
+   *
+   * `credentials: "include"` because the session is a cookie and the API is on
+   * another origin, and the CSRF header because the API refuses a cookie-borne
+   * write without it. Written once so that a new call site cannot quietly omit
+   * either — which is how a page ends up with one endpoint that works and one
+   * that returns 403 for reasons nobody can see.
+   */
+  function api(path: string, init: RequestInit = {}) {
+    const headers = new Headers(init.headers);
+    if (token) headers.set("x-manual-api-token", token);
+    if (session) headers.set("x-csrf-token", session.csrf_token);
+    return fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
+  }
 
   useEffect(() => {
     setShowLanding(!window.location.pathname.startsWith("/studio"));
@@ -130,6 +176,23 @@ export default function Home() {
     setToken(storedToken);
     setComment(localStorage.getItem("cad-ai-drawing-note") ?? "");
     setOrderId(new URLSearchParams(window.location.search).get("order"));
+    // Ask who we are before deciding what to show. The cookie survives a reload
+    // and the CSRF token does not, so this is also how the page gets a usable one
+    // back without making anybody sign in again.
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/auth/me`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (response.ok) setSession((await response.json()) as Session);
+      } catch {
+        // Not signed in, or the API is not up. Either way the page works; it is
+        // a demonstration until somebody signs in.
+      } finally {
+        setAuthChecked(true);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -147,14 +210,11 @@ export default function Home() {
   }, [comment]);
 
   useEffect(() => {
-    if (!orderId || !token) return;
+    if (!orderId || !authed) return;
     let cancelled = false;
     const poll = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/v1/drawing-jobs/${orderId}`, {
-          headers: { "x-manual-api-token": token },
-          cache: "no-store",
-        });
+        const response = await api(`/api/v1/drawing-jobs/${orderId}`, { cache: "no-store" });
         if (!response.ok) throw new Error(await safeError(response));
         const value = (await response.json()) as OrderState;
         if (!cancelled) {
@@ -193,7 +253,8 @@ export default function Home() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [orderId, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, authed, session?.csrf_token, token]);
 
   const stl = useMemo(
     () => order?.artifacts.find((artifact) => artifact.type.toUpperCase() === "STL"),
@@ -205,14 +266,11 @@ export default function Home() {
   );
 
   useEffect(() => {
-    if (!token || !report || order?.status !== "READY") return;
+    if (!authed || !report || order?.status !== "READY") return;
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(`${API_URL}${report.download_url}`, {
-          headers: { "x-manual-api-token": token },
-          cache: "no-store",
-        });
+        const response = await api(report.download_url, { cache: "no-store" });
         if (!response.ok) return;
         const box = readBoundingBox(await response.json());
         if (!cancelled && box) setMeasured(box);
@@ -224,7 +282,8 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [order?.status, report?.download_url, report?.sha256, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.status, report?.download_url, report?.sha256, authed, session?.csrf_token, token]);
   const artifacts = useMemo(
     () =>
       artifactOrder
@@ -284,6 +343,52 @@ export default function Home() {
     chooseFile(event.dataTransfer.files?.[0] ?? null);
   }
 
+  async function submitCredentials(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const path = authMode === "register" ? "/api/v1/auth/register" : "/api/v1/auth/sign-in";
+      // The code is sent only when one was typed. A customer has no second factor
+      // and sending an empty string would make the API answer a question nobody
+      // asked; an operator's account has one and cannot sign in without it.
+      const body =
+        authMode === "register"
+          ? { email: authEmail, password: authPassword }
+          : { email: authEmail, password: authPassword, ...(authTotp ? { totp: authTotp } : {}) };
+      const response = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error(await safeError(response));
+      setSession((await response.json()) as Session);
+      // Cleared at once. The password has no reason to stay in this component's
+      // state after it has been sent, and React state is readable from a devtools
+      // pane sitting open on somebody's desk.
+      setAuthPassword("");
+      setAuthTotp("");
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function endSession() {
+    setError("");
+    try {
+      await api("/api/v1/auth/sign-out", { method: "POST" });
+    } catch {
+      // The cookie is cleared by the response, and a sign-out that could not
+      // reach the server should still stop this page acting signed in.
+    }
+    setSession(null);
+    setOrder(null);
+    setOrderId(null);
+  }
+
   async function submitDrawing(event: FormEvent) {
     event.preventDefault();
     if (!file) {
@@ -294,8 +399,9 @@ export default function Home() {
     setBusy(true);
     setError("");
     try {
-      if (!token) {
-        // With no token this is a demonstration: nothing is sent anywhere, no
+      if (!authed) {
+        // Signed in as nobody and holding no operator key, this is a
+        // demonstration: nothing is sent anywhere, no
         // drawing is read, and the "model" below is a fixed box written into this
         // file. It exists to show the shape of the flow.
         //
@@ -337,12 +443,9 @@ export default function Home() {
         });
         return;
       }
-      const response = await fetch(`${API_URL}/api/v1/drawing-jobs`, {
+      const response = await api("/api/v1/drawing-jobs", {
         method: "POST",
-        headers: {
-          "content-type": file.type,
-          "x-manual-api-token": token,
-        },
+        headers: { "content-type": file.type },
         body: file,
       });
       if (!response.ok) throw new Error(await safeError(response));
@@ -390,7 +493,7 @@ export default function Home() {
       setConfirmed(
         Object.values(box).every((value) => Number.isFinite(value) && value > 0) ? box : null,
       );
-      if (!token) {
+      if (!authed) {
         setOrder({ ...order, status: "CAD_BUILDING", questions: [] });
         await delay(1100);
         setOrder({
@@ -403,12 +506,9 @@ export default function Home() {
         setViewMode("model");
         return;
       }
-      const response = await fetch(`${API_URL}/api/v1/drawing-jobs/${order.order_id}/answers`, {
+      const response = await api(`/api/v1/drawing-jobs/${order.order_id}/answers`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-manual-api-token": token,
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ answers: payload }),
       });
       if (!response.ok) throw new Error(await safeError(response));
@@ -423,7 +523,7 @@ export default function Home() {
   async function download(artifact: Artifact) {
     setError("");
     try {
-      if (!token) {
+      if (!authed) {
         // The demonstration hands over nothing. What it would hand over is a
         // box written into this file, and a file named `kontur-model.step` is
         // indistinguishable from a real one once it is on somebody's disk — at
@@ -434,9 +534,7 @@ export default function Home() {
         );
         return;
       }
-      const response = await fetch(`${API_URL}${artifact.download_url}`, {
-        headers: { "x-manual-api-token": token },
-      });
+      const response = await api(artifact.download_url);
       if (!response.ok) throw new Error(await safeError(response));
       triggerDownload(await response.blob(), `kontur-model.${extensionFor(artifact.type)}`);
     } catch (reason) {
@@ -660,9 +758,93 @@ export default function Home() {
               <i />
               {statusCopy[activeStatus] ?? (file ? "Чертёж загружен" : "Готово к работе")}
             </span>
-            <button className="avatar-button" type="button" aria-label="Профиль">К</button>
+            {session ? (
+              <>
+                <span className="account-email" title={session.email}>
+                  {session.email}
+                  {session.role !== "customer" && <em> · {session.role}</em>}
+                </span>
+                <button className="secondary-button" type="button" onClick={endSession}>
+                  Выйти
+                </button>
+              </>
+            ) : (
+              <button className="avatar-button" type="button" aria-label="Профиль">К</button>
+            )}
           </div>
         </header>
+
+        {/*
+          The way in, and the thing this page did not have.
+
+          Before accounts there was one shared token typed into `sessionStorage`,
+          so the only way to place a real order was to be handed the key that reads
+          everybody else's. `authChecked` gates the card so it does not flash on
+          every reload before `/auth/me` has answered.
+        */}
+        {authChecked && !authed && (
+          <form className="auth-card" onSubmit={submitCredentials}>
+            <div className="auth-head">
+              <span className="eyebrow">
+                {authMode === "register" ? "Регистрация" : "Вход"}
+              </span>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setAuthMode(authMode === "register" ? "sign-in" : "register")}
+              >
+                {authMode === "register" ? "У меня уже есть аккаунт" : "Создать аккаунт"}
+              </button>
+            </div>
+            <p className="auth-hint">
+              Пока вы не вошли, страница работает как демонстрация: чертёж никуда не
+              отправляется и модель не строится.
+            </p>
+            <div className="auth-fields">
+              <label>
+                <span>Почта</span>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={authEmail}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Пароль</span>
+                <input
+                  type="password"
+                  autoComplete={authMode === "register" ? "new-password" : "current-password"}
+                  required
+                  minLength={12}
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                />
+              </label>
+              {authMode === "sign-in" && (
+                <label>
+                  {/* Only operators and administrators have one. Optional here so
+                      a customer is not shown a field they can never fill. */}
+                  <span>Код из приложения <em>(для сотрудников)</em></span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={authTotp}
+                    onChange={(event) => setAuthTotp(event.target.value)}
+                  />
+                </label>
+              )}
+            </div>
+            {authMode === "register" && (
+              <p className="auth-hint">Пароль — не короче 12 символов. Длина важнее символов.</p>
+            )}
+            <button className="primary-button" type="submit" disabled={busy}>
+              {authMode === "register" ? "Зарегистрироваться" : "Войти"}
+            </button>
+          </form>
+        )}
 
         <div className="workspace-body">
           <div className="viewer-card">
@@ -701,7 +883,7 @@ export default function Home() {
                 <StlPreview
                   url={stl ? `${API_URL}${stl.download_url}` : undefined}
                   token={token}
-                  local={!token || !stl}
+                  local={!authed || !stl}
                   material={material}
                   dimensions={dimensions}
                   ready={order?.status === "READY"}
@@ -765,10 +947,11 @@ export default function Home() {
           */}
           {/*
             Unmistakable, and above everything else the order shows. A visitor
-            with no token gets the flow and not a part, and the one thing that
-            must never be ambiguous is which of the two they are looking at.
+            who is signed in as nobody gets the flow and not a part, and the one
+            thing that must never be ambiguous is which of the two they are
+            looking at.
           */}
-          {order && !token && (
+          {order && !authed && (
             <div className="notice-card notice-demo" role="status">
               <span className="eyebrow">Демонстрация</span>
               <p>
