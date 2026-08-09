@@ -80,6 +80,27 @@ class OrderRepository(Protocol):
 
     def reviews_of(self, order_id: UUID) -> list[OrderReview]: ...
 
+    def quota_counts(self, owner_id: UUID) -> tuple[list[datetime], int]: ...
+
+
+#: The stored statuses that mean "this customer is occupying the fleet".
+#:
+#: Read off what is *stored*, which since ADR-036 is the decision rather than the
+#: progress — so an order sits at `WAITING_FOR_LOCAL_WORKER` from creation until
+#: somebody decides something, and that is exactly the span during which it is
+#: costing a worker. The decided ones are out: cancelled, failed, ready and
+#: expired orders are finished with, and an order held for review is waiting on a
+#: person rather than on the queue.
+_IN_FLIGHT = frozenset({
+    OrderStatus.WAITING_FOR_LOCAL_WORKER,
+    OrderStatus.DRAWING_ANALYSIS,
+    OrderStatus.WAITING_FOR_USER_ANSWERS,
+    OrderStatus.QUEUED_FOR_CAD,
+    OrderStatus.CAD_BUILDING,
+    OrderStatus.CAD_VALIDATION,
+    OrderStatus.AUTO_REPAIR,
+})
+
 
 class InMemoryOrderRepository:
     """For the isolated API tests. Holds records, not rows."""
@@ -203,6 +224,11 @@ class InMemoryOrderRepository:
 
     def reviews_of(self, order_id: UUID) -> list[OrderReview]:
         return [review for review in self._reviews if review.order_id == order_id]
+
+    def quota_counts(self, owner_id: UUID) -> tuple[list[datetime], int]:
+        mine = [order for order in self._orders.values() if order.owner_id == owner_id]
+        started = [order.created_at for order in mine if order.created_at is not None]
+        return started, sum(1 for order in mine if order.status in _IN_FLIGHT)
 
 
 class SqlOrderRepository:
@@ -356,6 +382,30 @@ class SqlOrderRepository:
                 .order_by(OrderReviewRow.created_at)
             ).all()
             return [review_record(row) for row in rows]
+
+
+    def quota_counts(self, owner_id: UUID) -> tuple[list[datetime], int]:
+        """When this customer's orders were started, and how many are live.
+
+        Two counts off rows that already exist rather than a table of rate events.
+        An order records who owns it and when it was created, and **an upload is an
+        order** — so the daily count is the upload rate limit without anything new
+        being written on every request.
+
+        `ix_orders_owner_id` from 0009 is what makes both cheap.
+        """
+        with self.sessions.begin() as session:
+            mine = select(OrderRow).where(OrderRow.owner_id == str(owner_id))
+            started = list(session.scalars(mine.with_only_columns(OrderRow.created_at)).all())
+            live = session.scalar(
+                select(func.count())
+                .select_from(OrderRow)
+                .where(
+                    OrderRow.owner_id == str(owner_id),
+                    OrderRow.status.in_([status.value for status in _IN_FLIGHT]),
+                )
+            )
+            return started, int(live or 0)
 
 
 def _record(row: OrderRow) -> OrderRecord:

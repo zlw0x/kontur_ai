@@ -42,6 +42,7 @@ from app.accounts.passwords import (
     verify_password,
     verify_totp,
 )
+from app.accounts.limits import SignInPolicy, locked_out
 from app.accounts.principal import MFA_REQUIRED, Principal, Role
 from app.accounts.repository import AccountRepository, SessionRecord, UserRecord
 
@@ -104,10 +105,12 @@ class AccountService:
         repository: AccountRepository,
         clock: Callable[[], datetime] | None = None,
         lifetime: timedelta = SESSION_LIFETIME,
+        sign_in_policy: SignInPolicy = SignInPolicy(),
     ) -> None:
         self.repository = repository
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self.lifetime = lifetime
+        self.sign_in_policy = sign_in_policy
 
     # --- accounts ---------------------------------------------------------------
 
@@ -139,6 +142,19 @@ class AccountService:
     # --- signing in -------------------------------------------------------------
 
     def sign_in(self, email: str, password: str, totp: str | None = None) -> IssuedSession:
+        """One refusal for every way this can go wrong, including too many tries.
+
+        The lockout answers `AuthenticationFailed` like everything else rather than
+        a `429`, and that is the point of it being here rather than in a middleware:
+        a rate-limit response on a sign-in form announces that the address has an
+        account. It is the one endpoint where saying "slow down" is a disclosure,
+        and the careful wording of everything else here exists to avoid exactly that.
+
+        The cost is that a locked-out customer is told only that their password is
+        wrong. For a pilot that is the right way round — the alternative leaks which
+        addresses are worth attacking — and it is why the counter resets on the first
+        success rather than on a timer.
+        """
         user = self.repository.user_by_email(fold_email(email))
         # The decoy is verified against, not skipped: see the module docstring. It
         # is the same bcrypt cost as a real hash, so the two paths take the same
@@ -146,8 +162,15 @@ class AccountService:
         stored = user.password_hash if user is not None else DECOY_HASH
         password_ok = verify_password(password, stored)
         if user is None or not password_ok:
+            if user is not None:
+                self._count_failure(user)
             raise AuthenticationFailed("email or password is wrong")
         if user.disabled_at is not None:
+            raise AuthenticationFailed("email or password is wrong")
+        if locked_out(user.locked_until, self._clock()):
+            # Checked *after* the password, so a correct password on a locked
+            # account still costs the attacker nothing to distinguish — both take
+            # one bcrypt verification and both say the same words.
             raise AuthenticationFailed("email or password is wrong")
         if user.role in MFA_REQUIRED:
             # An account that must have a second factor and has none cannot sign in.
@@ -155,8 +178,27 @@ class AccountService:
             # turns the requirement into a suggestion that any failed enrolment
             # silently switches off.
             if not verify_totp(user.totp_secret, totp, self._clock().timestamp()):
+                self._count_failure(user)
                 raise AuthenticationFailed("email or password is wrong")
+        # A run of failures ends at the first success rather than at a deadline, so
+        # a customer who mistypes twice and then gets it right starts from zero.
+        self.repository.clear_sign_in_failures(user.id)
         return self.issue(user)
+
+    def _count_failure(self, user: UserRecord) -> None:
+        """One more wrong answer, and the lock when there have been enough.
+
+        The lock is written by the same call that increments, because a read of the
+        count followed by a write of the lock is the interleaving that gives a
+        parallel attacker as many tries as they have connections.
+        """
+        policy = self.sign_in_policy
+        now = self._clock()
+        # Passed as the value to write *if* this failure is the one that trips it.
+        # The repository decides nothing; it increments under a lock and reports.
+        failures = self.repository.record_sign_in_failure(user.id, lock_until=None)
+        if failures >= policy.max_failures and not locked_out(user.locked_until, now):
+            self.repository.record_sign_in_failure(user.id, lock_until=now + policy.lockout)
 
     def issue(self, user: UserRecord) -> IssuedSession:
         token, csrf_token = secrets.token_urlsafe(32), secrets.token_urlsafe(32)

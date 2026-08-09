@@ -33,6 +33,8 @@ class UserRecord:
     totp_secret: str | None
     created_at: datetime
     disabled_at: datetime | None = None
+    failed_sign_ins: int = 0
+    locked_until: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,10 @@ class AccountRepository(Protocol):
     def revoke_session(self, session_id: UUID) -> None: ...
 
     def revoke_sessions_of(self, user_id: UUID) -> int: ...
+
+    def record_sign_in_failure(self, user_id: UUID, *, lock_until: datetime | None) -> int: ...
+
+    def clear_sign_in_failures(self, user_id: UUID) -> None: ...
 
 
 class InMemoryAccountRepository:
@@ -161,6 +167,21 @@ class InMemoryAccountRepository:
             return
         self._sessions[session_id] = replace(current, revoked_at=self._clock())
 
+    def record_sign_in_failure(self, user_id: UUID, *, lock_until: datetime | None) -> int:
+        current = self._users[user_id]
+        updated = replace(
+            current,
+            failed_sign_ins=current.failed_sign_ins + 1,
+            locked_until=lock_until if lock_until is not None else current.locked_until,
+        )
+        self._users[user_id] = updated
+        return updated.failed_sign_ins
+
+    def clear_sign_in_failures(self, user_id: UUID) -> None:
+        current = self._users.get(user_id)
+        if current is not None and (current.failed_sign_ins or current.locked_until):
+            self._users[user_id] = replace(current, failed_sign_ins=0, locked_until=None)
+
     def revoke_sessions_of(self, user_id: UUID) -> int:
         now, revoked = self._clock(), 0
         for key, session in list(self._sessions.items()):
@@ -196,6 +217,8 @@ class SqlAccountRepository:
                 totp_secret=totp_secret,
                 created_at=self._clock(),
                 disabled_at=None,
+                failed_sign_ins=0,
+                locked_until=None,
             )
             session.add(row)
             session.flush()
@@ -252,6 +275,26 @@ class SqlAccountRepository:
             if row is not None and row.revoked_at is None:
                 row.revoked_at = self._clock()
 
+    def record_sign_in_failure(self, user_id: UUID, *, lock_until: datetime | None) -> int:
+        with self.sessions.begin() as session:
+            # Locked for the increment, so two wrong passwords arriving together
+            # count as two. Without it the read-modify-write is the interleaving
+            # that lets a parallel attacker have as many tries as they have
+            # connections — which is the whole thing being prevented.
+            row = session.get(UserRow, str(user_id), with_for_update=True)
+            if row is None:
+                return 0
+            row.failed_sign_ins = (row.failed_sign_ins or 0) + 1
+            if lock_until is not None:
+                row.locked_until = lock_until
+            return row.failed_sign_ins
+
+    def clear_sign_in_failures(self, user_id: UUID) -> None:
+        with self.sessions.begin() as session:
+            row = session.get(UserRow, str(user_id), with_for_update=True)
+            if row is not None and (row.failed_sign_ins or row.locked_until):
+                row.failed_sign_ins, row.locked_until = 0, None
+
     def revoke_sessions_of(self, user_id: UUID) -> int:
         with self.sessions.begin() as session:
             rows = session.scalars(
@@ -275,6 +318,8 @@ def _user(row: UserRow) -> UserRecord:
         totp_secret=row.totp_secret,
         created_at=_aware(row.created_at),
         disabled_at=_aware(row.disabled_at),
+        failed_sign_ins=row.failed_sign_ins or 0,
+        locked_until=_aware(row.locked_until),
     )
 
 

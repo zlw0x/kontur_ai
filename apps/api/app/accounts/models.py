@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -49,6 +49,14 @@ class UserRow(Base):
     #: would either take the order with it or leave a dangling reference; a disabled
     #: one keeps the history readable and stops being able to sign in.
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # How many wrong passwords in a row, and until when the account is shut.
+    #
+    # On the row rather than in a table of rate events, because the question is
+    # "how many in a row for *this account*" and the answer is one number. Durable
+    # rather than in-process for the reason everything else here is: an attacker
+    # who can wait for a deploy has waited out an in-memory counter.
+    failed_sign_ins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SessionRow(Base):

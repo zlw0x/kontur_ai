@@ -133,6 +133,21 @@ operator key, never a client authorization**. The API treats it as an operator, 
 it can read any order and owns none — an order created with it has no owner rather
 than belonging to an invented user.
 
+## Limits
+
+One account may have **3 orders in flight** and start **20 in a day**, and may get a
+password wrong **10 times** before a fifteen-minute lockout. All three are in
+`app.accounts.limits` with the reasoning beside them.
+
+A quota refuses with `429` and a `Retry-After`; a sign-in refuses with the same `401`
+as a wrong password, because a `429` on a sign-in form announces that the address has
+an account. Staff and `MANUAL_API_TOKEN` are exempt from the order quotas — an
+operator diagnosing the engine is not the load they protect against.
+
+Per-IP request rate limiting is **not** here and is the reverse proxy's job (P1-6):
+this service sits behind one and sees whatever `X-Forwarded-For` it is handed, so an
+application-level version would be theatre.
+
 ## The moderation queue
 
 `AUTOMATIC_ACCEPTANCE` is **off** by default, which is a change in behaviour rather

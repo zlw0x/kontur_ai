@@ -54,11 +54,25 @@ public sealed class ContainerEngineTests
         }
     }
 
+    /// <summary>A job directory holding one fixture, named as this contract names it.</summary>
+    /// <remarks>
+    /// The suffix comes from `CadIr.FileSuffix` rather than being written out, which
+    /// is the rule `test_fixture_versions` enforces across the tree — and this method
+    /// was left copying `.../cad-ir/lever-plate`, with no version and no extension,
+    /// when the version literals were taken out. Every call raised
+    /// `FileNotFoundException`.
+    ///
+    /// Nobody found out, because these tests skip themselves unless
+    /// `CAD_ENGINE_IMAGE` names an image, and **a skip in the summary line looks
+    /// exactly like a pass**. That is the third time that sentence has been the
+    /// explanation; the difference this time is that the image was rebuilt and the
+    /// tests actually ran.
+    /// </remarks>
     private static string JobWith(string fixture)
     {
         var job = Directory.CreateTempSubdirectory("cad-container-").FullName;
         File.Copy(
-            Path.Combine(Root, "tests", "fixtures", "cad-ir", fixture),
+            Path.Combine(Root, "tests", "fixtures", "cad-ir", $"{fixture}.{CadIr.FileSuffix}.json"),
             Path.Combine(job, "cad-ir.json"));
         return job;
     }

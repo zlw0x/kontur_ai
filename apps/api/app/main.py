@@ -32,6 +32,7 @@ from .accounts import (
     SqlAccountRepository,
     may_see_order,
 )
+from .accounts.limits import OrderQuota, QuotaExceeded, check_order_quota
 from .accounts.passwords import WeakPassword
 from .config import settings
 from .database import Base, create_session_factory
@@ -238,6 +239,13 @@ sanitizer = Sanitizer(
 )
 orders = build_order_repository()
 accounts = AccountService(build_account_repository())
+#: What one customer may have in flight and start in a day.
+#:
+#: Not per IP: that belongs to the reverse proxy (P1-6), which is the only thing
+#: that sees an address it can trust. What the application can bound exactly —
+#: because it owns the rows — is what a known account consumes, and with one worker
+#: behind the pilot that is the limit that actually protects everybody else.
+order_quota = OrderQuota()
 
 
 @app.middleware("http")
@@ -909,6 +917,7 @@ async def create_drawing_job(
     content_type: str | None = Header(default=None),
 ) -> DrawingJobResponse:
     principal = require_principal(request)
+    _within_quota(principal)
     # Quarantine, sanitize, then store — and never the upload itself. The addendum's
     # central invariant is that the worker, Codex and the browser see only cleaned
     # pages, and what stood here read the whole body into memory with `request.body()`
@@ -975,6 +984,38 @@ async def create_drawing_job(
         status="WAITING_FOR_LOCAL_WORKER",
         drawing_sha256=stored.sha256,
     )
+
+
+def _within_quota(principal: Principal) -> None:
+    """Refuse an order that would put this customer over their limits.
+
+    Before the upload is read, not after: the point of a quota is not to spend the
+    decode and the model call and then decline.
+
+    Staff are exempt, and the manual operator key with them. An operator diagnosing
+    the engine is not the load this protects against, and `MANUAL_API_TOKEN` owns no
+    orders at all — there is nothing to count.
+    """
+    if principal.is_staff or principal.user_id is None:
+        return
+    started, in_flight = orders.quota_counts(principal.user_id)
+    try:
+        check_order_quota(
+            started_in_window=started,
+            in_flight=in_flight,
+            quota=order_quota,
+            now=datetime.now(timezone.utc),
+        )
+    except QuotaExceeded as over:
+        # 429 with `Retry-After`, unlike the sign-in lockout, because the caller is
+        # already authenticated: there is nothing left for a rate-limit answer to
+        # disclose, and a refusal that does not say when to come back is one a client
+        # can only answer by polling.
+        raise HTTPException(
+            status_code=429,
+            detail=over.message,
+            headers={"Retry-After": str(over.retry_after_seconds)},
+        ) from over
 
 
 def _drawing_order(order_id: uuid.UUID) -> OrderRecord:

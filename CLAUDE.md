@@ -573,6 +573,36 @@ Every one of the five sits in a seam — image, process, exception type, or a nu
 from the wrong side of a boundary — and a seam is what a suite that imports its subject
 cannot see.
 
+**The cycle closed, on a current engine** (`docs/acceptance/P0-RUN-2026-08-09b-*`). The
+image was rebuilt against CAD-IR 1.12 and everything the perimeter gained ran in one
+sequence: a stranger's account, an order that belongs to it, a sanitized page, a read
+that needed no clarification round, a build, a verification, the moderation queue, and
+an operator's approval. Bounding box [60, 30, 8], genus 2, **14085.8407 mm³** against a
+closed form of 60·30·8 − 2π·2.5²·8 = 14085.8407 — four decimal places against a number
+nothing in the pipeline computed.
+
+Rebuilding the image made `ContainerEngineTests` run for the first time in a while, and
+three of its four failed at once: `JobWith` had been left building a fixture path with no
+version suffix and no `.json`, so every call raised `FileNotFoundException`. **A skip in
+the summary line looks exactly like a pass** — the third time that sentence is the
+explanation, and the first time the tests were in a position to say otherwise. Fixed
+from `CadIr.FileSuffix`, and then 35 of 35 with nothing skipped, which is the launcher's
+first clean whole-suite run.
+
+**What one account may ask of a service with one worker** (P1-7, migration 0012). Three
+orders in flight, twenty a day, ten wrong passwords and then fifteen minutes. What it is
+*not* was the decision: **no new table** — an order already records who owns it and when,
+and an upload *is* an order, so the daily count is the upload rate limit with nothing
+written per request — and **no per-IP limiting**, which belongs to the reverse proxy and
+would be theatre in an application that sees whatever `X-Forwarded-For` it is handed.
+
+The two refusals differ on purpose. A quota answers **429 with `Retry-After`**, because
+the caller is authenticated and there is nothing left to disclose. A sign-in answers the
+same **401** it always did: a 429 there would announce that the address has an account,
+which is the one thing that endpoint's careful wording exists to avoid. The lockout is
+therefore inside the service rather than in a middleware that answers by status code, and
+it resets on the first success rather than on a timer.
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.
