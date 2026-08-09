@@ -25,6 +25,17 @@ class WorkerRow(Base):
     # Capacity the worker last reported, so a busy worker is distinguishable
     # from an incapable one when explaining why a job is waiting.
     available_slots: Mapped[int] = mapped_column(Integer, default=0)
+    # What the worker last saw of its own Codex CLI (P0-3). Stored rather than held
+    # in the API process for the reason 0008 moved orders into the database: a
+    # restart would otherwise forget that the whole fleet is waiting on a quota, and
+    # a second API process would never have known.
+    #
+    # Null means the worker has never said — an older build — and is read as
+    # available, so the gate can only withhold work from a worker that stated it
+    # cannot do that work.
+    codex_state: Mapped[str | None] = mapped_column(String(16))
+    codex_retry_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    codex_detail: Mapped[str | None] = mapped_column(String(300))
 
 
 class JobRow(Base):

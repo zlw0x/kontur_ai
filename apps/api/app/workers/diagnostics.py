@@ -35,7 +35,7 @@ from app.workers.capabilities import (
     unknown_capabilities,
     worker_version_accepted,
 )
-from app.workers.protocol import Job, Worker
+from app.workers.protocol import Job, Worker, codex_is_reachable, needs_the_model
 
 
 class SchedulerDiagnostics:
@@ -154,6 +154,21 @@ class SchedulerDiagnostics:
             ]
             if found:
                 return found
+        if needs_the_model(job) and not codex_is_reachable(worker.codex, self.clock()):
+            # Checked after everything about what the worker *can* do and before
+            # whether it is busy, because this is the one blocker that is not about
+            # the worker's build at all: it can do the job and cannot do it now.
+            #
+            # Before this, an exhausted quota produced "no worker has capacity",
+            # which was true — every worker had failed and gone back to polling —
+            # and was not the reason. A status page that names the wrong cause sends
+            # somebody to check the wrong thing.
+            return [
+                blocker(
+                    ClaimBlockerCode.WORKER_CODEX_UNAVAILABLE,
+                    _codex_detail(worker),
+                )
+            ]
         if worker.available_slots <= 0:
             # Checked last: being busy is only worth reporting once the worker
             # is otherwise able to take the job.
@@ -196,6 +211,18 @@ def _lease_active(job: Job, now: datetime) -> bool:
     return expires > now
 
 
+def _codex_detail(worker: Worker) -> str:
+    """Why the model cannot be reached, in the worker's own words where it has any."""
+    codex = worker.codex
+    if codex is None:  # pragma: no cover - unreachable: None reads as available
+        return "worker has not reported its Codex state"
+    if codex.detail:
+        return codex.detail
+    if codex.retry_after is not None:
+        return f"Codex is paused until {codex.retry_after.isoformat()}"
+    return f"Codex is {codex.state.value}"
+
+
 def _last_seen_detail(worker: Worker, now: datetime) -> str:
     if worker.last_seen_at is None:
         return "worker has never sent a heartbeat"
@@ -222,4 +249,11 @@ def _summary(status: ClaimabilityStatus, blockers: list[ClaimBlocker]) -> str:
         return "The order is waiting for the modelling module to finish another job."
     if any(item.code is ClaimBlockerCode.JOB_REQUIREMENTS_INVALID for item in blockers):
         return "This order needs an operation the service does not offer yet."
+    if blockers and all(
+        item.code is ClaimBlockerCode.WORKER_CODEX_UNAVAILABLE for item in blockers
+    ):
+        # `all` rather than `any`: one worker whose Codex is out while another's
+        # works is not why the order is waiting, and saying so would be a second
+        # kind of naming-the-wrong-cause.
+        return "Reading drawings is paused for now. The order will continue by itself."
     return "The order is waiting for an available modelling module."

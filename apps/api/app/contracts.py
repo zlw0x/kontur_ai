@@ -216,6 +216,12 @@ class WorkerClaimRequest(StrictModel):
     # still authenticates and heartbeats. It simply will not be offered a job
     # that declares capability requirements.
     capability_manifest: WorkerCapabilityManifest | None = None
+    #: What this worker last saw of its own Codex CLI. Optional, because a worker
+    #: built before this existed cannot say — and being unable to say is not a
+    #: reason to refuse its work, which is the same rule `engine` follows. An
+    #: unknown Codex is treated as available, so the gate below can only ever
+    #: withhold work from a worker that has said it cannot do it.
+    codex: CodexAvailability | None = None
 
 
 class JobPolicy(StrictModel):
@@ -271,6 +277,7 @@ class WorkerHeartbeatRequest(StrictModel):
     supported_cad_ir: list[str] = Field(min_length=1)
     available_slots: int = Field(ge=0, le=10)
     capability_manifest: WorkerCapabilityManifest | None = None
+    codex: CodexAvailability | None = None
 
 
 class JobHeartbeatRequest(StrictModel):
@@ -1109,6 +1116,44 @@ class WorkerEngineDeclaration(StrictModel):
     kernel_version: Annotated[str | None, Field(max_length=50)] = None
 
 
+class CodexState(StrEnum):
+    """Whether the model can be reached from a worker **right now**.
+
+    A different question from `codex_cli_version`, which says which version is
+    installed and nothing about whether it works. The measured case that needed
+    this: the account's quota ran out until a stated date, and orders went on being
+    handed to workers that immediately returned `CODEX_CAPACITY_LIMIT` — three
+    leases and three failures per order, all of them predictable from the first one.
+    """
+
+    AVAILABLE = "available"
+    #: Reachable again on a date the worker states — an exhausted quota, most often.
+    #: Not the same as unavailable, because it ends by itself.
+    PAUSED = "paused"
+    #: Not signed in, not installed, or refusing for a reason with no date on it.
+    UNAVAILABLE = "unavailable"
+
+
+class CodexAvailability(StrictModel):
+    """What a worker last observed about its own Codex CLI.
+
+    An observation, not a promise: the worker reports what happened the last time it
+    tried, and the API believes it only until the next heartbeat. `retry_after` is a
+    date this side compares against its own clock, so a pause that has run out is
+    treated as availability without anybody having to send a second message saying
+    so — the same shape as the reaper, and for the same reason: the party that has
+    to notice is not always the party that is running.
+    """
+
+    state: CodexState
+    #: Only meaningful with `PAUSED`, and the reason it is a date rather than a
+    #: duration is that this side stores it and compares it later.
+    retry_after: datetime | None = None
+    #: Safe text for a status page. The worker strips paths and hosts before it
+    #: gets here, the way it already does for a failure message.
+    detail: Annotated[str | None, Field(max_length=300)] = None
+
+
 class WorkerCapabilityManifest(StrictModel):
     schema_version: Literal["1.0"] = CAPABILITY_MANIFEST_SCHEMA_VERSION
     worker_version: Annotated[str, Field(min_length=1, max_length=50)]
@@ -1156,6 +1201,14 @@ class ClaimBlockerCode(StrEnum):
     WORKER_LEASE_CAPACITY_EXHAUSTED = "WORKER_LEASE_CAPACITY_EXHAUSTED"
     WORKER_HEARTBEAT_STALE = "WORKER_HEARTBEAT_STALE"
     JOB_REQUIREMENTS_INVALID = "JOB_REQUIREMENTS_INVALID"
+    #: Every online worker has said its Codex CLI cannot answer.
+    #:
+    #: Distinct from `NO_ONLINE_WORKERS`, which is what the page used to say in this
+    #: situation, and it was true and not the reason: there were workers, they were
+    #: idle, and every one of them would have failed the moment it was handed the
+    #: job. A status page that names the wrong cause sends somebody to check the
+    #: wrong thing.
+    WORKER_CODEX_UNAVAILABLE = "WORKER_CODEX_UNAVAILABLE"
 
 
 class ClaimBlocker(StrictModel):

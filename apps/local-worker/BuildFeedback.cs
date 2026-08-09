@@ -185,6 +185,59 @@ internal static class BuildFeedback
     /// </remarks>
     public static readonly TimeSpan PauseFor = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// Codes that mean the Codex CLI itself could not answer, whatever the drawing was.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the fleet gate needs (P0-3). A failure inside the model's
+    /// *answer* — a document that will not compile, a claim that disagrees — says
+    /// nothing about whether the CLI works; these say it does not.
+    ///
+    /// Listed rather than pattern-matched on the `CODEX_` prefix, because
+    /// `CODEX_MODEL_MISMATCH` starts with it and is exactly the wrong thing to put
+    /// here: the CLI answered, and answered from a model nobody asked for.
+    ///
+    /// `CODEX_TIMEOUT` is deliberately out. A slow run is a slow run; calling it an
+    /// unreachable CLI would stop the fleet taking drawing work after one long
+    /// drawing, and the only thing that clears the state is a run that succeeds —
+    /// which the gate would then be preventing. A rule that can lock itself is worse
+    /// than the problem it was written for.
+    /// </remarks>
+    private static readonly IReadOnlySet<string> ModelUnreachable =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            // Return on their own, and the worker states when.
+            "CODEX_CAPACITY_LIMIT",
+            "CODEX_BUDGET_EXHAUSTED",
+            // Need somebody to do something, so they carry no date. See
+            // `NeedsAPerson`.
+            "CODEX_CLI_MISSING",
+            "CODEX_NOT_INSTALLED",
+            "CODEX_AUTH_REQUIRED",
+        };
+
+    /// <summary>Codes no amount of waiting fixes.</summary>
+    /// <remarks>
+    /// The split inside <see cref="ModelUnreachable"/>. A quota comes back on a date
+    /// and the worker says which; a CLI that is not installed or not signed in comes
+    /// back when a person installs or signs in, and a date on that would be a promise
+    /// nobody made. The API blocks indefinitely on these and says why, which is what
+    /// sends somebody to the machine instead of watching a queue.
+    /// </remarks>
+    private static readonly IReadOnlySet<string> NeedsAPerson =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "CODEX_CLI_MISSING",
+            "CODEX_NOT_INSTALLED",
+            "CODEX_AUTH_REQUIRED",
+        };
+
+    /// <summary>Did this failure mean the model could not be reached at all?</summary>
+    public static bool ModelCouldNotBeReached(string code) => ModelUnreachable.Contains(code);
+
+    /// <summary>Will waiting fix it, or does somebody have to go to the machine?</summary>
+    public static bool ModelNeedsAPerson(string code) => NeedsAPerson.Contains(code);
+
     /// <summary>Would another attempt at this job be told the same thing?</summary>
     /// <remarks>
     /// Asked only of failures that are *not* repairable — a repairable one already

@@ -2128,7 +2128,8 @@
           "WORKER_VERSION_INCOMPATIBLE",
           "WORKER_LEASE_CAPACITY_EXHAUSTED",
           "WORKER_HEARTBEAT_STALE",
-          "JOB_REQUIREMENTS_INVALID"
+          "JOB_REQUIREMENTS_INVALID",
+          "WORKER_CODEX_UNAVAILABLE"
         ],
         "title": "ClaimBlockerCode"
       },
@@ -2246,6 +2247,54 @@
         ],
         "title": "ClarificationAnswer",
         "description": "One answer, in the shape its question asked for.\n\nThis was `{question_id, value: float, unit: \"mm\"}` and nothing else, which\nmade most of what the reading stage actually asks unanswerable. Of the six\nquestions the acceptance runs produced, four could not be sent: two asked for\na pair of distances, and two asked whether an opening went through — which is\na choice, and has no millimetre value at all. The order was a dead end: the\nAPI refuses an answer set that is not a complete match, so a question with no\nexpressible answer stops the job forever.\n\nA number still carries `unit`, because a dimension without one is a number\nsomebody has to guess the meaning of. A choice carries none, because \"through\"\nis not measured in millimetres.\n\nWhich shape is valid is not decided here — it is decided by the question, and\nchecked against the question when the answers arrive (`_answer_matches`). The\nreading stage says how each of its questions is answered, so the customer is\nnever offered a field that cannot hold the answer."
+      },
+      "CodexAvailability": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/CodexState"
+          },
+          "retry_after": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "CodexAvailability",
+        "description": "What a worker last observed about its own Codex CLI.\n\nAn observation, not a promise: the worker reports what happened the last time it\ntried, and the API believes it only until the next heartbeat. `retry_after` is a\ndate this side compares against its own clock, so a pause that has run out is\ntreated as availability without anybody having to send a second message saying\nso — the same shape as the reaper, and for the same reason: the party that has\nto notice is not always the party that is running."
+      },
+      "CodexState": {
+        "type": "string",
+        "enum": [
+          "available",
+          "paused",
+          "unavailable"
+        ],
+        "title": "CodexState",
+        "description": "Whether the model can be reached from a worker **right now**.\n\nA different question from `codex_cli_version`, which says which version is\ninstalled and nothing about whether it works. The measured case that needed\nthis: the account's quota ran out until a stated date, and orders went on being\nhanded to workers that immediately returned `CODEX_CAPACITY_LIMIT` — three\nleases and three failures per order, all of them predictable from the first one."
       },
       "CreateUserRequest": {
         "properties": {
@@ -3732,6 +3781,16 @@
                 "type": "null"
               }
             ]
+          },
+          "codex": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodexAvailability"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -3860,6 +3919,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/WorkerCapabilityManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "codex": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CodexAvailability"
               },
               {
                 "type": "null"

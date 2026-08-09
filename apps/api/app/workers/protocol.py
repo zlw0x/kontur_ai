@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from app.contracts import (
+    CodexAvailability,
+    CodexState,
     ErrorCode,
     JobStatus,
     JobType,
@@ -15,6 +17,59 @@ from app.contracts import (
     canonical_capabilities,
 )
 from app.workers.capabilities import unmet_capabilities
+
+
+def needs_the_model(job) -> bool:
+    """Whether this job cannot be done without the Codex CLI answering.
+
+    Read off `AI_DRAWING`, which is already how a job says it needs the model, so
+    there is no second list to keep in step. Deliberately narrow: a `BUILD_CAD` job
+    is geometry and a container, and withholding those during a quota outage would
+    turn one stopped stage into a stopped service.
+    """
+    return WorkerCapability.AI_DRAWING in canonical_capabilities(job.required_capabilities)
+
+
+def codex_is_reachable(codex: CodexAvailability | None, now: datetime) -> bool:
+    """Whether a worker's last word about Codex still means it can answer.
+
+    Silence is availability. A worker built before this field existed cannot say,
+    and being unable to say is not a reason to refuse its work — the same rule the
+    engine declaration follows. It also means this gate can only ever withhold work
+    from a worker that has stated it cannot do that work.
+
+    A pause whose `retry_after` has passed is availability too, and the clock is on
+    this side rather than the worker's. Otherwise a fleet that went quiet during an
+    outage would stay blocked until every worker sent a second message saying it was
+    over — and the party that has to notice is not always the party that is running,
+    which is the reaper's argument exactly.
+    """
+    if codex is None or codex.state == CodexState.AVAILABLE:
+        return True
+    if codex.retry_after is not None:
+        # Any state with a horizon, not only `PAUSED`. The two are different in what
+        # they mean and identical in how they end: when the stated time passes, the
+        # worker is allowed one more attempt, and what happens then is the next
+        # observation. A state with no horizon blocks until somebody acts, which is
+        # what `UNAVAILABLE` is for — a CLI that is not installed does not become
+        # installed by waiting, and a date on it would be a promise nobody made.
+        return _aware(codex.retry_after) <= now
+    return False
+
+
+def _aware(value: datetime) -> datetime:
+    """SQLite hands back naive datetimes; PostgreSQL does not.
+
+    Comparing a naive `retry_after` against an aware `now` raises `TypeError`, which
+    here would be a 500 on every claim under the in-memory configuration and nothing
+    at all under the real one — the worst possible split, since the tests run on the
+    former.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def can_reach_the_model(worker, job, now: datetime) -> bool:
+    return not needs_the_model(job) or codex_is_reachable(worker.codex, now)
 
 
 class WorkerProtocolError(Exception):
@@ -38,6 +93,12 @@ class Worker:
     last_seen_at: datetime | None = None
     capability_manifest: WorkerCapabilityManifest | None = None
     available_slots: int = 0
+    #: What this worker last said about its own Codex CLI, and until when.
+    #:
+    #: `None` means it has never said — an older build — and is treated as
+    #: available. The gate can only ever withhold work from a worker that has
+    #: stated it cannot do that work.
+    codex: CodexAvailability | None = None
 
 
 @dataclass
@@ -160,6 +221,7 @@ class WorkerProtocolService:
         supported_cad_ir: list[str],
         available_slots: int,
         capability_manifest: WorkerCapabilityManifest | None = None,
+        codex: CodexAvailability | None = None,
     ) -> None:
         if available_slots < 0:
             raise ValueError("available_slots must not be negative")
@@ -167,6 +229,10 @@ class WorkerProtocolService:
         worker.available_slots = available_slots
         if capability_manifest is not None:
             worker.capability_manifest = capability_manifest
+        if codex is not None:
+            # Overwritten rather than merged: this is the worker's latest
+            # observation, and an older one is not evidence about now.
+            worker.codex = codex
 
     def claim(self, worker: Worker, lease_seconds: int = 60) -> Job | None:
         now = self.clock()
@@ -181,6 +247,14 @@ class WorkerProtocolService:
             ) or job.required_cad_ir not in worker.supported_cad_ir:
                 continue
             if unmet_capabilities(worker.capability_manifest, job.required_capability_keys):
+                continue
+            if not can_reach_the_model(worker, job, now):
+                # Measured: the account's quota ran out until a stated date, and
+                # orders went on being handed to workers that returned
+                # `CODEX_CAPACITY_LIMIT` the moment they read the manifest. Three
+                # leases and three failures per order, every one of them predictable
+                # from the first. The pause landed later and made each of those a
+                # pause rather than a failure, which is better and is still three.
                 continue
             job.status, job.lease_owner, job.lease_expires_at = JobStatus.LEASED, worker.id, now + timedelta(seconds=lease_seconds)
             job.attempt += 1

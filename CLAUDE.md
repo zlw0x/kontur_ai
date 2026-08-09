@@ -507,6 +507,39 @@ of staff who has seen the delivered part is not the drawing's own words, which s
 untrusted data forever. The prompt says which is which, and says the drawing wins
 where the two disagree.
 
+**A job that needs the model is not handed to a worker that cannot reach it** (rest of
+P0-3, migration 0011). `WorkerCapabilityManifest` carried `codex_cli_version` — which
+version is *installed* — and nothing that says whether it answers. The measured cost of
+that gap: the account's quota ran out until a stated date, and orders went on being
+handed to workers that returned `CODEX_CAPACITY_LIMIT` the moment they tried. Three
+leases and three failures per order, every one predictable from the first, and the page
+said "no worker has capacity" — true, and not the reason. **A status page that names the
+wrong cause sends somebody to check the wrong thing.**
+
+The worker now reports what it *last saw* of its own CLI, and the gate withholds only
+jobs that need the model — `AI_DRAWING`, read off the capability a job already declares,
+so there is no second list. `BUILD_CAD` still flows, because withholding geometry during
+a quota outage turns one stopped stage into a stopped service.
+
+Three decisions kept it from being worse than the problem. **Silence is availability** —
+a worker that cannot say is not refused, the rule `engine` already follows, and it is
+what makes this gate incapable of withholding work from anybody who has not said they
+cannot do it. **The clock is on the API's side**: a pause whose `retry_after` has passed
+is availability, so a fleet that went quiet during an outage does not stay blocked until
+every worker sends a second message. And the worker's state **starts at available rather
+than unknown**, which is a deadlock fix rather than optimism: only a successful run
+clears an `unavailable`, so a worker that started silent would leave a stored refusal
+behind with nothing able to contradict it — a machine somebody has just fixed, still
+refused.
+
+Two shapes of "cannot", and the split is the interesting part. A quota **comes back on a
+date** and the worker says which; a CLI that is not installed or not signed in **comes
+back when a person acts**, so it carries no horizon and blocks until somebody does. A
+date on that would be a promise nobody made. `CODEX_TIMEOUT` is deliberately in neither
+set: a slow run is a slow run, and calling it an unreachable CLI would stop the fleet
+after one long drawing — a rule that can lock itself is worse than the problem it was
+written for.
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.

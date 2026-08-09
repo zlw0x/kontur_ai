@@ -767,6 +767,7 @@ def worker_heartbeat(request: WorkerHeartbeatRequest, authorization: str | None 
         request.supported_cad_ir,
         request.available_slots,
         request.capability_manifest,
+        request.codex,
     )
 
 
@@ -779,6 +780,7 @@ def claim_worker_job(request: WorkerClaimRequest, authorization: str | None = He
         request.supported_cad_ir,
         request.available_slots,
         request.capability_manifest,
+        request.codex,
     )
     job = worker_protocol.claim(worker) if request.available_slots else None
     if job is None:

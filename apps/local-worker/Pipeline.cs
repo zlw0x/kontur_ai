@@ -280,6 +280,15 @@ public static class ClaimLoop
         using var client = new HttpClient { BaseAddress = new Uri(config.ServerUrl), Timeout = TimeSpan.FromSeconds(35) };
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential);
         var failures = 0;
+        // What this worker last saw of its own Codex CLI, sent with every claim.
+        //
+        // It starts at *available* rather than at "unknown", and that is the fix for a
+        // deadlock rather than an optimism: the API withholds drawing work from a
+        // worker that says it cannot do it, and the only thing that clears such a
+        // state is a run that succeeds. Starting unknown-and-omitted would leave a
+        // stored `unavailable` in the database with no way for a restarted worker to
+        // say otherwise — a machine somebody has just fixed, still refused.
+        var codex = CodexHealth.Available;
         while (!cancellation.IsCancellationRequested)
         {
             try
@@ -293,7 +302,14 @@ public static class ClaimLoop
                     // Declaring what this build can construct is what makes the
                     // API willing to schedule those operations here.
                     capability_manifest = await selected.ManifestAsync(
-                        FeatureFlags.Load(paths), cancellationToken: cancellation)
+                        FeatureFlags.Load(paths), cancellationToken: cancellation),
+                    // Not a promise, an observation: what happened the last time this
+                    // worker asked Codex for anything. Without it the API can only
+                    // read `codex_cli_version`, which says which version is installed
+                    // and nothing about whether it answers — and the measured cost of
+                    // that gap was three leases and three failures per order, all of
+                    // them predictable from the first.
+                    codex = codex.AsPayload()
                 }, cancellation);
                 if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                     throw new WorkerException("AUTH_REQUIRED", "Worker credential was rejected.", 3);
@@ -302,7 +318,8 @@ public static class ClaimLoop
                 failures = 0;
                 if (claim?.job is not null)
                 {
-                    await RunClaimedJobAsync(client, claim.job, paths, selected, cancellation);
+                    codex = await RunClaimedJobAsync(client, claim.job, paths, selected, codex, cancellation)
+                            ?? codex;
                     if (runOnce) return 0;
                 }
                 else if (runOnce) return 0;
@@ -368,16 +385,20 @@ public static class ClaimLoop
     /// about the *worker* rather than the job — a rejected credential — are raised
     /// before a job is ever claimed and still stop it.
     /// </remarks>
-    private static async Task RunClaimedJobAsync(
+    private static async Task<CodexHealth?> RunClaimedJobAsync(
         HttpClient client,
         ClaimedJob job,
         WorkerPaths paths,
         WorkerEngine.EngineSelection selected,
+        CodexHealth codex,
         CancellationToken cancellation)
     {
         try
         {
             await ExecuteClaimedJobAsync(client, job, paths, selected, cancellation);
+            // A job that finished used Codex if it was a drawing job, and a job that
+            // did not use it says nothing either way — so only the first is evidence.
+            return job.job_type == "ANALYZE_DRAWING" ? CodexHealth.Available : null;
         }
         catch (Exception error) when (Typed(error) is { } failure)
         {
@@ -393,6 +414,12 @@ public static class ClaimLoop
                     cancellation);
             Console.Error.WriteLine(
                 $"job {job.job_id} attempt {job.attempt}/{job.max_attempts} failed: {failure.Code}");
+            // Only a failure that names the CLI itself changes what this worker says
+            // about Codex. A document that will not compile is the model answering,
+            // and answering badly is not being unreachable.
+            return BuildFeedback.ModelCouldNotBeReached(failure.Code)
+                ? CodexHealth.From(failure.Code, failure.Message)
+                : null;
         }
     }
 

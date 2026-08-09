@@ -182,4 +182,105 @@ public sealed class BuildFeedbackTests
         Assert.Equal(3, BuildFeedback.MaxCompileRepairs);
         Assert.True(BuildFeedback.MaxCompileRepairs > BuildFeedback.MaxBuildRepairs);
     }
+
+    /// <summary>
+    /// A failure inside the model's answer is not the model being unreachable.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the fleet gate rests on (P0-3). A document that will not
+    /// compile, a claim that disagrees, a kernel that refused — those are the CLI
+    /// working. Only a failure that names the CLI itself is evidence about whether
+    /// the next drawing job can be run at all.
+    ///
+    /// `CODEX_MODEL_MISMATCH` is the trap and is asserted by name: it starts with the
+    /// same four letters and means the CLI answered, from a model nobody asked for.
+    /// </remarks>
+    [Fact]
+    public void OnlyAFailureAboutTheCliItselfSaysTheModelCouldNotBeReached()
+    {
+        foreach (var code in new[]
+                 {
+                     "CODEX_CAPACITY_LIMIT", "CODEX_BUDGET_EXHAUSTED",
+                     "CODEX_CLI_MISSING", "CODEX_NOT_INSTALLED", "CODEX_AUTH_REQUIRED",
+                 })
+            Assert.True(BuildFeedback.ModelCouldNotBeReached(code), code);
+
+        foreach (var code in new[]
+                 {
+                     "CODEX_MODEL_MISMATCH", "CODEX_OUTPUT_INVALID", "CAD_IR_INVALID",
+                     "SHAPE_CLAIM_CONTRADICTED", "SELECTOR_AMBIGUOUS",
+                     // A slow run is a slow run. Calling it an unreachable CLI would
+                     // stop the fleet taking drawing work after one long drawing, and
+                     // the only thing that clears the state is a run that succeeds --
+                     // which the gate would then be preventing.
+                     "CODEX_TIMEOUT",
+                 })
+            Assert.False(BuildFeedback.ModelCouldNotBeReached(code), code);
+    }
+
+    /// <summary>
+    /// A quota comes back on a date; a CLI that is not installed comes back when
+    /// somebody installs it.
+    /// </summary>
+    /// <remarks>
+    /// The split decides whether the worker sends a horizon. A date on "not signed
+    /// in" would be a promise nobody made, and the API blocks indefinitely on those
+    /// and says why -- which is what sends an operator to the machine rather than to
+    /// a queue.
+    /// </remarks>
+    [Fact]
+    public void WaitingFixesAQuotaAndDoesNotFixAMissingCli()
+    {
+        Assert.False(BuildFeedback.ModelNeedsAPerson("CODEX_CAPACITY_LIMIT"));
+        Assert.False(BuildFeedback.ModelNeedsAPerson("CODEX_BUDGET_EXHAUSTED"));
+
+        Assert.True(BuildFeedback.ModelNeedsAPerson("CODEX_CLI_MISSING"));
+        Assert.True(BuildFeedback.ModelNeedsAPerson("CODEX_NOT_INSTALLED"));
+        Assert.True(BuildFeedback.ModelNeedsAPerson("CODEX_AUTH_REQUIRED"));
+    }
+
+    /// <summary>
+    /// What the worker sends, for each of the two shapes of "cannot".
+    /// </summary>
+    /// <remarks>
+    /// The starting value is *available* rather than unknown, and that is a deadlock
+    /// fix rather than optimism: the API withholds drawing work from a worker that
+    /// says it cannot do it, and only a successful run clears such a state. A worker
+    /// that started silent would leave a stored `unavailable` behind with nothing
+    /// able to contradict it -- a machine somebody has just fixed, still refused.
+    /// </remarks>
+    [Fact]
+    public void AQuotaIsReportedWithAHorizonAndAMissingCliWithout()
+    {
+        Assert.Equal("available", CodexHealth.Available.State);
+        Assert.Null(CodexHealth.Available.RetryAfter);
+
+        var quota = CodexHealth.From("CODEX_CAPACITY_LIMIT", "the account's quota is exhausted");
+        Assert.Equal("paused", quota.State);
+        Assert.NotNull(quota.RetryAfter);
+        Assert.Contains("CODEX_CAPACITY_LIMIT", quota.Detail);
+
+        var missing = CodexHealth.From("CODEX_AUTH_REQUIRED", "not signed in");
+        Assert.Equal("unavailable", missing.State);
+        Assert.Null(missing.RetryAfter);
+    }
+
+    /// <summary>
+    /// The detail a status page may show carries no newline and is bounded.
+    /// </summary>
+    /// <remarks>
+    /// Everything sent here can reach a browser, which is the rule a failure message
+    /// already follows.
+    /// </remarks>
+    [Fact]
+    public void TheDetailIsSafeToShow()
+    {
+        var health = CodexHealth.From(
+            "CODEX_CAPACITY_LIMIT",
+            "line one" + Environment.NewLine + "line two " + new string('x', 500));
+
+        Assert.NotNull(health.Detail);
+        Assert.DoesNotContain(Environment.NewLine, health.Detail);
+        Assert.True(health.Detail!.Length <= 300);
+    }
 }

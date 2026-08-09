@@ -9,6 +9,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import or_, select
 
 from app.contracts import (
+    CodexAvailability,
+    CodexState,
     ErrorCode,
     JobStatus,
     JobType,
@@ -21,6 +23,7 @@ from app.workers.capabilities import unmet_capabilities
 from app.workers.models import ArtifactRow, JobRow, WorkerRow
 from app.workers.protocol import (
     LEASE_LOST_CODE,
+    codex_is_reachable,
     LEASE_LOST_MESSAGE,
     Job,
     ReapOutcome,
@@ -99,6 +102,7 @@ class SqlWorkerProtocolService:
         supported_cad_ir: list[str],
         available_slots: int,
         capability_manifest: WorkerCapabilityManifest | None = None,
+        codex: CodexAvailability | None = None,
     ) -> None:
         if available_slots < 0:
             raise ValueError("available_slots must not be negative")
@@ -112,10 +116,18 @@ class SqlWorkerProtocolService:
             row.last_seen_at = self.clock()
             if capability_manifest is not None:
                 self._publish_manifest(session, row, capability_manifest)
+            if codex is not None:
+                # Overwritten rather than merged: this is the worker's latest
+                # observation, and an older one is not evidence about now.
+                row.codex_state = codex.state.value
+                row.codex_retry_after = codex.retry_after
+                row.codex_detail = codex.detail
         worker.capabilities, worker.supported_cad_ir, worker.last_seen_at = set(capabilities), set(supported_cad_ir), self.clock()
         worker.available_slots = available_slots
         if capability_manifest is not None:
             worker.capability_manifest = capability_manifest
+        if codex is not None:
+            worker.codex = codex
 
     def _publish_manifest(
         self, session, row: WorkerRow, manifest: WorkerCapabilityManifest
@@ -172,6 +184,12 @@ class SqlWorkerProtocolService:
                 ) or row.required_cad_ir not in worker.supported_cad_ir:
                     continue
                 if unmet_capabilities(worker.capability_manifest, list(row.required_capability_keys or [])):
+                    continue
+                if WorkerCapability.AI_DRAWING in canonical_capabilities(required)                         and not codex_is_reachable(worker.codex, now):
+                    # The same gate the in-memory protocol applies, and it has to be
+                    # here too: two implementations of one protocol, and a rule in
+                    # only one of them is a rule that holds in tests and not in
+                    # production.
                     continue
                 row.status, row.lease_owner = JobStatus.LEASED.value, str(worker.id)
                 row.lease_expires_at, row.attempt = now + timedelta(seconds=lease_seconds), row.attempt + 1
@@ -336,7 +354,12 @@ class SqlWorkerProtocolService:
         return Worker(UUID(row.id), row.name, row.token_hash, row.app_version,
                       {WorkerCapability(item) for item in row.capabilities}, set(row.supported_cad_ir), row.last_seen_at,
                       WorkerCapabilityManifest(**row.capability_manifest) if row.capability_manifest else None,
-                      row.available_slots or 0)
+                      row.available_slots or 0,
+                      CodexAvailability(
+                          state=CodexState(row.codex_state),
+                          retry_after=row.codex_retry_after,
+                          detail=row.codex_detail,
+                      ) if row.codex_state else None)
 
     @staticmethod
     def _job(row: JobRow) -> Job:
