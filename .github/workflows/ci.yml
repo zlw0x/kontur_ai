@@ -33,6 +33,52 @@ jobs:
             echo "::error::the sanitizer suite skipped tests; its decoder is missing"
             exit 1
           fi
+  # The container the addendum §2.2 asks for, built and driven with a real bomb.
+  #
+  # The argv was assembled and asserted by a unit test long before an image existed,
+  # and an argv nobody has run is a description of an intention. What this adds over
+  # the process mode is the namespace: the process mode bounds how much a decoder can
+  # *spend*, and only a container bounds what it can *see*.
+  sanitizer-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - run: docker build -t cad-ai/sanitizer:ci packages/image-sanitizer
+      - name: A bomb and an ordinary page, through the container
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r packages/image-sanitizer/requirements.txt
+          mkdir -p bomb/in bomb/out
+          python - <<'MAKE'
+          from PIL import Image
+          Image.MAX_IMAGE_PIXELS = None
+          # ~2.6 MB on disk, ~2 GiB decoded. The decompression bomb is the reason
+          # `Image.verify()` is not enough and `max_pixels` exists.
+          Image.new("RGB", (30000, 30000), (255, 255, 255)).save("bomb/in/bomb.png", optimize=True)
+          Image.new("RGB", (8, 6), (12, 34, 56)).save("bomb/in/ordinary.png")
+          MAKE
+          run() {
+            docker run --rm --network none --read-only --cap-drop ALL               --security-opt no-new-privileges               --memory 805306368 --memory-swap 805306368 --cpus 2 --pids-limit 64               --user 65534:65534               -v "$PWD/bomb/in:/in:ro" -v "$PWD/bomb/out:/out"               cad-ai/sanitizer:ci --source "/in/$1" --output "/out/$2"               --max-width 12000 --max-height 12000 --max-pixels 60000000               --max-frames 1 --max-output-bytes 41943040               --memory-bytes 805306368 --cpu-seconds 20 || true
+          }
+
+          ordinary=$(run ordinary.png page-001.png)
+          echo "ordinary: $ordinary"
+          bomb=$(run bomb.png bomb-out.png)
+          echo "bomb: $bomb"
+
+          # Read for what they say rather than for an exit code. A guard written as
+          # `grep -qv` succeeds on any line that is not the one it names, which is
+          # every line -- that mistake shipped in this file's first version and made
+          # a job green that had run nothing.
+          echo "$ordinary" | grep -q '"ok": true'             || { echo "::error::an ordinary page was not accepted"; exit 1; }
+          echo "$ordinary" | grep -q '"limits": "rlimit"'             || { echo "::error::the container decoded without kernel ceilings"; exit 1; }
+          echo "$bomb" | grep -q '"code": "INPUT_PIXELS_TOO_MANY"'             || { echo "::error::a decompression bomb was not refused"; exit 1; }
+          test -f bomb/out/page-001.png             || { echo "::error::the accepted page was not written"; exit 1; }
+          test ! -f bomb/out/bomb-out.png             || { echo "::error::the refused bomb left a file behind"; exit 1; }
+
   contracts:
     runs-on: ubuntu-latest
     steps:
