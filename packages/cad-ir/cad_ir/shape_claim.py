@@ -586,24 +586,45 @@ def _opening_disagreements(
 
     found: list[Disagreement] = []
     claimed_total = sum(item.count for item in claim.openings)
+    # Grouped before they are compared, and that is the whole fix.
+    #
+    # Each declared group used to be matched against **every** built opening of its
+    # kind. A flange declares one bore and four bolt holes — two groups, both round,
+    # because that is how a reader names them — so the first was compared against 5
+    # and the second against 5, and both disagreed. The reading was right, the
+    # document was right, 1 + 4 = 5, and the claim refused it.
+    #
+    # The labelled corpus found it: ten flanges, ten refusals, the same two clauses
+    # every time. It is not a rare shape — any flange, any plate with two hole sizes,
+    # any bracket with mounting holes and a cable hole.
+    #
+    # Grouped by kind **and** depth rather than by kind alone: a hole that goes
+    # through and one that stops are a different part, and `through` is what says so.
+    # Losing that while fixing the count would trade one silent wrong part for
+    # another.
+    claimed_groups: dict[tuple[str, bool | None], int] = {}
     for item in claim.openings:
+        key = (item.kind, item.through)
+        claimed_groups[key] = claimed_groups.get(key, 0) + item.count
+
+    for (kind_name, through_claimed), count in claimed_groups.items():
         matched = sum(
-            count
-            for (kind, through), count in built.items()
-            if issubclass(kind, _OPENING_CONTOURS[item.kind])
-            and _depth_agrees(item.through, through)
+            built_count
+            for (kind, through), built_count in built.items()
+            if issubclass(kind, _OPENING_CONTOURS[kind_name])
+            and _depth_agrees(through_claimed, through)
         )
-        if matched != item.count:
-            depth = "" if item.through is None else (
-                " through" if item.through else " blind"
+        if matched != count:
+            depth = "" if through_claimed is None else (
+                " through" if through_claimed else " blind"
             )
             found.append(
                 Disagreement(
                     code="OPENING_COUNT",
-                    claimed=f"{item.count}{depth} {item.kind}",
-                    built=f"{matched}{depth} {item.kind}",
+                    claimed=f"{count}{depth} {kind_name}",
+                    built=f"{matched}{depth} {kind_name}",
                     detail=(
-                        f"the drawing was read as {item.count}{depth} {item.kind} "
+                        f"the drawing was read as {count}{depth} {kind_name} "
                         f"opening(s) and the document builds {matched}"
                     ),
                 )

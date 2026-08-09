@@ -183,6 +183,65 @@ def test_an_opening_of_the_wrong_kind_is_caught():
     ) == ["OPENING_COUNT"]
 
 
+def test_two_groups_of_the_same_kind_are_added_up():
+    """A flange has one bore and four bolt holes, and both are round.
+
+    Found by the labelled corpus: every flange in it was refused, ten out of ten,
+    with
+
+        the drawing was read as 1 round opening(s) and the document builds 5;
+        the drawing was read as 4 round opening(s) and the document builds 5
+
+    Both clauses are the same document being compared against the same total. The
+    reading was right — a bore and a bolt circle are two groups a reader would name
+    separately — and the document was right, 1 + 4 = 5, and the claim refused it.
+
+    The cause is that each declared group was matched against **every** built opening
+    of its kind rather than against its share, so a reading that splits openings into
+    two groups of one kind can never be satisfied. That is not a rare shape: any
+    flange, any plate with two hole sizes, any bracket with mounting holes and a cable
+    hole.
+
+    `constrained-plate` has two round holes, so a claim naming them as one group of
+    one and one group of one is the smallest case with the same structure.
+    """
+    assert codes(
+        "constrained-plate",
+        profile="rectangle",
+        openings=[{"kind": "round", "count": 1}, {"kind": "round", "count": 1}],
+    ) == []
+
+    # And a split that adds up to the wrong number is still caught, which is the
+    # half that must not be lost in fixing the half above.
+    assert codes(
+        "constrained-plate",
+        profile="rectangle",
+        openings=[{"kind": "round", "count": 1}, {"kind": "round", "count": 2}],
+    ) == ["OPENING_COUNT"]
+
+
+def test_groups_of_the_same_kind_but_different_depths_stay_apart():
+    """Adding up must not add across a difference the claim exists to see.
+
+    A plate read as one hole that goes through and one that does not is a different
+    part from one read as two through holes, and `through` is what says so. Grouping
+    by kind alone would have lost that while fixing the flange.
+    """
+    # Two disagreements and not one, which is the right answer and worth spelling
+    # out: `constrained-plate` drills two holes that go through, so the through
+    # group is short by one *and* the blind group is short by one. Both are named,
+    # because a repair prompt that was told only about one of them would fix half a
+    # part.
+    assert codes(
+        "constrained-plate",
+        profile="rectangle",
+        openings=[
+            {"kind": "round", "count": 1, "through": True},
+            {"kind": "round", "count": 1, "through": False},
+        ],
+    ) == ["OPENING_COUNT", "OPENING_COUNT"]
+
+
 def test_a_hole_counts_whether_it_is_an_island_or_a_cut():
     """The same hole on a drawing, two ways to write it.
 
