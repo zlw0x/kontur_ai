@@ -25,8 +25,20 @@ from pathlib import Path
 import pytest
 from app.input.policy import POLICY
 from app.input.quarantine import InputRejected, Quarantine
-from app.input.sanitizer import Sanitizer, SanitizerUnavailable
+from app.input.sanitizer import KERNEL_LIMITS_AVAILABLE, Sanitizer, SanitizerUnavailable
 from tests.drawing_fixture import TINY_PNG
+
+
+def unconfined_ok() -> Sanitizer:
+    """A sanitizer for the tests that are about the boundary, not about deployment.
+
+    `RLIMIT_AS` and `RLIMIT_CPU` are POSIX, so on Windows the process mode has no
+    kernel ceilings and is refused by default. That refusal is a deployment policy
+    with a test of its own below; the tests that use this one are asking whether the
+    child runs, answers and hands back a page, which is the same question on both
+    platforms.
+    """
+    return Sanitizer(allow_unconfined_process=True)
 
 
 @pytest.fixture()
@@ -141,7 +153,7 @@ def test_the_page_that_comes_back_is_a_png_and_carries_its_manifest(quarantine, 
     """
     file = held(quarantine, [TINY_PNG])
 
-    page = Sanitizer().sanitize(file, tmp_path / "accepted")
+    page = unconfined_ok().sanitize(file, tmp_path / "accepted")
 
     assert page.png.startswith(b"\x89PNG\r\n\x1a\n")
     assert (page.width, page.height) == (8, 6)
@@ -165,16 +177,18 @@ def test_the_sanitizer_runs_somewhere_else(quarantine, tmp_path):
 def test_the_container_mode_drops_everything_it_can(quarantine):
     """What production runs. The flags are the addendum's §2.2 list, and they are
     asserted rather than described because a missing one is invisible."""
-    command = Sanitizer(image="cad-ai/sanitizer:1")._command(
-        Path("/tmp/in/x.png"), Path("/tmp/out/page-001.png")
-    )
+    source, output = Path("/tmp/in/x.png"), Path("/tmp/out/page-001.png")
+    command = Sanitizer(image="cad-ai/sanitizer:1")._command(source, output)
 
     for flag in ("--network", "none", "--read-only", "--cap-drop", "ALL",
                  "--security-opt", "no-new-privileges", "--pids-limit"):
         assert flag in command
     assert "--user" in command and "65534:65534" in command
-    # One mount in, one out, and the input read-only.
-    assert "/tmp/in:/in:ro" in command
+    # One mount in, one out, and the input read-only. The host side is spelled by
+    # the platform — `\tmp\in` on Windows — so the assertion is about the shape of
+    # the mount rather than about a literal a POSIX machine happens to produce.
+    mounts = [command[i + 1] for i, argument in enumerate(command) if argument == "-v"]
+    assert mounts == [f"{source.parent}:/in:ro", f"{output.parent}:/out"]
     assert "docker" == command[0]
 
 
@@ -188,11 +202,57 @@ def test_a_sanitizer_that_cannot_run_is_about_the_machine(quarantine, tmp_path):
         Sanitizer(python="/nonexistent/python").sanitize(file, tmp_path / "accepted")
 
 
+def test_a_decoder_with_no_kernel_ceilings_is_refused_unless_it_is_allowed(quarantine, tmp_path):
+    """The fourth state of the process mode, which had no name until Windows found it.
+
+    `RLIMIT_AS` and `RLIMIT_CPU` are POSIX. Importing `resource` at module scope made
+    the sanitizer unstartable on Windows — the API saw an empty stdout and reported
+    `SanitizerUnavailable` for every upload, which is the right verdict for the wrong
+    reason and reads as "the sanitizer is broken" rather than "this platform cannot
+    confine it".
+
+    Making the import optional on its own would have been the bad fix: the program
+    would start, decode a stranger's file with nothing but a wall clock over it, and
+    say exactly what it says when every ceiling is in place. So the child reports
+    which ceilings it got, and this side refuses the answer unless the deployment
+    said the unconfined mode is acceptable.
+    """
+    file = held(quarantine, [TINY_PNG])
+
+    strict = Sanitizer(allow_unconfined_process=False)
+    if KERNEL_LIMITS_AVAILABLE:
+        # On POSIX the strict sanitizer is the normal one and must simply work.
+        assert strict.sanitize(file, tmp_path / "confined").png
+    else:
+        with pytest.raises(SanitizerUnavailable) as raised:
+            strict.sanitize(file, tmp_path / "unconfined")
+        assert "RLIMIT" in str(raised.value)
+
+
+def test_the_childs_report_is_checked_and_not_taken_on_trust(quarantine, tmp_path, monkeypatch):
+    """A child that decoded unconfined and claimed otherwise is still refused.
+
+    The platform check above happens before the file is handed over and asks *this*
+    machine. This one asks the process that actually ran, because those are two
+    different questions — a container's image is Linux however the host is built —
+    and the launcher's rule applies to both: believe nothing it says.
+    """
+    import app.input.sanitizer as module
+
+    file = held(quarantine, [TINY_PNG])
+    monkeypatch.setattr(module, "KERNEL_LIMITS_AVAILABLE", True)
+    monkeypatch.setattr(module, "_one_json_line", lambda _: {"ok": True, "limits": "none"})
+
+    with pytest.raises(SanitizerUnavailable) as raised:
+        Sanitizer().sanitize(file, tmp_path / "lying")
+    assert "limits='none'" in str(raised.value)
+
+
 def test_the_raw_upload_can_be_discarded_and_the_page_survives(quarantine, tmp_path):
     """§5: the raw file goes as soon as processing ends. Nothing downstream can
     reach quarantine, so what is left is only a window — and a window worth closing."""
     file = held(quarantine, [TINY_PNG])
-    page = Sanitizer().sanitize(file, tmp_path / "accepted")
+    page = unconfined_ok().sanitize(file, tmp_path / "accepted")
 
     quarantine.discard(file.file_id)
 

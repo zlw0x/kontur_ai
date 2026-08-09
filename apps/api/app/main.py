@@ -184,7 +184,14 @@ artifact_store = LocalArtifactStore(settings.artifact_store_root, settings.max_a
 #: the artifact store on purpose: that is what the worker downloads from, and a raw
 #: upload must never be in it.
 quarantine = Quarantine(Path(settings.artifact_store_root).parent / "quarantine")
-sanitizer = Sanitizer(image=settings.sanitizer_image or None)
+sanitizer = Sanitizer(
+    image=settings.sanitizer_image or None,
+    # A decoder with no kernel ceilings is a laptop's convenience, and it stops at
+    # the laptop. Outside `local` an operator has a container to configure, so the
+    # service refuses to start decoding rather than quietly doing it unconfined —
+    # the same shape as `reject_development_secrets_outside_local`.
+    allow_unconfined_process=settings.environment.lower() == "local",
+)
 orders = build_order_repository()
 
 

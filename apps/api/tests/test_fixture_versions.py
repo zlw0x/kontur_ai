@@ -56,6 +56,21 @@ SOURCE_SUFFIXES = (".py", ".cs", ".yml", ".yaml")
 #: Directories with nothing hand-written in them.
 IGNORED = {"node_modules", "bin", "obj", ".git", ".next", "__pycache__", ".venv"}
 
+
+def virtualenvs() -> set[Path]:
+    """Every virtualenv under the root, found by what one *is* rather than by its name.
+
+    `IGNORED` listed `.venv` and the developer machine's is `.venv-cad`, so the scan
+    walked into scipy and sympy and reported `v2_4` and `v5_2` as CAD-IR versions
+    somebody had written down by hand. A name list cannot be right here: the
+    directory is the developer's to name, and the next one will be `.venv311`.
+
+    `pyvenv.cfg` is the definition — PEP 405 puts it at the root of every virtual
+    environment and nowhere else — so this asks the question instead of guessing at
+    the answer.
+    """
+    return {marker.parent for marker in ROOT.rglob("pyvenv.cfg")}
+
 #: The files whose subject *is* the version, and which therefore have to be able to
 #: write it down: the two declarations, the helper that turns one into a filename, and
 #: this file. Everything else derives it from them.
@@ -68,11 +83,14 @@ ALLOWED = {
 
 
 def sources() -> list[Path]:
+    environments = virtualenvs()
     found: list[Path] = []
     for path in ROOT.rglob("*"):
         if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
             continue
         if IGNORED & set(path.relative_to(ROOT).parts):
+            continue
+        if any(environment in path.parents for environment in environments):
             continue
         found.append(path)
     return found

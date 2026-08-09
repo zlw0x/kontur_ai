@@ -18,15 +18,36 @@ from __future__ import annotations
 
 import argparse
 import json
-import resource
 import sys
 from pathlib import Path
 
+try:
+    import resource
+except ImportError:  # pragma: no cover - exercised by running this on Windows
+    # `resource` is POSIX-only, and importing it at module scope made this program
+    # unstartable on Windows: the API launched it, got `ModuleNotFoundError` on
+    # stderr and nothing on stdout, and reported `SanitizerUnavailable` for every
+    # upload. Fifteen tests red on the operator's own machine, none of them about
+    # the sanitizer.
+    #
+    # The import is optional and the *confinement* is not. What replaces it is a
+    # report: this program says which ceilings it actually got, and the caller
+    # decides whether that is enough where it is deployed.
+    resource = None  # type: ignore[assignment]
+
 from .sanitize import SanitizerRejected, sanitize_file
 
+#: What `confine` managed to put in place, named so the caller can check it.
+#:
+#: `rlimit` is the intended answer. `none` means this platform has no POSIX
+#: resource limits at all, so the only ceiling left is the caller's wall clock —
+#: which catches a decoder that hangs and not one that allocates.
+LIMITS_RLIMIT = "rlimit"
+LIMITS_NONE = "none"
 
-def confine(memory_bytes: int, cpu_seconds: int) -> None:
-    """Ceilings the decoder cannot talk its way past.
+
+def confine(memory_bytes: int, cpu_seconds: int) -> str:
+    """Ceilings the decoder cannot talk its way past, and which ones were got.
 
     Belt and braces with whatever the container gives it, and the braces are worth
     having on their own: a limit the kernel enforces on this process is one that
@@ -37,11 +58,18 @@ def confine(memory_bytes: int, cpu_seconds: int) -> None:
     reading — an allocation that would exceed it fails at `malloc` instead of after
     the pages are touched, so a bomb dies deterministically rather than when the
     machine happens to run out.
+
+    Returns the name of what was applied rather than nothing, because the one
+    platform where this fails is the one where it fails *silently*: without an
+    answer to read, "no ceilings" and "every ceiling" look identical from outside.
     """
+    if resource is None:
+        return LIMITS_NONE
     for what, limit in ((resource.RLIMIT_AS, memory_bytes), (resource.RLIMIT_CPU, cpu_seconds)):
         soft, hard = resource.getrlimit(what)
         ceiling = limit if hard == resource.RLIM_INFINITY else min(limit, hard)
         resource.setrlimit(what, (ceiling, ceiling))
+    return LIMITS_RLIMIT
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,8 +85,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cpu-seconds", type=int, default=0)
     arguments = parser.parse_args(argv)
 
+    limits = LIMITS_NONE
     if arguments.memory_bytes and arguments.cpu_seconds:
-        confine(arguments.memory_bytes, arguments.cpu_seconds)
+        limits = confine(arguments.memory_bytes, arguments.cpu_seconds)
+
+    # On every answer, including the refusals. A decoder that ran unconfined ran
+    # unconfined whether or not it liked what it read, and the caller's check has
+    # to be able to see that before it looks at anything else.
+    def answer(payload: dict) -> None:
+        print(json.dumps({**payload, "limits": limits}))
 
     try:
         page = sanitize_file(
@@ -67,29 +102,29 @@ def main(argv: list[str] | None = None) -> int:
             arguments.max_frames, arguments.max_output_bytes,
         )
     except SanitizerRejected as refusal:
-        print(json.dumps({"ok": False, "code": refusal.code, "message": refusal.message}))
+        answer({"ok": False, "code": refusal.code, "message": refusal.message})
         return 1
     except MemoryError:
         # What `RLIMIT_AS` produces when a decode asks for more than it may have.
         # A code rather than a crash: the customer's file is the reason, and this is
         # the one refusal that means "this would have taken the machine down".
-        print(json.dumps({"ok": False, "code": "INPUT_PIXELS_TOO_MANY",
-                          "message": "The image needs more memory than a drawing may use."}))
+        answer({"ok": False, "code": "INPUT_PIXELS_TOO_MANY",
+                "message": "The image needs more memory than a drawing may use."})
         return 1
     except Exception as error:  # noqa: BLE001 - a decoder failure is not a stack trace
-        print(json.dumps({"ok": False, "code": "INPUT_DECODE_FAILED",
-                          "message": "The image could not be read.",
-                          "detail": type(error).__name__}))
+        answer({"ok": False, "code": "INPUT_DECODE_FAILED",
+                "message": "The image could not be read.",
+                "detail": type(error).__name__})
         return 1
 
     Path(arguments.output).write_bytes(page.png)
-    print(json.dumps({
+    answer({
         "ok": True,
         "width": page.width,
         "height": page.height,
         "source_format": page.source_format,
         "bytes": len(page.png),
-    }))
+    })
     return 0
 
 

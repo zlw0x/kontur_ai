@@ -19,11 +19,21 @@ one of them:
 The wall clock is here rather than in the child because a child that has stopped
 responding cannot enforce its own timeout. `RLIMIT_CPU` catches a busy loop; a
 decoder blocked on something catches nothing, and this kills it.
+
+`RLIMIT_AS` and `RLIMIT_CPU` are POSIX, and the process mode runs on whatever
+machine the API is on — which for an operator is Windows. So the process mode has
+a fourth state nobody had named: a child that starts, decodes, and is confined by
+nothing but the wall clock. It is not refused outright, because a laptop that
+cannot run Docker still has to be able to run the service; it is refused **outside
+the `local` environment**, where an operator has a container to configure and a
+stranger's bytes to keep out of the kernel we share with the database.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -31,6 +41,20 @@ from pathlib import Path
 
 from .policy import POLICY, InputPolicy
 from .quarantine import InputRejected, QuarantinedFile
+
+#: What the child says it enforced. Mirrors `image_sanitizer.__main__`, which is a
+#: separate package by design and is not imported here — this side is meant to
+#: believe the answer only after checking it, and a shared constant would not
+#: change that.
+LIMITS_RLIMIT = "rlimit"
+
+#: Whether *this* machine can give a child process kernel-enforced ceilings.
+#:
+#: Asked of the platform rather than of the child, because the answer has to be
+#: known before a stranger's file is handed to a decoder. In the container mode it
+#: says nothing useful — the image is Linux however the host is built — so it is
+#: consulted only for the process mode.
+KERNEL_LIMITS_AVAILABLE = importlib.util.find_spec("resource") is not None
 
 
 @dataclass(frozen=True)
@@ -69,11 +93,28 @@ class Sanitizer:
         policy: InputPolicy = POLICY,
         image: str | None = None,
         python: str | None = None,
+        allow_unconfined_process: bool = False,
     ) -> None:
         self.policy, self.image = policy, image
         self.python = python or sys.executable
+        #: Whether a child with no kernel ceilings may decode a stranger's file.
+        #:
+        #: Off by default, so a deployment that forgets to think about it gets the
+        #: safe answer. `app.main` turns it on for the `local` environment only —
+        #: the same shape as `reject_development_secrets_outside_local`, and for the
+        #: same reason: the thing that must not escape a laptop is the laptop's
+        #: convenience.
+        self.allow_unconfined_process = allow_unconfined_process
 
     def sanitize(self, quarantined: QuarantinedFile, workspace: Path) -> SanitizedDrawing:
+        if not self.image and not KERNEL_LIMITS_AVAILABLE and not self.allow_unconfined_process:
+            # Before the file is handed over, not after. About the machine rather
+            # than the drawing, so the customer is told to come back rather than
+            # told their drawing is wrong.
+            raise SanitizerUnavailable(
+                "this platform has no RLIMIT_AS or RLIMIT_CPU, so the process mode "
+                "cannot confine a decoder; configure sanitizer_image"
+            )
         workspace.mkdir(parents=True, exist_ok=True)
         output = workspace / "page-001.png"
         command = self._command(quarantined.path, output)
@@ -86,7 +127,16 @@ class Sanitizer:
                 # The child gets no environment of ours. A decoder does not need
                 # our database URL, our tokens or our PATH, and the cheapest way to
                 # be sure it never reads them is not to hand them over.
-                env={"PYTHONPATH": _sanitizer_path(), "PYTHONDONTWRITEBYTECODE": "1"},
+                #
+                # Which is why the import path is *computed* rather than inherited.
+                # An empty environment also drops the variables an interpreter uses
+                # to find its own third-party packages — `APPDATA` on Windows, `HOME`
+                # on POSIX — so a Pillow installed into the user site becomes
+                # invisible and the child dies with `ModuleNotFoundError` and an
+                # empty stdout, which this side can only report as "the sanitizer
+                # said nothing readable". Naming the directories keeps the
+                # environment empty and the answer the same on every machine.
+                env={"PYTHONPATH": _import_path(), "PYTHONDONTWRITEBYTECODE": "1"},
             )
         except subprocess.TimeoutExpired as expired:
             raise InputRejected(
@@ -103,6 +153,17 @@ class Sanitizer:
         if answer is None:
             raise SanitizerUnavailable(
                 f"the sanitizer said nothing readable (exit {finished.returncode})"
+            )
+        # Checked before the verdict is read, because it is not a fact about the
+        # drawing: a decode that happened with no ceilings happened with no ceilings
+        # whether the decoder liked what it found or not. Compared rather than
+        # assumed, the way the CAD launcher compares the engine's digests against
+        # the bytes on disk — the check above asked the platform, and this asks the
+        # process that actually ran.
+        if answer.get("limits") != LIMITS_RLIMIT and not self.allow_unconfined_process:
+            raise SanitizerUnavailable(
+                f"the sanitizer decoded with limits={answer.get('limits')!r}, "
+                f"where {LIMITS_RLIMIT!r} was required"
             )
         if not answer.get("ok"):
             raise InputRejected(
@@ -188,6 +249,28 @@ def _sanitizer_path() -> str:
     consulted.
     """
     return str(Path(__file__).resolve().parents[4] / "packages" / "image-sanitizer")
+
+
+def _import_path() -> str:
+    """The sanitizer, and the directories its dependencies were installed into.
+
+    Every one of them belongs to the interpreter this side is running on, so nothing
+    here widens what the child can reach — it is the same code the same interpreter
+    would import anyway. What it removes is the child's dependence on *environment*
+    to find it, which is the part the empty environment took away.
+
+    Deliberately not `sys.path`: that carries the API's own working directory and
+    every path a test runner injected, and the child has no business importing this
+    service's modules.
+    """
+    import site
+
+    directories = [_sanitizer_path()]
+    for found in (getattr(site, "getsitepackages", list)(), [site.getusersitepackages()]):
+        directories.extend(str(entry) for entry in found if entry)
+    # Order preserved, duplicates dropped: `getsitepackages` and the user site can
+    # name the same directory, and a repeated entry is a repeated stat per import.
+    return os.pathsep.join(dict.fromkeys(directories))
 
 
 __all__ = ["SanitizedDrawing", "Sanitizer", "SanitizerUnavailable"]
