@@ -48,7 +48,6 @@ type OrderState = {
 type Session = { user_id: string; email: string; role: string; csrf_token: string };
 type Dimensions = { length: number; width: number; height: number };
 type ViewMode = "model" | "drawing";
-type Material = "aluminum" | "steel" | "polymer";
 type IconName =
   | "arrow"
   | "box"
@@ -94,11 +93,17 @@ const statusCopy: Record<string, string> = {
 // A set rather than a comparison with "LEASED": the stage is now named, and three
 // names mean three places to forget one.
 const working = new Set(["DRAWING_ANALYSIS", "CAD_BUILDING", "CAD_VALIDATION"]);
-const materialOptions: { value: Material; label: string; color: string }[] = [
-  { value: "aluminum", label: "Алюминий", color: "#c8d2d5" },
-  { value: "steel", label: "Сталь", color: "#aeb7c1" },
-  { value: "polymer", label: "Полимер", color: "#b8f35a" },
-];
+/*
+  There was a material picker here — Алюминий / Сталь / Полимер — and it changed the
+  colour of the 3D preview and nothing else. `grep -rn material apps/api/app/` finds
+  nothing: the value never reached the API, never reached the worker, and never
+  reached a manifest. A visitor picked "Сталь" and had every reason to believe they
+  had ordered a steel part.
+
+  It is gone rather than wired up. Material would be a real field the day there is
+  production behind this; today it decides nothing about the geometry, and a control
+  that decides nothing is a promise the service does not keep.
+*/
 
 export default function Home() {
   const [showLanding, setShowLanding] = useState(true);
@@ -114,9 +119,6 @@ export default function Home() {
   const [orderId, setOrderId] = useState<string | null>(null);
   const [order, setOrder] = useState<OrderState | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [comment, setComment] = useState("");
-  const [material, setMaterial] = useState<Material>("aluminum");
-  const [precision, setPrecision] = useState<"standard" | "high">("high");
   const [viewMode, setViewMode] = useState<ViewMode>("model");
   // What a new order asks for: everything a build delivers.
   const [outputs, setOutputs] = useState<Record<string, boolean>>({
@@ -174,7 +176,6 @@ export default function Home() {
     setShowLanding(!window.location.pathname.startsWith("/studio"));
     const storedToken = sessionStorage.getItem("cad-ai-token") ?? "";
     setToken(storedToken);
-    setComment(localStorage.getItem("cad-ai-drawing-note") ?? "");
     setOrderId(new URLSearchParams(window.location.search).get("order"));
     // Ask who we are before deciding what to show. The cookie survives a reload
     // and the CSRF token does not, so this is also how the page gets a usable one
@@ -204,10 +205,6 @@ export default function Home() {
     setSourceUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
-
-  useEffect(() => {
-    localStorage.setItem("cad-ai-drawing-note", comment);
-  }, [comment]);
 
   useEffect(() => {
     if (!orderId || !authed) return;
@@ -643,54 +640,38 @@ export default function Home() {
 
             <label className="field-group">
               <span>Тип модели</span>
-              <button className="select-control" type="button">
+              {/*
+                A statement, not a control. It was a `<button>` with a chevron and no
+                `onClick` — it looked like a dropdown, offered one option, and did
+                nothing when pressed. There is one kind of model this service builds,
+                and saying so plainly is more honest than a menu with no second item.
+              */}
+              <div className="select-control static">
                 <span className="select-leading"><Icon name="cube" /></span>
                 <span><b>Отдельная деталь</b><small>Твердотельная модель</small></span>
-                <Icon name="chevron" />
-              </button>
+              </div>
             </label>
 
-            <div className="field-group">
-              <span>Материал</span>
-              <div className="material-row">
-                {materialOptions.map((option) => (
-                  <button
-                    className={material === option.value ? "active" : ""}
-                    type="button"
-                    key={option.value}
-                    onClick={() => setMaterial(option.value)}
-                    title={option.label}
-                    aria-label={option.label}
-                  >
-                    <i style={{ background: option.color }} />
-                    <span>{option.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/*
+              Материал and Точность построения stood here and are gone.
 
+              Neither value reached the API. The material changed the preview's
+              colour; "Точность построения" changed a word in the summary below and
+              nothing at all in the build — the engine has one accuracy, the kernel's,
+              and there is no knob behind that segmented control. Offering a choice
+              the service cannot act on is worse than offering none, because the
+              visitor believes they made it.
+            */}
             <div className="field-group">
-              <span>Точность построения</span>
-              <div className="segmented-control">
-                <button
-                  type="button"
-                  className={precision === "standard" ? "active" : ""}
-                  onClick={() => setPrecision("standard")}
-                >
-                  Стандартная
-                </button>
-                <button
-                  type="button"
-                  className={precision === "high" ? "active" : ""}
-                  onClick={() => setPrecision("high")}
-                >
-                  Высокая
-                </button>
-              </div>
-            </div>
-
-            <div className="field-group">
-              <span>Форматы результата</span>
+              <span>Что скачать</span>
+              {/*
+                A download filter, and labelled as one. It used to say "Форматы
+                результата", which reads as an order: it is not, and cannot be —
+                every build produces all three, the STEP and the STL because ADR-023
+                says those are the product, and the report because it is what the
+                model was checked against. What these boxes decide is which of them
+                the download button hands over.
+              */}
               <div className="format-grid">
                 {artifactOrder.slice(0, 3).map((type) => (
                   <label className={outputs[type] ? "selected" : ""} key={type}>
@@ -709,24 +690,22 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="panel-section comment-section">
-            <div className="section-heading">
-              <div>
-                <span className="step-number">03</span>
-                <h2>Пожелания</h2>
-              </div>
-              <span className="counter">{comment.length}/1000</span>
-            </div>
-            <div className="textarea-wrap">
-              <textarea
-                value={comment}
-                onChange={(event) => setComment(event.target.value)}
-                placeholder="Укажите важные особенности детали: сквозные отверстия, фаски, симметрию…"
-                maxLength={1000}
-              />
-              <Icon name="sparkles" />
-            </div>
-          </section>
+          {/*
+            "Пожелания" stood here — a thousand characters inviting the visitor to
+            name "сквозные отверстия, фаски, симметрию" — and the text went into
+            `localStorage` and nowhere else. Not to the API, not to the reading
+            stage, not to a human. It is the most costly of the controls that went
+            nowhere, because a visitor who typed the one thing the drawing does not
+            show had every reason to think they had said it.
+
+            It is out rather than wired, and that is a scope decision worth stating:
+            `POST /api/v1/drawing-jobs` takes the raw image as the request body, so
+            carrying a note means changing the shape of the upload — the same request
+            the whole quarantine-and-sanitize path reads as a stream. That is its own
+            change with its own threat model, not a line in this one. The service
+            already asks when it is unsure, and an answer to a question it asked is
+            worth more than a hint beside a file.
+          */}
 
           <div className="form-footer">
             {error && <p className="error-message"><Icon name="info" />{error}</p>}
@@ -868,8 +847,6 @@ export default function Home() {
               </div>
               <div className="viewer-meta">
                 <span>мм</span>
-                <span className="meta-divider" />
-                <span>{materialOptions.find((item) => item.value === material)?.label}</span>
               </div>
             </div>
 
@@ -884,7 +861,6 @@ export default function Home() {
                   url={stl ? `${API_URL}${stl.download_url}` : undefined}
                   token={token}
                   local={!authed || !stl}
-                  material={material}
                   dimensions={dimensions}
                   ready={order?.status === "READY"}
                 />
@@ -1087,7 +1063,6 @@ export default function Home() {
                   </b>
                 </div>
                 <div><span>Единицы</span><b>Миллиметры</b></div>
-                <div><span>Качество</span><b>{precision === "high" ? "Высокое" : "Стандартное"}</b></div>
               </div>
             </div>
           )}

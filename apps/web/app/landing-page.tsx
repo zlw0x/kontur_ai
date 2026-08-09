@@ -87,7 +87,15 @@ export default function LandingPage({ onOpenStudio }: LandingPageProps) {
       <section className="landing-stats" aria-label="Преимущества KONTUR">
         <div><strong>1</strong><span>чертёж<br /><small>на входе</small></span></div>
         <div><strong>3D</strong><span>готовая модель<br /><small>на выходе</small></span></div>
-        <div><strong>100%</strong><span>контроль<br /><small>ключевых размеров</small></span></div>
+        {/*
+          This said "100% контроль ключевых размеров", and the service cannot back a
+          percentage. What it can back is the mechanism: every dimension the document
+          declares is measured on the exported file and compared, and the reading is
+          compared against the compilation. Neither of those is 100% of anything — a
+          drawing misread the same way twice passes both — so the claim now names what
+          happens instead of scoring it.
+        */}
+        <div><strong>STEP</strong><span>каждый заявленный размер<br /><small>измеряется на готовом файле</small></span></div>
         <p>Создано для тех, кто<br /><b>проектирует, проверяет, создаёт.</b></p>
       </section>
 

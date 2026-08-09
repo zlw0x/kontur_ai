@@ -2620,3 +2620,8 @@ button.result-file:hover .file-download {
   resize: vertical;
 }
 .queue-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* A statement wearing the shape of the control it replaced (P0-6). It was a
+   `<button>` with a chevron, one option and no `onClick`. */
+.select-control.static { cursor: default; }
+.select-control.static:hover { background: inherit; }
