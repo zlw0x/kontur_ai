@@ -293,16 +293,32 @@ public static class ClaimLoop
         {
             try
             {
+                // Asked once and used twice, because the two used to disagree.
+                //
+                // `supported_cad_ir` decides whether the API leases a job at all, and
+                // it was `WorkerCapabilities.CadIrVersion` — this *worker build's*
+                // constant. The manifest beside it carried the version the **engine**
+                // reports, and nothing compared them. A real run through the web path
+                // found the gap: a worker built for CAD-IR 1.12 with a container image
+                // that speaks 1.11 was leased a 1.12 job, paid for the reading and the
+                // compilation, and the engine refused the document with
+                // `CAD_IR_VERSION_TOO_NEW`. The check the scheduler already had would
+                // have withheld the job — it was reading the wrong number.
+                //
+                // The engine's answer wins, for the reason the launcher compares
+                // digests against the bytes on disk: what a component *is* beats what
+                // something upstream believes about it.
+                var manifest = await selected.ManifestAsync(
+                    FeatureFlags.Load(paths), cancellationToken: cancellation);
                 var response = await client.PostAsJsonAsync("/api/v1/workers/claim", new
                 {
                     protocol_version = "1.0", worker_id = config.WorkerId,
                     capabilities = new[] { "AI_DRAWING", "CAD_BUILD" },
-                    supported_cad_ir = new[] { WorkerCapabilities.CadIrVersion },
+                    supported_cad_ir = manifest.CadIrVersions,
                     available_slots = 1,
                     // Declaring what this build can construct is what makes the
                     // API willing to schedule those operations here.
-                    capability_manifest = await selected.ManifestAsync(
-                        FeatureFlags.Load(paths), cancellationToken: cancellation),
+                    capability_manifest = manifest,
                     // Not a promise, an observation: what happened the last time this
                     // worker asked Codex for anything. Without it the API can only
                     // read `codex_cli_version`, which says which version is installed
@@ -448,6 +464,18 @@ public static class ClaimLoop
     {
         WorkerException worker => (worker.Code, worker.SafeMessage),
         CadAi.CodexRunner.CodexRunnerException codex => (codex.Code, codex.SafeMessage),
+        // The third, and it was missing, and the omission had exactly the shape the
+        // second one did. A real run put a drawing through: the reading succeeded, the
+        // compiled document was refused, three repairs were spent, and the last
+        // `CadAdapterException` walked straight past this filter into the claim loop's
+        // blanket backoff. Three attempts, **no report on any of them**, and the
+        // customer's page ended on `LEASE_LOST` — the reaper's code for "the worker
+        // said nothing", which is true and says nothing about the drawing.
+        //
+        // A list of exception types is the wrong shape for this and is what is here,
+        // so `TheThreeTypedFailuresAreAllNamed` exists: it enumerates them, and a
+        // fourth added anywhere in the tree fails it.
+        CadAdapterException adapter => (adapter.Code, adapter.SafeMessage),
         _ => null,
     };
 

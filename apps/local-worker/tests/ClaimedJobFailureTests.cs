@@ -1,3 +1,4 @@
+using CadAi.CadEngine;
 using CadAi.CodexRunner;
 using CadAi.LocalWorker;
 using Xunit;
@@ -112,5 +113,44 @@ public sealed class ClaimedJobFailureTests
     {
         Assert.True(ClaimLoop.EndsTheJob("SOMETHING_NEW", attempt: 3, maxAttempts: 3));
         Assert.False(ClaimLoop.EndsTheJob("SOMETHING_NEW", attempt: 2, maxAttempts: 3));
+    }
+
+    /// <summary>
+    /// Every exception type in this tree that carries a code is named by `Typed`.
+    /// </summary>
+    /// <remarks>
+    /// Twice now the same defect: a failure type the reporting filter did not match
+    /// went past it into the claim loop's blanket backoff, so the job was retried to
+    /// exhaustion and **never reported on any attempt**. First
+    /// `CodexRunnerException`; then, found by a real run through the web path,
+    /// `CadAdapterException` -- the type the CAD-IR gate and the engine raise, which
+    /// is what a refused document arrives as after the repairs are spent.
+    ///
+    /// The customer's page ended on `LEASE_LOST`: the reaper's code for "the worker
+    /// said nothing", which is true and says nothing about the drawing.
+    ///
+    /// Enumerated rather than exampled, because the failure mode is a type nobody
+    /// added -- and one example per type is exactly what let the second one through.
+    /// </remarks>
+    [Fact]
+    public void TheThreeTypedFailuresAreAllNamed()
+    {
+        Assert.Equal(
+            ("WORKER_CODE", "worker message"),
+            ClaimLoop.Typed(new WorkerException("WORKER_CODE", "worker message")));
+
+        Assert.Equal(
+            ("CODEX_CAPACITY_LIMIT", "the quota is exhausted"),
+            ClaimLoop.Typed(new CadAi.CodexRunner.CodexRunnerException(
+                "CODEX_CAPACITY_LIMIT", "the quota is exhausted")));
+
+        Assert.Equal(
+            ("CAD_IR_INVALID", "the document was refused"),
+            ClaimLoop.Typed(new CadAdapterException(
+                "CAD_IR_INVALID", "validation", "the document was refused")));
+
+        // Anything this worker did not name is a bug in the worker rather than a
+        // verdict about the drawing, and still falls through to a retry.
+        Assert.Null(ClaimLoop.Typed(new InvalidOperationException("something else")));
     }
 }

@@ -1,3 +1,4 @@
+using CadAi.CadEngine;
 using CadAi.CodexRunner;
 using CadAi.LocalWorker;
 using Xunit;
@@ -113,5 +114,46 @@ public sealed class ClaimedJobWiringTests : IDisposable
     public void WithNoFlagFileTheOnlineOrderDisablesNothing()
     {
         Assert.Empty(Build().DisabledCapabilities);
+    }
+
+    /// <summary>
+    /// The version a worker offers is the engine's, not this build's constant.
+    /// </summary>
+    /// <remarks>
+    /// Found by a real order through the web path. `supported_cad_ir` decides whether
+    /// the API leases a job at all, and it was `WorkerCapabilities.CadIrVersion` --
+    /// the constant compiled into this worker. The manifest sent in the same request
+    /// carried the version the *engine* reports, and nothing compared the two.
+    ///
+    /// So a worker built for CAD-IR 1.12 with a container image that speaks 1.11 was
+    /// leased a 1.12 job. It paid for the reading and the compilation, and the engine
+    /// refused the document with `CAD_IR_VERSION_TOO_NEW@$.schema_version`. The check
+    /// that would have withheld the job existed and was reading the wrong number.
+    ///
+    /// The engine's answer wins, for the reason the launcher compares digests against
+    /// the bytes on disk: what a component *is* beats what something upstream believes
+    /// about it.
+    /// </remarks>
+    [Fact]
+    public void TheManifestAndTheOfferNameTheSameCadIrVersion()
+    {
+        var report = new CadEngineReport(
+            new CadEngineDescription(
+                "build123d", "0.11.1", "OpenCascade", "7.9.3",
+                // An engine image older than this worker build, which is the case
+                // the real run hit.
+                CadIrVersion: "1.11",
+                Artifacts: []),
+            new Dictionary<string, CadCapabilityDeclaration>(StringComparer.Ordinal)
+            {
+                ["solid.extrude"] = new("beta", "1.0"),
+            });
+
+        var manifest = WorkerCapabilities.ManifestFor(report);
+
+        Assert.Equal(["1.11"], manifest.CadIrVersions);
+        // And it is deliberately *not* the constant this worker was built with: the
+        // whole defect was the two being allowed to differ.
+        Assert.NotEqual(WorkerCapabilities.CadIrVersion, manifest.CadIrVersions[0]);
     }
 }

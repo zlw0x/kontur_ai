@@ -540,6 +540,39 @@ set: a slow run is a slow run, and calling it an unreachable CLI would stop the 
 after one long drawing — a rule that can lock itself is worse than the problem it was
 written for.
 
+**The first run of the whole perimeter found five defects and none of them was in
+geometry** (`docs/acceptance/P0-RUN-2026-08-09-*`). An account created from nothing, an
+order that belongs to it, through the compose deployment rather than the test suite.
+
+Four were invisible to 1 100 green tests because each lives where the tests do not go.
+**The API did not start at all**: the Dockerfile chowned `/data/artifacts` and quarantine
+went beside it at `/data/quarantine`, so the container crashed on import — and a
+Dockerfile is not something the suite runs. **The sanitizer was never in the image**:
+`packages/image-sanitizer` and Pillow were not copied, so the secure-input path could not
+have worked in any deployment, and `_sanitizer_path()` counted four parents up, which is
+right in a checkout and an `IndexError` at `/app/app/input/sanitizer.py`.
+
+**Three attempts, no report on any of them — again.** `ClaimLoop.Typed` named
+`WorkerException` and `CodexRunnerException`; the third type carrying a code is
+`CadAdapterException`, which is what a refused document arrives as once the compile
+repairs are spent. It walked past the reporting filter into the blanket backoff and the
+page ended on `LEASE_LOST`. The same defect as the `CodexRunnerException` one, one type
+later — so the test now **enumerates** the types rather than exampling one, because one
+example per type is what let the second through. Measured after the fix: attempt 1,
+`CAD_IR_INVALID`, with the message.
+
+And that message was the fifth: **the worker offered a version its engine does not
+speak.** `supported_cad_ir` — what the scheduler checks before leasing — was this worker
+build's constant, 1.12, while the manifest beside it carried the engine's answer, 1.11,
+and nothing compared them. A stale image was leased a job it would refuse at the first
+line, after paying for a vision call and a compilation. It reads the engine's number
+now, for the launcher's reason: *what a component is beats what something upstream
+believes about it.*
+
+Every one of the five sits in a seam — image, process, exception type, or a number copied
+from the wrong side of a boundary — and a seam is what a suite that imports its subject
+cannot see.
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.

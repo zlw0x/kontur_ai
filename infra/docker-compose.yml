@@ -45,6 +45,16 @@ services:
       WORKER_REPOSITORY_MODE: sql
       ARTIFACT_STORE_ROOT: /data/artifacts
       WEB_ORIGIN: ${WEB_ORIGIN}
+      # Off by default in the settings, and named here so an operator turning it on
+      # for a demonstration has one place to look. With it off a finished build waits
+      # for a person; with it on the order goes straight through, which is what the
+      # service did before there was a queue.
+      AUTOMATIC_ACCEPTANCE: ${AUTOMATIC_ACCEPTANCE:-false}
+      # Empty means the sanitizer's process mode, which still has RLIMIT_AS,
+      # RLIMIT_CPU and a wall clock in this image because it is Linux. Production
+      # names an image here; outside `local` the process mode is refused on a
+      # platform that cannot enforce those ceilings at all.
+      SANITIZER_IMAGE: ${SANITIZER_IMAGE:-}
     ports: ["8000:8000"]
     volumes: ["artifact-data:/data/artifacts"]
     depends_on:

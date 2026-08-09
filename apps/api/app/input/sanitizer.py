@@ -242,13 +242,25 @@ def _one_json_line(stdout: str) -> dict | None:
     return None
 
 
-def _sanitizer_path() -> str:
-    """Where `image_sanitizer` lives when it is run as a sibling package.
+def _sanitizer_path() -> str | None:
+    """Where `image_sanitizer` lives as a sibling package, or nothing.
 
-    Only for the process mode. In the container it is installed, and this is not
-    consulted.
+    Nothing when it is installed instead — in the API image it is copied in beside
+    the app rather than sitting under `packages/`, and then the interpreter finds it
+    without help.
+
+    This used to be `parents[4] / "packages" / "image-sanitizer"`, which is right in
+    a repository checkout and raises `IndexError` in the container, where the file is
+    `/app/app/input/sanitizer.py` and has three parents. Every upload came back 500
+    with a `pathlib` traceback. The search walks up instead of counting, so the
+    layout is discovered rather than assumed.
     """
-    return str(Path(__file__).resolve().parents[4] / "packages" / "image-sanitizer")
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "packages" / "image-sanitizer"
+        if candidate.is_dir():
+            return str(candidate)
+    return None
 
 
 def _import_path() -> str:
@@ -265,7 +277,8 @@ def _import_path() -> str:
     """
     import site
 
-    directories = [_sanitizer_path()]
+    sibling = _sanitizer_path()
+    directories = [sibling] if sibling else []
     for found in (getattr(site, "getsitepackages", list)(), [site.getusersitepackages()]):
         directories.extend(str(entry) for entry in found if entry)
     # Order preserved, duplicates dropped: `getsitepackages` and the user site can
