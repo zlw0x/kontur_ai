@@ -551,6 +551,11 @@ public static class ClaimLoop
                 // fresh question ids, which the answers no longer refer to.
                 "prior_analysis" when input.local_name == "drawing-analysis.json" =>
                     Path.Combine(jobPath, "context", input.local_name),
+                // What an operator said was wrong with the last attempt, when a
+                // review sent this order back. Without it the round re-runs
+                // identical inputs and produces an identical document.
+                "operator_note" when input.local_name == "operator-note.json" =>
+                    Path.Combine(jobPath, "context", input.local_name),
                 _ => throw new WorkerException("MANIFEST_INVALID", "Job input kind or local name is invalid.")
             };
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -569,12 +574,14 @@ public static class ClaimLoop
                     .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
                 var answersPath = Path.Combine(jobPath, "context", "user-answers.json");
+                var notePath = Path.Combine(jobPath, "context", "operator-note.json");
                 var pipeline = CreateDrawingPipeline(paths, selected, ledger);
                 var drawing = await pipeline.RunAsync(
                     jobPath,
                     images,
                     File.Exists(answersPath) ? answersPath : null,
-                    cancellation);
+                    cancellation,
+                    File.Exists(notePath) ? notePath : null);
                 waitingForAnswers = drawing.Status == "WAITING_FOR_USER_ANSWERS";
                 if (!waitingForAnswers)
                 {

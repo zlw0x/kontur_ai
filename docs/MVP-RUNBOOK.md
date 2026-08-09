@@ -133,6 +133,29 @@ operator key, never a client authorization**. The API treats it as an operator, 
 it can read any order and owns none — an order created with it has no owner rather
 than belonging to an invented user.
 
+## The moderation queue
+
+`AUTOMATIC_ACCEPTANCE` is **off** by default, which is a change in behaviour rather
+than a new option: a finished build now stops at `MANUAL_REVIEW` instead of reaching
+the customer. An operator opens `/operator`, looks at the delivered files, and does
+one of three things — approve (`READY`), reject (`FAILED`, reason required), or send
+it back (a fresh reading round, reason required and shown to the model).
+
+Every decision writes a row in `order_reviews` in the same transaction as the status
+change, so an order cannot become `READY` without a record of who released it. A
+decision carries the version the operator was shown; if somebody else decided in the
+meantime it comes back `ORDER_VERSION_CONFLICT` rather than overwriting them.
+
+To restore the old behaviour for a demonstration:
+
+```bash
+AUTOMATIC_ACCEPTANCE=true
+```
+
+Both branches are covered by tests. The `true` case is the one that used to be the
+only behaviour, and a setting whose `true` case nobody exercises stops working
+quietly.
+
 ## Smoke test
 
 Open the web page, sign in (or register — it signs you in), and either press

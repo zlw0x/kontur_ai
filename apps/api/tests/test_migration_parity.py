@@ -13,6 +13,7 @@ from app.database import Base
 import app.accounts.models  # noqa: F401  (registers users and sessions)
 import app.ledger.models  # noqa: F401  (registers the ledger tables)
 import app.orders.models  # noqa: F401
+import app.orders.review  # noqa: F401  (registers order_reviews)
 import app.workers.models  # noqa: F401
 
 MIGRATIONS = Path(__file__).parents[1] / "migrations"

@@ -454,6 +454,78 @@ class CreateUserRequest(StrictModel):
     role: UserRole
 
 
+# --------------------------------------------------------------------------
+# The moderation queue (P0-5, ADR-038)
+#
+# `automatic_acceptance` defaults to off, so a finished build waits for a person.
+# What travels over the wire is a decision and a reason; where each decision
+# leaves the order is `app.orders.review.DECISION_TARGET`, in one readable list
+# rather than reconstructed from three handlers.
+# --------------------------------------------------------------------------
+
+
+class ReviewDecisionName(StrEnum):
+    """Mirrors `app.orders.review.ReviewDecision`, held equal by a test.
+
+    Same reason as `UserRole`: this module generates the published OpenAPI
+    document and must not import the service's internals to do it.
+    """
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    REQUEST_CHANGES = "request_changes"
+
+
+class OrderReviewRequest(StrictModel):
+    decision: ReviewDecisionName
+    #: The version the operator was looking at. Not optional and not defaulted:
+    #: an approval that says "whatever version it is now" is an approval of
+    #: something the operator has not seen.
+    expected_version: Annotated[int, Field(ge=0)]
+    #: Required for a rejection and for a request for changes, and checked in the
+    #: handler rather than here — "no" with no reason is not a decision anybody can
+    #: act on, and a request for changes with no note re-runs identical inputs.
+    reason: Annotated[str | None, Field(min_length=1, max_length=2000)] = None
+
+
+class OrderReviewRecord(StrictModel):
+    id: UUID
+    order_id: UUID
+    #: Null when the manual operator key made the decision. It authenticates as
+    #: staff and is not a person, and naming an invented user would make this
+    #: trail claim somebody approved a part when nobody did.
+    reviewer_id: UUID | None
+    decision: ReviewDecisionName
+    reason: Annotated[str | None, Field(max_length=2000)]
+    order_version_before: Annotated[int, Field(ge=0)]
+    order_status_after: OrderStatus
+    created_at: datetime
+
+
+class OrderSummary(StrictModel):
+    """One row of the queue. Enough to decide what to open, and no more."""
+
+    order_id: UUID
+    status: OrderStatus
+    version: Annotated[int, Field(ge=0)]
+    owner_id: UUID | None
+    latest_job_id: UUID | None
+    clarification_round: Annotated[int, Field(ge=0)]
+    created_at: datetime | None
+    updated_at: datetime
+
+
+class OrderQueuePage(StrictModel):
+    #: Oldest first: a queue showing the newest work first is one where the order
+    #: somebody has waited longest for is looked at last.
+    orders: list[OrderSummary]
+    #: How many are waiting in all, not how many are on this page. The page is the
+    #: thing that is limited, so its length answers a different question.
+    total: Count
+    limit: Annotated[int, Field(ge=1, le=200)]
+    offset: Count
+
+
 class CreateUserResponse(StrictModel):
     user_id: UUID
     email: EmailAddress

@@ -65,7 +65,12 @@ from .contracts import (
     ClarificationAnswer,
     CreateUserRequest,
     CreateUserResponse,
+    OrderQueuePage,
+    OrderReviewRecord,
+    OrderReviewRequest,
+    OrderSummary,
     RegisterRequest,
+    ReviewDecisionName,
     SessionResponse,
     SignInRequest,
     UserRole,
@@ -84,6 +89,7 @@ from .workers.protocol import (
 from .contracts import JobType, OrderStatus, WorkerCapability
 from .orders.progress import order_status
 from .orders.repository import InMemoryOrderRepository, SqlOrderRepository
+from .orders.review import ReviewDecision
 from .orders.state_machine import (
     OrderRecord,
     OrderTransitionError,
@@ -577,6 +583,150 @@ def _reissued_csrf(session: SessionRecord) -> str:
     token = secrets.token_urlsafe(32)
     accounts.repository.rotate_csrf(session.id, hashlib.sha256(token.encode()).hexdigest())
     return token
+
+
+def _summary(order: OrderRecord) -> OrderSummary:
+    return OrderSummary(
+        order_id=order.id,
+        status=order.status,
+        version=order.version,
+        owner_id=order.owner_id,
+        latest_job_id=order.latest_job_id,
+        clarification_round=order.clarification_round,
+        created_at=order.created_at,
+        updated_at=order.updated_at,
+    )
+
+
+@app.get("/api/v1/operator/orders", response_model=OrderQueuePage)
+def review_queue(request: Request, limit: int = 25, offset: int = 0) -> OrderQueuePage:
+    """What is waiting for a person, oldest first.
+
+    A query on `orders.status` and its index, which is why the hold is a *stored*
+    `MANUAL_REVIEW` rather than something derived on the way out: a derived one
+    would make this a scan of every order looking for the ones with artifacts.
+    """
+    require_staff(request)
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    held, total = orders.waiting_for_review(limit=limit, offset=offset)
+    return OrderQueuePage(
+        orders=[_summary(order) for order in held],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/api/v1/operator/orders/{order_id}/reviews", response_model=list[OrderReviewRecord])
+def order_reviews(order_id: uuid.UUID, request: Request) -> list[OrderReviewRecord]:
+    require_staff(request)
+    return [
+        OrderReviewRecord(
+            id=review.id,
+            order_id=review.order_id,
+            reviewer_id=review.reviewer_id,
+            decision=ReviewDecisionName(review.decision.value),
+            reason=review.reason,
+            order_version_before=review.order_version_before,
+            order_status_after=review.order_status_after,
+            created_at=review.created_at,
+        )
+        for review in orders.reviews_of(order_id)
+    ]
+
+
+@app.post("/api/v1/operator/orders/{order_id}/review", response_model=OrderSnapshot)
+def review_order(
+    order_id: uuid.UUID, body: OrderReviewRequest, request: Request
+) -> OrderSnapshot:
+    """An operator's decision, and the audit row that explains it.
+
+    The two are written in one transaction by the repository. Not out of neatness:
+    an order that became `READY` with no row saying who approved it is
+    indistinguishable from one the pipeline released by itself, which is the exact
+    thing `automatic_acceptance = False` exists to prevent.
+    """
+    principal = require_staff(request)
+    decision = ReviewDecision(body.decision.value)
+    if decision is not ReviewDecision.APPROVE and not (body.reason or "").strip():
+        # "No" with no reason is not a decision anybody can act on, and a request
+        # for changes with no note re-runs identical inputs and gets an identical
+        # answer — a button that appears to do something.
+        raise HTTPException(
+            status_code=422, detail="a rejection or a request for changes needs a reason"
+        )
+    if orders.get(order_id) is None:
+        raise HTTPException(status_code=404, detail="order was not found")
+    updated, _ = orders.review(
+        order_id,
+        decision=decision,
+        expected_version=body.expected_version,
+        reviewer_id=principal.user_id,
+        reason=(body.reason or "").strip() or None,
+    )
+    if decision is ReviewDecision.REQUEST_CHANGES:
+        _restart_reading(updated, note=(body.reason or "").strip())
+    return OrderSnapshot(
+        id=updated.id,
+        status=updated.status,
+        version=updated.version,
+        updated_at=updated.updated_at,
+    )
+
+
+def _restart_reading(order: OrderRecord, *, note: str) -> None:
+    """Send the drawing back through the reading stage with the operator's note.
+
+    A round, the same shape as the one an answered question produces: a new job, a
+    new directory, the page copied from `source_job_id`, and the previous reading
+    carried across so the model is not starting from nothing. What is new is the
+    note, written as a job input the worker hands to the reading agent — without it
+    this would re-run identical inputs and produce an identical document.
+
+    Best-effort about the *prior reading* and not about the note: an order whose
+    analysis cannot be found still proceeds by reading the drawing again, which is
+    what a clarification round already does.
+    """
+    if order.source_job_id is None:
+        logger.info(json.dumps({
+            "event": "review_restart_skipped",
+            "order_id": str(order.id),
+            "reason": "the order has no drawing to read again",
+        }))
+        return
+    job_id = uuid.uuid4()
+    source = artifact_store.drawing(order.source_job_id)
+    stored = artifact_store.put_drawing(
+        job_id, source.path.read_bytes(), source.path.suffix.lower()
+    )
+    artifact_store.put_operator_note(job_id, {
+        "schema_version": "0.1.0",
+        "note": note,
+    })
+    try:
+        artifact_store.put_prior_analysis(
+            job_id,
+            artifact_store.artifact(order.latest_job_id, "DRAWING_ANALYSIS").path.read_bytes(),
+        )
+    except ArtifactIntegrityError:
+        pass
+    round_number = order.clarification_round + 1
+    worker_protocol.enqueue(Job(
+        job_id,
+        order.id,
+        JobType.ANALYZE_DRAWING,
+        "sha256:" + hashlib.sha256(
+            f"{order.id}:{stored.sha256}:{round_number}:review:{note}".encode()
+        ).hexdigest(),
+        {WorkerCapability.AI_DRAWING, WorkerCapability.CAD_BUILD},
+        CAD_IR_VERSION,
+        required_capability_keys(JobType.ANALYZE_DRAWING),
+    ))
+    # After the job is enqueued, for the reason `answer_drawing_questions` gives:
+    # a round recorded against a job that was never queued is an order pointing at
+    # nothing, and the page would poll it forever.
+    orders.record_round(order.id, latest_job_id=job_id, clarification_round=round_number)
 
 
 @app.post("/api/v1/admin/users", response_model=CreateUserResponse, status_code=201)
@@ -1108,6 +1258,15 @@ def get_job_manifest(
                 "size_bytes": answers.size_bytes,
                 "local_name": "user-answers.json",
             })
+        note = artifact_store.operator_note(job_id)
+        if note is not None:
+            inputs.append({
+                "kind": "operator_note",
+                "download_url": str(request.url_for("download_job_input", job_id=job_id, input_kind="operator-note")),
+                "sha256": note.sha256,
+                "size_bytes": note.size_bytes,
+                "local_name": "operator-note.json",
+            })
     else:
         source = artifact_store.cad_ir(job_id)
         inputs = [{
@@ -1142,6 +1301,11 @@ def download_job_input(
         media_type = "image/png" if source.path.suffix.lower() == ".png" else "image/jpeg"
     elif input_kind == "prior-analysis":
         source = artifact_store.prior_analysis(job_id)
+        media_type = "application/json"
+    elif input_kind == "operator-note":
+        source = artifact_store.operator_note(job_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="no operator note was left")
         media_type = "application/json"
     elif input_kind == "user-answers":
         source = artifact_store.answers(job_id)
@@ -1285,7 +1449,48 @@ def complete_job(job_id: uuid.UUID, request: JobCompletionRequest, authorization
     replay = worker_protocol.complete_with_artifacts(
         worker, job_id, request.idempotency_key, [artifact.model_dump() for artifact in request.artifacts]
     )
+    if not missing_model:
+        _hold_for_review(job.order_id)
     return JobCompletionAck(job_id=job_id, idempotent_replay=replay)
+
+
+def _hold_for_review(order_id: uuid.UUID) -> None:
+    """The finished build stops here unless the operator has said it need not.
+
+    This is the same point that decides `has_model` — a job that delivered every
+    artifact a model owes — rather than a second rule somewhere else that has to be
+    kept in step with it. `pipeline_status` still turns `has_model` into `READY`;
+    what changes is that the order now carries a *stored* `MANUAL_REVIEW`, which
+    outranks it, and which is also what makes the queue a query on
+    `ix_orders_status` rather than a scan looking for orders with artifacts.
+
+    Failures are swallowed on purpose. The worker did its work and uploaded its
+    files, and answering it with a 500 because the order could not be moved would
+    make it retry a build that has already succeeded. The two ways this legitimately
+    does nothing are an order already decided — cancelled while the build ran, which
+    ADR-036 says stays cancelled — and an order created before there was a row.
+    """
+    if settings.automatic_acceptance:
+        return
+    order = orders.get(order_id)
+    if order is None:
+        return
+    try:
+        orders.transition(
+            order_id,
+            target=OrderStatus.MANUAL_REVIEW,
+            expected_version=order.version,
+            reason="a finished build waits for an operator",
+        )
+    except OrderTransitionError as refused:
+        logger.info(
+            json.dumps({
+                "event": "review_hold_skipped",
+                "order_id": str(order_id),
+                "status": order.status.value,
+                "reason": type(refused).__name__,
+            })
+        )
 
 
 @app.exception_handler(Exception)

@@ -14,7 +14,12 @@ ALLOWED_TRANSITIONS: Final[dict[OrderStatus, frozenset[OrderStatus]]] = {
     OrderStatus.DRAFT: frozenset({OrderStatus.UPLOADED, OrderStatus.CANCELLED, OrderStatus.EXPIRED}),
     OrderStatus.UPLOADED: frozenset({OrderStatus.INPUT_VALIDATION, OrderStatus.CANCELLED, OrderStatus.EXPIRED}),
     OrderStatus.INPUT_VALIDATION: frozenset({OrderStatus.WAITING_FOR_LOCAL_WORKER, OrderStatus.MANUAL_REVIEW, OrderStatus.FAILED, OrderStatus.CANCELLED}),
-    OrderStatus.WAITING_FOR_LOCAL_WORKER: frozenset({OrderStatus.DRAWING_ANALYSIS, OrderStatus.CANCELLED, OrderStatus.EXPIRED}),
+    # `MANUAL_REVIEW` is reachable from here because, since ADR-036, a drawing
+    # order's *stored* status does not move as the pipeline runs — progress is read
+    # off the job — so it sits at `WAITING_FOR_LOCAL_WORKER` from creation until
+    # somebody decides something. Every decision therefore has to be reachable from
+    # it, and holding a finished build for an operator is a decision.
+    OrderStatus.WAITING_FOR_LOCAL_WORKER: frozenset({OrderStatus.DRAWING_ANALYSIS, OrderStatus.MANUAL_REVIEW, OrderStatus.CANCELLED, OrderStatus.EXPIRED}),
     OrderStatus.DRAWING_ANALYSIS: frozenset({OrderStatus.WAITING_FOR_USER_ANSWERS, OrderStatus.PLAN_READY, OrderStatus.MANUAL_REVIEW, OrderStatus.FAILED}),
     OrderStatus.WAITING_FOR_USER_ANSWERS: frozenset({OrderStatus.DRAWING_ANALYSIS, OrderStatus.MANUAL_REVIEW, OrderStatus.CANCELLED, OrderStatus.EXPIRED}),
     OrderStatus.PLAN_READY: frozenset({OrderStatus.WAITING_FOR_PLAN_APPROVAL, OrderStatus.MANUAL_REVIEW}),
@@ -46,10 +51,19 @@ DERIVED_FROM_THE_JOB: Final[frozenset[OrderStatus]] = frozenset({OrderStatus.PAU
 #: which therefore outrank whatever the pipeline is doing. An operator cancelling an
 #: order does not stop the worker mid-build; the build finishes and its artifacts are
 #: stored, and the customer's order is still cancelled.
+#:
+#: `READY` and `FAILED` are here as of the moderation queue (P0-5) and only ever
+#: get *stored* by an operator's decision — the pipeline's own `READY` and `FAILED`
+#: are derived from the job and written nowhere. Without them an approved order
+#: would read as approved (because the model exists and the pipeline says so, which
+#: happens to agree) and a **rejected** one would read as `READY`, since the files
+#: the operator rejected are still sitting in the artifact store.
 DECIDED: Final[frozenset[OrderStatus]] = frozenset({
     OrderStatus.CANCELLED,
     OrderStatus.EXPIRED,
     OrderStatus.MANUAL_REVIEW,
+    OrderStatus.READY,
+    OrderStatus.FAILED,
 })
 
 

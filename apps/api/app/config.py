@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     #: still has RLIMIT_AS, RLIMIT_CPU and a wall clock but shares the host's kernel
     #: namespace with the API. Production sets this; a laptop need not.
     sanitizer_image: str = ""
+    #: Whether a finished build reaches the customer without a person seeing it.
+    #:
+    #: Off, and that is the default rather than the convenient value on purpose. The
+    #: model can build a perfectly valid part that is not the part on the drawing;
+    #: the shape claim catches a great deal of that and not all of it, and the
+    #: difference between "a lot" and "all" is what an operator is for. Turning this
+    #: on is a decision somebody makes about a service they already trust.
+    automatic_acceptance: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

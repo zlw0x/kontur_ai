@@ -471,6 +471,42 @@ worth copying: the child **reports which ceilings it got**, in every answer incl
 refusals, and this side asks twice — the platform before the file is handed over, the
 process that ran after it answers — with the unconfined mode allowed only in `local`.
 
+**No part reaches a customer without somebody having looked at it** (P0-5, ADR-038,
+migration 0010). `automatic_acceptance` was an idea and never a setting: in practice it
+was always on, and `pipeline_status` turned "the job delivered a STEP and an STL" into
+`READY` with no person between a stranger's upload and the file they download. The
+reason that is not acceptable is specific — the model can write a document that is
+canonically valid, builds a closed manifold and measures exactly what it declares, and
+is **not the part on the drawing**. The claim catches a great deal of that and not all
+of it, and the difference is what an operator is for.
+
+The hold happens where `has_model` is already decided, and is **stored** rather than
+derived — which is the decision the rest follows from. A derived `MANUAL_REVIEW` would
+make the operator's page a scan of every order looking for the ones whose artifacts
+happen to constitute a model; a stored one makes it a query on the index 0008 already
+created. *Build a queue, not a state.*
+
+**`READY` and `FAILED` had to become decided statuses**, and that is the consequence
+nobody would have predicted. Approving stores `READY` and happened to read correctly
+anyway, because the pipeline agrees. A **rejection** has no such luck: the files the
+operator rejected are still in the artifact store, so the pipeline still sees a model,
+so a rejected order would have told the customer their part was ready — the one that
+had just been refused.
+
+A decision and its audit row are **one transaction**, because an order that became
+`READY` with no row saying who approved it is indistinguishable from one the pipeline
+released by itself. A table and not a log: a log rotates, is not queryable, and cannot
+be joined to the order it is about.
+
+And `request_changes` **carries the operator's note or does nothing** — the same
+inputs through the same reading stage produce the same document, which is a button
+that appears to work. The note travels as a job input, disables round reuse (reuse
+exists to skip a second vision call, and a note says the previous *reading* was
+wrong), and is the one piece of trusted free text in this pipeline: a signed-in member
+of staff who has seen the delivered part is not the drawing's own words, which stay
+untrusted data forever. The prompt says which is which, and says the drawing wins
+where the two disagree.
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.

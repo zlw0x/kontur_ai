@@ -276,6 +276,182 @@
         }
       }
     },
+    "/api/v1/operator/orders": {
+      "get": {
+        "summary": "Review Queue",
+        "description": "What is waiting for a person, oldest first.\n\nA query on `orders.status` and its index, which is why the hold is a *stored*\n`MANUAL_REVIEW` rather than something derived on the way out: a derived one\nwould make this a scan of every order looking for the ones with artifacts.",
+        "operationId": "review_queue_api_v1_operator_orders_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderQueuePage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operator/orders/{order_id}/reviews": {
+      "get": {
+        "summary": "Order Reviews",
+        "operationId": "order_reviews_api_v1_operator_orders__order_id__reviews_get",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrderReviewRecord"
+                  },
+                  "title": "Response Order Reviews Api V1 Operator Orders  Order Id  Reviews Get"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operator/orders/{order_id}/review": {
+      "post": {
+        "summary": "Review Order",
+        "description": "An operator's decision, and the audit row that explains it.\n\nThe two are written in one transaction by the repository. Not out of neatness:\nan order that became `READY` with no row saying who approved it is\nindistinguishable from one the pipeline released by itself, which is the exact\nthing `automatic_acceptance = False` exists to prevent.",
+        "operationId": "review_order_api_v1_operator_orders__order_id__review_post",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderSnapshot"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/users": {
       "post": {
         "summary": "Create User",
@@ -2563,6 +2739,141 @@
         "title": "ModelObservationStatus",
         "description": "How much is actually known about which model served a run."
       },
+      "OrderQueuePage": {
+        "properties": {
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/OrderSummary"
+            },
+            "type": "array",
+            "title": "Orders"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "orders",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "OrderQueuePage"
+      },
+      "OrderReviewRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "order_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Order Id"
+          },
+          "reviewer_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/ReviewDecisionName"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "order_version_before": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Order Version Before"
+          },
+          "order_status_after": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "order_id",
+          "reviewer_id",
+          "decision",
+          "reason",
+          "order_version_before",
+          "order_status_after",
+          "created_at"
+        ],
+        "title": "OrderReviewRecord"
+      },
+      "OrderReviewRequest": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/ReviewDecisionName"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "expected_version"
+        ],
+        "title": "OrderReviewRequest"
+      },
       "OrderSnapshot": {
         "properties": {
           "id": {
@@ -2617,6 +2928,83 @@
           "PAUSED"
         ],
         "title": "OrderStatus"
+      },
+      "OrderSummary": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Order Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "latest_job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Job Id"
+          },
+          "clarification_round": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Clarification Round"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "order_id",
+          "status",
+          "version",
+          "owner_id",
+          "latest_job_id",
+          "clarification_round",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "OrderSummary",
+        "description": "One row of the queue. Enough to decide what to open, and no more."
       },
       "ProblemDetails": {
         "properties": {
@@ -3045,6 +3433,16 @@
           "HUMAN_REVIEW"
         ],
         "title": "ResourceStage"
+      },
+      "ReviewDecisionName": {
+        "type": "string",
+        "enum": [
+          "approve",
+          "reject",
+          "request_changes"
+        ],
+        "title": "ReviewDecisionName",
+        "description": "Mirrors `app.orders.review.ReviewDecision`, held equal by a test.\n\nSame reason as `UserRole`: this module generates the published OpenAPI\ndocument and must not import the service's internals to do it."
       },
       "ServiceTier": {
         "type": "string",

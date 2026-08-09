@@ -100,6 +100,29 @@ class LocalArtifactStore:
         except ArtifactIntegrityError:
             return None
 
+    def put_operator_note(self, job_id: UUID, value: dict) -> StoredObject:
+        """What an operator said was wrong with the last attempt.
+
+        Written when a review asks for changes (P0-5). Without it, sending an order
+        back through the reading stage re-runs identical inputs and gets an
+        identical document — the operator would have pressed a button that appears
+        to do something.
+
+        Kept apart from `user-answers.json` rather than folded into it, because the
+        two are not the same kind of thing: an answer replies to a question the model
+        asked, and this is an instruction from somebody who has seen the result. The
+        reading stage is told which is which.
+        """
+        payload = json.dumps(value, ensure_ascii=False, sort_keys=True,
+                             separators=(",", ":")).encode()
+        return self._write(f"jobs/{job_id}/input/operator-note.json", payload, len(payload))
+
+    def operator_note(self, job_id: UUID) -> StoredObject | None:
+        try:
+            return self._read(f"jobs/{job_id}/input/operator-note.json")
+        except ArtifactIntegrityError:
+            return None
+
     def put_drawing_tracking(
         self,
         order_id: UUID,

@@ -446,6 +446,88 @@ public sealed class DrawingPipelineTests
     }
 
     /// <summary>
+    /// An operator's note forces the drawing to be read again, and reaches the prompt.
+    /// </summary>
+    /// <remarks>
+    /// A review that asks for changes says the previous *reading* was wrong. Reusing
+    /// that reading would carry the mistake into the round meant to fix it, and the
+    /// operator would have pressed a button that changed nothing — so the note both
+    /// disables reuse and is put in front of the reading agent.
+    ///
+    /// It is the one piece of free text in this pipeline that is *trusted*: a signed-in
+    /// member of staff wrote it after looking at the delivered part, which is exactly
+    /// what the drawing's own words are not. The prompt says so in as many words, and
+    /// still tells the model the drawing wins where the two disagree.
+    /// </remarks>
+    [Fact]
+    public async Task AnOperatorsNoteIsReadAgainAndReachesThePrompt()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            Directory.CreateDirectory(Path.Combine(workspace, "context"));
+            // A settled reading and answers: without the note this is exactly the
+            // case that reuses and makes one call.
+            File.WriteAllText(
+                Path.Combine(workspace, "context", "drawing-analysis.json"), ReadyAnalysis());
+            var answers = Path.Combine(workspace, "context", "user-answers.json");
+            File.WriteAllText(answers, """{"schema_version":"0.1.0","answers":[]}""");
+            var note = Path.Combine(workspace, "context", "operator-note.json");
+            File.WriteAllText(note,
+                """{"schema_version":"0.1.0","note":"the flange thickness was read as the overall height"}""");
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
+            var runner = new FakeRunner(ReadyAnalysis(), valid);
+
+            var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image], answers, default, note);
+
+            Assert.Equal("CAD_IR_READY", result.Status);
+            // Two calls rather than one: the reading was redone.
+            Assert.Equal(2, runner.Calls);
+            var analysis = runner.Prompts[0];
+            Assert.Contains("the flange thickness was read as the overall height", analysis);
+            Assert.Contains("operator note", analysis);
+            // And the drawing still wins where they disagree, which is what keeps a
+            // note a correction rather than an override.
+            Assert.Contains("the drawing wins", analysis);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
+    /// An unreadable note does not stop the round.
+    /// </summary>
+    /// <remarks>
+    /// The half of `request_changes` that does not depend on anybody's file being
+    /// well-formed is that the order goes round again. A note that cannot be parsed
+    /// is treated as absent rather than as a failure.
+    /// </remarks>
+    [Fact]
+    public async Task ANoteThatCannotBeReadIsTreatedAsAbsent()
+    {
+        var workspace = Workspace();
+        try
+        {
+            var image = CreateImagePlaceholder(workspace);
+            Directory.CreateDirectory(Path.Combine(workspace, "context"));
+            var note = Path.Combine(workspace, "context", "operator-note.json");
+            File.WriteAllText(note, "{ this is not json");
+            var valid = File.ReadAllText(Path.Combine(
+                FindRepositoryRoot(), "tests", "fixtures", "cad-ir", $"plate.{CadIr.FileSuffix}.json"));
+            var runner = new FakeRunner(ReadyAnalysis(), valid);
+
+            var result = await new DrawingPipeline(runner, engine: new StubValidatingEngine())
+                .RunAsync(workspace, [image], null, default, note);
+
+            Assert.Equal("CAD_IR_READY", result.Status);
+            Assert.DoesNotContain("operator note", runner.Prompts[0]);
+        }
+        finally { Directory.Delete(workspace, recursive: true); }
+    }
+
+    /// <summary>
     /// With no reading carried in, the drawing is read — which is what an older
     /// API, or an order whose analysis could not be found, still produces.
     /// </summary>

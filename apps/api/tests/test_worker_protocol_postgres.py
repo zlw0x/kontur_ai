@@ -79,6 +79,62 @@ def test_postgres_order_round_trip_and_version_conflict():
 
 
 @pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="requires opt-in PostgreSQL")
+def test_postgres_a_decision_and_its_audit_row_are_one_transaction():
+    """The property the queue rests on, on the database that can actually enforce it.
+
+    An order that became `READY` with no row saying who approved it is
+    indistinguishable from one the pipeline released by itself — which is the exact
+    thing `automatic_acceptance = False` exists to prevent. SQLite would let a
+    two-call version pass; here the row and the status change are one transaction,
+    and a refused decision leaves neither.
+    """
+    import app.accounts.models  # noqa: F401
+    import app.orders.review  # noqa: F401
+
+    from app.accounts import Role, SqlAccountRepository
+    from app.accounts.service import AccountService
+    from app.orders.review import ReviewDecision
+    from app.orders.state_machine import OrderVersionConflict
+
+    with disposable_schema() as sessions:
+        accounts = AccountService(SqlAccountRepository(sessions))
+        operator, _ = accounts.register("op@example.com", "correct horse battery staple", Role.OPERATOR)
+        orders = SqlOrderRepository(sessions)
+        order_id = uuid4()
+        orders.create(order_id, OrderStatus.WAITING_FOR_LOCAL_WORKER)
+        held, _ = orders.transition(
+            order_id, target=OrderStatus.MANUAL_REVIEW, expected_version=0
+        )
+
+        # A decision against a version nobody is at leaves nothing behind.
+        with pytest.raises(OrderVersionConflict):
+            orders.review(
+                order_id, decision=ReviewDecision.APPROVE, expected_version=0,
+                reviewer_id=operator.id, reason=None,
+            )
+        assert orders.reviews_of(order_id) == []
+        assert orders.get(order_id).status == OrderStatus.MANUAL_REVIEW
+
+        updated, audit = orders.review(
+            order_id,
+            decision=ReviewDecision.APPROVE,
+            expected_version=held.version,
+            reviewer_id=operator.id,
+            reason=None,
+        )
+        assert updated.status == OrderStatus.READY
+        # Read back through a second repository, which is what a second API process
+        # behind the same load balancer is.
+        trail = SqlOrderRepository(sessions).reviews_of(order_id)
+        assert [row.id for row in trail] == [audit.id]
+        assert trail[0].reviewer_id == operator.id
+        assert trail[0].order_version_before == held.version
+
+        queued, total = orders.waiting_for_review(limit=10, offset=0)
+        assert queued == [] and total == 0
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="requires opt-in PostgreSQL")
 def test_postgres_accounts_sessions_and_ownership():
     """Accounts on the database that actually runs, including the two constraints.
 
