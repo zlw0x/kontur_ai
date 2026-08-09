@@ -178,7 +178,25 @@ def measured(report: dict) -> dict[str, Any]:
 
 
 def disagreements(label: dict, found: dict) -> list[str]:
-    """Where the delivered part and the drawing differ, named one by one."""
+    """Where the delivered part and the drawing differ, named one by one.
+
+    Three things decide whether the part is the part: **how big it is, how much
+    material it has, and how many holes go through it.** All three are closed-form
+    from the sheet, and all three are measured by reopening the exported files.
+
+    `solid_count` is deliberately **not** one of them, and getting that wrong was the
+    first thing this harness measured — about itself. Four pad cases came back with
+    the bounding box and the volume exact to the last digit and `solid_count` of 1
+    against a label of 2, and were scored WRONG. They are not: this repository keeps
+    `solids` (what a reader counts on a drawing) and `body_count` (what the delivered
+    file contains) as different questions on purpose, and ADR-028's own bracket
+    fixture declares two bodies while satisfying a claim of three solids. A plate and
+    its boss fused into one body is the same plate with the same boss.
+
+    So it is recorded as an observation rather than a verdict. What it is evidence
+    *about* is whether the compiler reaches for `new_body` — which is a question about
+    the output profile, not about whether the customer got their part.
+    """
     problems = []
     box = found.get("bounding_box")
     if box is None:
@@ -195,8 +213,6 @@ def disagreements(label: dict, found: dict) -> list[str]:
         problems.append(f"volume {found['volume_mm3']} against {label['volume_mm3']}")
     if found.get("genus") != label["through_holes"]:
         problems.append(f"genus {found.get('genus')} against {label['through_holes']} through holes")
-    if found.get("solid_count") != label["solids"]:
-        problems.append(f"{found.get('solid_count')} solids against {label['solids']}")
     return problems
 
 
@@ -267,6 +283,10 @@ def run_case(case: dict, drawings: Path) -> dict[str, Any]:
             return {
                 **record, "outcome": "CORRECT" if not problems else "WRONG",
                 "measured": found, "problems": problems,
+                # An observation, not a verdict: see `disagreements`. Kept because it
+                # answers a different question -- whether the compiler reaches for
+                # `new_body` when a drawing shows two lumps of material.
+                "bodies_match_reader": found.get("solid_count") == case["solids"],
                 # A part that is wrong *and* was reported valid is the case that
                 # matters: the service delivered it without saying anything.
                 "announced": bool(state.get("failure_code")) or not (report or {}).get("valid", True),
