@@ -603,6 +603,46 @@ which is the one thing that endpoint's careful wording exists to avoid. The lock
 therefore inside the service rather than in a middleware that answers by status code, and
 it resets on the first success rather than on a timer.
 
+**A hundred labelled orders** (POSTMVP-027,
+`docs/acceptance/POSTMVP-027-one-hundred-labelled-orders.md`). Everything before it was
+about the service not breaking; this is about whether it works, and there was no other
+way to find out. Four families, every expected number closed-form from the sheet, three
+hours of real Codex on the trusted machine.
+
+**91 of 100 delivered, 89 of 91 correct, 2 wrong with nothing said.** `plate` 22/22,
+`pocket` 23/23, `flange` 25/25 after a fix, `pad` 19/21. And **107 questions, none
+unanswerable from the drawing** — the number most likely to embarrass the service is
+the cleanest in the run.
+
+The largest finding is a defect nine earlier acceptance runs could not have seen,
+because none of them built a part with two hole sizes: **the claim could not add up two
+groups of one kind.** Every flange was refused with "read as 1 round opening, builds 5;
+read as 4 round openings, builds 5" — both clauses comparing a declared group against
+the same total. The reading was right, the document was right, 1 + 4 = 5, and
+`_opening_disagreements` matched each group against *every* built opening of its kind
+rather than against its share. Any flange, any plate with two hole sizes. Grouped on
+kind **and** depth now; 2/25 became 25/25.
+
+The failure mode that matters is narrow and real. Both silent wrong parts are `pad` —
+one boss twice its height, one hanging over the edge of its plate with the volume exact
+to the milligram — and both are the mechanism this file has described and never
+measured: **the claim compares compilation against reading and never reading against
+the drawing.** Two in a hundred is what the moderation queue is for, and it is the
+measurement that justifies `automatic_acceptance` staying off.
+
+**The compiler never reaches for `new_body`**: 21 of 21 plates-with-a-boss came back as
+one body. Not a defect — `solids` and `body_count` are different questions — but the
+fourth wall from POSTMVP-016 measured on a family rather than noticed once: an
+operation can be offered, readable and *unnecessary*.
+
+**And twice the corpus's finding was about the corpus**, both times before anything was
+published. `solid_count` is not `solids`; a mesh bounding box is a faceted
+approximation and `verify.py` had already written down `MESH_CHORD_TOLERANCE_MM = 0.05`
+after an 80 mm part measured 79.898 in its mesh. The runner records the geometry it
+measured rather than only a verdict, which is exactly why a wrong rule could be
+corrected and everything rescored without spending a model call. **A harness is a
+measuring instrument and gets calibrated like one.**
+
 **What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
 not run beside another one — two branches each holding a contract change is expensive to
 reconcile, which this repository has paid for once. Then the rest of Gate P4.
