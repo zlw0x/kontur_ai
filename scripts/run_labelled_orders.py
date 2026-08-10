@@ -60,10 +60,21 @@ SETTLED = {"READY", "MANUAL_REVIEW", "FAILED", "CANCELLED", "EXPIRED"}
 
 #: How much the measured geometry may differ from the closed form.
 #:
-#: A millionth of a millimetre on a size, and a thousandth of a cubic millimetre on a
-#: volume. Both are far inside what the kernel produces and far outside floating-point
-#: noise, so a failure here is a real disagreement rather than a rounding argument.
-SIZE_TOLERANCE = 1e-6
+#: The size tolerance is the **engine's own** `MESH_CHORD_TOLERANCE_MM`, and not a
+#: number invented here. The bounding box in the report is measured on the *mesh*, and
+#: a triangulation of a curved surface is inscribed: every chord cuts the corner, so a
+#: mesh box is never larger than the solid's and may be smaller by up to the sagitta of
+#: the coarsest chord.
+#:
+#: This harness started at 1e-6 and reported a flange as a silently wrong part for
+#: measuring 79.9751 across an 80 mm disc — 0.025 mm, which is tessellation. The
+#: engine had already learned this and written it down: "an 80 mm part measured 79.898
+#: in its mesh", from the KOMPAS acceptance runs. Copying its constant rather than
+#: picking one keeps the two from drifting.
+#:
+#: The volume stays tight because it is not measured on the mesh: it comes off the
+#: B-rep, where a circle is a circle.
+SIZE_TOLERANCE = 0.05
 VOLUME_TOLERANCE = 1e-3
 
 
