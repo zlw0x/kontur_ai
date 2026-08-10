@@ -680,6 +680,26 @@ Declared `experimental`, and the cycle cannot ask for it: a face selector is
 dialect-legal only as a named selection written here (ADR-032), and "the face this rib
 lands on" is not a constant. It arrives the way the shell did.
 
+**A helix is not a 3D curve** (`docs/TASK-POSTMVP-P4-3-*`, probe committed). Gate P4's
+table put the whole of P4.4 — spring, auger, helical groove, real thread — behind P4.3, a
+coordinate vocabulary CAD-IR does not have and the largest single piece of the stage. That
+sentence was inherited rather than measured, and the kernel says otherwise: a helix is
+`pitch, height, radius, hand` and **an axis** — five numbers and a direction, **not one of
+them a point in space**, and CAD-IR states all five already. Three of the four templates
+are behind one new `SweepPath` kind; only a general spline is genuinely P4.3. The same
+shape of finding as ADR-032's dialect wall, arrived at the same way.
+
+Three measurements came with it. A section left on its own plane instead of the path's
+normal sweeps its **projection** — 376.99 mm³ where 4752.39 was drawn, one valid solid, no
+error — which 1.9's right-angle rule already refuses and which now has a number saying what
+that rule is worth. A spring wound tighter than its own wire **matches Pappus**, because
+the material counted twice is the material the formula counts twice, so only the genus
+cross-check sees it — and `pitch ≤ 2·section_radius` is closed-form, so it should be
+refused rather than discovered in a mesh. And **handedness is invisible to every number
+this service measures**: a left-hand and a right-hand thread share volume, topology and
+bounding box, so it cannot be checked after the fact — it has to be read correctly, and
+only a person can catch it being wrong.
+
 **What is next**: the rest of Gate P4. Section correspondence — a square rotated 90° is
 the same square, so a document that states the rotation gets a prism without one — and
 the claimed topology for sweep and loft, where the closed forms are derived and what is

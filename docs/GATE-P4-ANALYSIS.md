@@ -200,11 +200,39 @@ The two cut cases stay unstated, for the reason above.
 | P4.2 guide curves | out | needs P4.3 |
 | P4.2 topology validation | **the open half of clause 1** | corpus, reachable now |
 | P4.3 3D curves | out | a new coordinate vocabulary in CAD-IR; the largest single piece of P4 |
-| P4.4 templates (spring, auger, helical groove, real thread) | out | all four need a helix, so all four need P4.3 |
+| P4.4 templates (spring, auger, helical groove, real thread) | **behind a helical path, not behind P4.3** | see the correction below |
 
 The shape of stage P4 is therefore: **two small pieces reachable today, then a wall called
 P4.3.** Nothing in P4.4 is approachable before a 3D curve exists, and a real modelled
 thread — the thing the roadmap wants most from P4.4 — is a helical sweep.
+
+### Correction, 2026-08-10: three of the four are not behind P4.3
+
+That last paragraph was inherited rather than measured, and it is wrong.
+`docs/TASK-POSTMVP-P4-3-a-helix-is-not-a-3d-curve.md` probed the kernel: a helix is
+`pitch, height, radius, hand` and **an axis** — five numbers and a direction, not one of
+them a point in space. CAD-IR states all five already (lengths are parameters, an axis is
+what `solid.revolve` has named since ADR-024, hand is two words).
+
+So a spring, an auger or helical groove, and a profiled thread are behind **one new
+`SweepPath` kind**, not behind a coordinate vocabulary. Only a general 3D spline is
+genuinely P4.3, and that wall is unchanged.
+
+Measured while establishing it, and both belong in the same file as the rest of this
+document's findings:
+
+- a section left on its own plane instead of the path's normal sweeps its **projection**
+  — 376.99 mm³ where 4752.39 was drawn, one valid solid, no error. Already refused by
+  1.9's rule that a path crosses the profile at a right angle; now there is a number
+  saying what the rule is worth.
+- a spring wound tighter than its own wire **matches Pappus**, because the material
+  counted twice is the material the formula counts twice. Only the genus cross-check sees
+  it — and `pitch ≤ 2 · section_radius` is closed-form, so a helical path should refuse it
+  the way `SWEEP_BEND_TIGHTER_THAN_PROFILE` does rather than let a mesh discover it.
+- **handedness is invisible to every number this service measures.** A left-hand and a
+  right-hand thread have the same volume, topology and bounding box. It cannot be checked
+  after the fact, so it has to be read off the drawing correctly, and only a person can
+  catch it being wrong.
 
 ---
 
