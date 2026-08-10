@@ -439,6 +439,62 @@ def _face_selector() -> list[Case]:
     )]
 
 
+def _until_face() -> list[Case]:
+    """An extrusion whose length is a face rather than a number (CAD-IR 1.13).
+
+    The whole point is that these have a closed form at all. `extrude(until=…)` never
+    could: the distance was the kernel's secret, so the only thing a corpus could have
+    asserted about such a part was that the kernel agreed with itself.
+
+    Here the reach is `((p − o)·n)/(d·n)` computed by trusted code, so the volume is
+    the plain prism's over a distance this generator also knows — and the generator
+    still does no geometry, it just writes the same subtraction twice in two places
+    that must agree.
+
+    The case: a plate, and a bore driven from the base plane **until the plate's own
+    top face**. The reach is the plate's depth, so the hole goes through — and unlike
+    `through_all`, the document records *why* it is that deep. That difference is the
+    whole operation: `through_all` says "as far as there is material", and this says
+    "as far as that face", which are the same number here and different numbers as
+    soon as anything is added below.
+    """
+    width, height, thickness, radius = 60.0, 40.0, 8.0, 7.0
+
+    cases: list[Case] = []
+
+    # A cut that stops at a named face instead of stating a depth. It is sketched on
+    # the base plane and travels +Z to the plate's own top face, so the reach is the
+    # plate's thickness and the hole goes through — a through hole whose depth nobody
+    # wrote down, which is what `through_all` cannot express when the document wants
+    # the *reason* recorded rather than "as far as there is material".
+    bore = cut("feature.bore", circle(radius), ["feature.plate"])
+    # `cut` defaults to `through_all`; this one names a face instead, and the contract
+    # refuses a cut that says both.
+    del bore["inputs"]["through_all"]
+    bore["inputs"]["until_face"] = {
+        "id": "selector.lid", "kind": "face", "from_result": "body.main",
+        "cardinality": "exactly_one",
+        "where": {
+            "surface_type": "planar",
+            "normal": {"parallel_to": "axis.z", "direction": "positive"},
+            "position": {"extreme_along": "axis.z", "extreme": "maximum"},
+        },
+    }
+    cases.append(Case(
+        id="cut-until-underside",
+        document=document(
+            "bore-to-the-underside",
+            [extrude("feature.plate", "body.main", thickness, rectangle(width, height)), bore],
+            (width, height, thickness), holes=1),
+        volume_mm3=width * height * thickness - math.pi * radius**2 * thickness,
+        arithmetic=(
+            f"{width:g} × {height:g} × {thickness:g} − π × {radius:g}² × {thickness:g} — "
+            "the reach is the plate's own depth, computed from the face it names"
+        ),
+    ))
+    return cases
+
+
 def _revolves() -> list[Case]:
     """A revolved annulus is π(R² − r²)h, and a partial one is that fraction of a turn."""
     outer, inner, height = 18.0, 8.0, 20.0
@@ -1241,7 +1297,8 @@ def positives() -> list[Case]:
         *_plates(), *_discs(), *_polygons(), *_slots(), *_paths(), *_holes(),
         *_blind_hole(),
         *_cut_shapes(), *_bosses(), *_face_selector(), *_revolves(), *_fillets(),
-        *_chamfers(), *_patterns(), *_grid_and_mirror(), *_extrude_modes(), *_shells(),
+        *_chamfers(), *_patterns(), *_grid_and_mirror(), *_extrude_modes(),
+        *_until_face(), *_shells(),
         *_drafts(), *_sweeps(), *_lofts(), *_bodies_and_booleans(),
     ]
 
@@ -1362,6 +1419,21 @@ def _sweep_and_loft_refusals(plate: dict, with_features) -> list[Refusal]:
     ]
 
 
+def _both_a_distance_and_a_face() -> dict[str, Any]:
+    """A cut naming a face *and* a depth, which the contract refuses outright."""
+    bore = cut("feature.bore", circle(6.0), ["feature.plate"], distance=4.0)
+    bore["inputs"]["until_face"] = {
+        "id": "selector.stop", "kind": "face", "from_result": "body.main",
+        "cardinality": "exactly_one",
+        "where": {
+            "surface_type": "planar",
+            "normal": {"parallel_to": "axis.z", "direction": "positive"},
+            "position": {"extreme_along": "axis.z", "extreme": "maximum"},
+        },
+    }
+    return bore
+
+
 def negatives() -> list[Refusal]:
     """Documents that must be refused, each with the code it must carry."""
     thickness = 10.0
@@ -1391,7 +1463,68 @@ def negatives() -> list[Refusal]:
     straddling = {"type": "rectangle", "center": [0.0, 10.0], "width": 20.0, "height": 20.0,
                   "rotation_deg": 0.0}
 
+    def bore_until(selector: dict, fid: str = "feature.bore") -> dict[str, Any]:
+        """A cut that names a face instead of stating a depth."""
+        bore = cut(fid, circle(6.0), ["feature.plate"])
+        del bore["inputs"]["through_all"]
+        bore["inputs"]["until_face"] = selector
+        return bore
+
+    def face_at(direction: str, extreme: str, surface: str = "planar") -> dict[str, Any]:
+        return {
+            "id": "selector.stop", "kind": "face", "from_result": "body.main",
+            "cardinality": "exactly_one",
+            "where": {
+                "surface_type": surface,
+                "normal": {"parallel_to": "axis.z", "direction": direction},
+                "position": {"extreme_along": "axis.z", "extreme": extreme},
+            },
+        }
+
     return [
+        Refusal(
+            id="until-face-coincident",
+            document=with_features(
+                [plate, bore_until(face_at("negative", "minimum"))], holes=0),
+            code="UNTIL_FACE_COINCIDENT",
+            why=(
+                "a cut sketched on the base plane and told to stop at the underside, "
+                "which is the plane it started on. This is the geometry that made the "
+                "kernel's own `extrude_until` raise `Extrusion is None` and made the "
+                "first investigation think it was broken in general -- it is one "
+                "document, and this is the refusal it earns"
+            ),
+        ),
+        Refusal(
+            id="until-face-two-faces",
+            document=with_features(
+                [plate,
+                 bore_until({**face_at("positive", "maximum"), "cardinality": "one_or_more"})],
+                holes=0),
+            # `SCHEMA_INVALID` because the refusal happens inside the model, which is
+            # this repository's convention for a contract-level rule (the shell's
+            # cardinality refusal is the same). `UNTIL_FACE_NOT_ONE` is in the message,
+            # which is what the compiling agent reads.
+            code="SCHEMA_INVALID",
+            why=(
+                "two faces are two different reaches, and the engine would compute one "
+                "of them and build a part whose length nobody chose. Sharper than the "
+                "blend rule of ADR-026, which is only about a feature that silently did "
+                "not happen"
+            ),
+            by_contract=True,
+        ),
+        Refusal(
+            id="until-face-and-a-distance",
+            document=with_features([plate, _both_a_distance_and_a_face()], holes=0),
+            code="SCHEMA_INVALID",
+            why=(
+                "an extrusion that states both a length and a face states its length "
+                "twice, and nothing can tell which one the drawing meant. The contract "
+                "already refuses `through_all` beside a distance for the same reason"
+            ),
+            by_contract=True,
+        ),
         Refusal(
             id="open-contour",
             document=with_features(

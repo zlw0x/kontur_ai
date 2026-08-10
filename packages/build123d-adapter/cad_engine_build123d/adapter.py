@@ -57,6 +57,7 @@ from .entities import named_entities
 from .errors import CadEngineError, unsupported
 from .parameters import Parameters
 from .revolves import axis_points, require_profile_clear_of_axis, world_axis
+from .reach import reach_to_face
 from .selectors import require_one, resolve_faces
 from .lofts import require_distinct_planes
 from .drafts import draft
@@ -350,6 +351,18 @@ def _extrude_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
         # both directions at once: too small for a big part, and for a small one
         # a tool reaching far past it that a later operation could still meet.
         solid = _through_all_tool(placed, part, plane)
+    elif getattr(feature.inputs, "until_face", None) is not None:
+        # The reach is computed here rather than asked of the kernel, and the whole
+        # of CAD-IR 1.13 is that sentence. `Solid.extrude_until` was measured on
+        # sixteen cases: two correct, three raising, and three returning a valid
+        # wrong part -- including a profile inside the material that comes back
+        # spiking 62.45 mm into open space. See `reach.py`.
+        #
+        # `both` and `taper` are refused by the contract for an extrusion up to a
+        # face, so neither is read: there is one number and it is this one.
+        sense = _sense(feature, plane)
+        distance = reach_to_face(feature, part, plane, sense)
+        solid = extrude(placed, amount=distance * sense, dir=plane.z_dir)
     else:
         distance = params.resolve(feature.inputs.distance, f"{feature.id} distance")
         if distance <= 0:

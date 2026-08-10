@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.12",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.13",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -1010,6 +1010,17 @@
           ],
           "default": null,
           "title": "Distance"
+        },
+        "until_face": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FaceSelector"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "source_body": {
           "anyOf": [
@@ -3702,9 +3713,24 @@
             },
             {
               "$ref": "#/$defs/ScalarNegation"
+            },
+            {
+              "type": "null"
             }
           ],
+          "default": null,
           "title": "Distance"
+        },
+        "until_face": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FaceSelector"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "both_directions": {
           "default": false,
@@ -3748,8 +3774,7 @@
       },
       "required": [
         "sketch",
-        "direction",
-        "distance"
+        "direction"
       ],
       "title": "SolidExtrudeInputs",
       "type": "object"
@@ -4169,8 +4194,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.12",
-      "default": "1.12",
+      "const": "1.13",
+      "default": "1.13",
       "title": "Schema Version",
       "type": "string"
     },

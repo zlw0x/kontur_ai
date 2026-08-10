@@ -17,7 +17,7 @@ namespace CadAi.CadEngine;
 /// </remarks>
 public static class CadIr
 {
-    public const string Version = "1.12";
+    public const string Version = "1.13";
 
     /// <summary>The version as a filename fragment: <c>1.10</c> is <c>v1_10</c>.</summary>
     public static string FileSuffix => "v" + Version.Replace('.', '_');

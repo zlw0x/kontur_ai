@@ -74,6 +74,7 @@ from .pattern import (  # re-exported alongside the document
     instance_count,
 )
 from .selectors import (  # re-exported alongside the document
+    FaceSelector,
     Measurement,
     SurfaceType,
 )
@@ -102,13 +103,18 @@ from .sweep import (  # re-exported alongside the document
     SweepPath,
 )
 from .sketch import DatumPlaneOffsetInputs, Sketch
+from .until_face import (  # re-exported alongside the document
+    PARALLEL_TOLERANCE,
+    UntilFaceError,
+    validate_until_face,
+)
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.12"
+CAD_IR_VERSION = "1.13"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.12",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.13",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -129,6 +135,7 @@ MIGRATABLE_VERSIONS: tuple[str, ...] = (
     "1.9",
     "1.10",
     "1.11",
+    "1.12",
 )
 
 class ParameterType(StrEnum):
@@ -210,10 +217,68 @@ def _validate_taper(value: Scalar | None) -> None:
         )
 
 
+def _validate_reach(
+    *,
+    distance: Scalar | None,
+    until_face: FaceSelector | None,
+    both_directions: bool,
+    taper_deg: Scalar | None,
+) -> None:
+    """How far an extrusion travels is said exactly once, and by whom.
+
+    Five refusals, and each is a measurement from
+    `docs/TASK-POSTMVP-P3-2-up-to-a-face.md` rather than a preference.
+
+    **Exactly one of the two.** A document that states both a distance and a face is
+    two answers to one question, and nothing here can tell which the drawing meant.
+    The contract already refuses `through_all` beside a distance for the same reason.
+
+    **Exactly one face.** Two faces are two different reaches, and the engine would
+    compute one of them and build a part whose length nobody chose. Sharper than the
+    blend rule ADR-026 states, which is only about a feature that silently did not
+    happen.
+
+    **No taper.** A drafted extrusion narrows as it travels, so its far end is a
+    width, and a width at a distance the document did not state is a size nobody
+    chose — the same argument ADR-033 makes about `taper_deg` and a through-all cut.
+
+    **No `both_directions`.** Half of a reach in each direction is not a thing a
+    drawing says. The reach is measured from the sketch plane to a named face; there
+    is no second face on the other side, and splitting it would invent one.
+    """
+    if distance is not None and until_face is not None:
+        raise ValueError(
+            "an extrusion states a distance or the face it stops at, not both"
+        )
+    if until_face is None:
+        return
+    validate_until_face(until_face)
+    if both_directions:
+        raise ValueError(
+            "an extrusion up to a face travels one way; half a reach in each "
+            "direction is not a distance any drawing states"
+        )
+    taper = stated_number(taper_deg)
+    if taper not in (None, 0.0):
+        raise ValueError(
+            "an extrusion up to a face states no length of its own, so a taper "
+            "would set its far width to a size nobody chose"
+        )
+
+
 class SolidExtrudeInputs(StrictModel):
     sketch: Sketch
     direction: Direction
-    distance: Scalar
+    #: How far, when the drawing gives a number. `None` when the drawing does not and
+    #: `until_face` names what to stop at instead — exactly one of the two.
+    distance: Scalar | None = None
+    #: The face this extrusion stops at, when the drawing says "up to the web" rather
+    #: than a dimension (CAD-IR 1.13, ADR-039).
+    #:
+    #: Trusted code computes the reach from the face's plane; the kernel's own
+    #: `extrude_until` is not used anywhere, because three of sixteen measured cases
+    #: succeed and return the wrong part. See `cad_ir.until_face`.
+    until_face: FaceSelector | None = None
     #: The distance is the **total**, split half each way — the same reading a revolve's
     #: `both_directions` has had since 1.4. The alternative, extruding the full distance
     #: twice, would make a claimed thickness parameter name half the part.
@@ -239,6 +304,12 @@ class SolidExtrudeInputs(StrictModel):
                 "a feature either starts a new body or adds to an existing one, not both"
             )
         _validate_taper(self.taper_deg)
+        _validate_reach(
+            distance=self.distance,
+            until_face=self.until_face,
+            both_directions=self.both_directions,
+            taper_deg=self.taper_deg,
+        )
         return self
 
 
@@ -247,6 +318,9 @@ class CutExtrudeInputs(StrictModel):
     direction: Direction
     through_all: bool = False
     distance: Scalar | None = None
+    #: The face this cut stops at. The same rules as a boss's, and the same reason:
+    #: a cut "to the web" is a depth the drawing did not write down (CAD-IR 1.13).
+    until_face: FaceSelector | None = None
     source_body: ResultRef | None = None
     both_directions: bool = False
     taper_deg: Scalar = 0.0
@@ -255,9 +329,21 @@ class CutExtrudeInputs(StrictModel):
     def validate_depth(self) -> "CutExtrudeInputs":
         if self.through_all and self.distance is not None:
             raise ValueError("a through-all cut must not also declare a distance")
-        if not self.through_all and self.distance is None:
-            raise ValueError("a cut must declare either through_all or a distance")
+        if self.through_all and self.until_face is not None:
+            raise ValueError(
+                "a through-all cut already goes through; it has no face to stop at"
+            )
+        if not self.through_all and self.distance is None and self.until_face is None:
+            raise ValueError(
+                "a cut must declare through_all, a distance, or the face it stops at"
+            )
         _validate_taper(self.taper_deg)
+        _validate_reach(
+            distance=self.distance,
+            until_face=self.until_face,
+            both_directions=self.both_directions,
+            taper_deg=self.taper_deg,
+        )
         if self.through_all and self.both_directions:
             # A cut that already reaches through everything has nothing on the other
             # side to reach, and a second tool would be a second thing to get wrong.

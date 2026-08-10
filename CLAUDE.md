@@ -31,14 +31,15 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.12** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.13** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
   and mirror (`docs/adr/ADR-027-*`), 1.7 named bodies and booleans
   (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`), 1.9 sweep and loft
   (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`), 1.11
-  scalar arithmetic (`docs/adr/ADR-034-*`), 1.12 draft (`docs/adr/ADR-035-*`).
+  scalar arithmetic (`docs/adr/ADR-034-*`), 1.12 draft (`docs/adr/ADR-035-*`), 1.13 an extrusion up to a named face
+(`docs/adr/ADR-039-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -643,10 +644,49 @@ measured rather than only a verdict, which is exactly why a wrong rule could be
 corrected and everything rescored without spending a model call. **A harness is a
 measuring instrument and gets calibrated like one.**
 
-**What is next**: an up-to-face extrusion, which is the remaining CAD-IR version and must
-not run beside another one — two branches each holding a contract change is expensive to
-reconcile, which this repository has paid for once. Then the rest of Gate P4.
-`docs/POST-MVP-ROADMAP.md` has the order.
+**A reach is computed, not asked for** (CAD-IR 1.13, ADR-039). The fork closed on the
+side that had measurements: `until_face` reproduces the kernel's own answer to
+`0.000e+00` where the kernel is right, and `ScalarDifference` is an idea. It is not
+refused, it is unbuilt — the evidence for it is a drawing whose reach genuinely is the
+difference of two stated dimensions and which no face expresses.
+
+**`Solid.extrude_until` is not called from anywhere in this repository.** Sixteen
+measured cases: two correct, three raising, three *succeeding and returning the wrong
+part* — a profile inside the material comes back as one valid solid reaching
+`5 + √(40²+40²+10²) = 62.45`, which is the trial extrusion's own length. And no
+post-check could catch them, because **`until` states no number at all**: the pattern
+that caught the shell, the sweep and the draft has nothing to compare with.
+
+So the document names the face and trusted code divides once —
+`reach = ((p−o)·n)/(d·n)` — and the engine extrudes by it, the operation it has done
+since ENGINE-MIG-003. **What that buys is a number**: one the manifest records, the
+corpus states in closed form, and an expectation measures against.
+
+Five refusals, each a measured case: `UNTIL_FACE_NOT_ONE` (two faces are two different
+reaches — sharper than ADR-026's blend rule, which is only about a feature that
+silently did not happen), `UNTIL_FACE_NOT_PLANAR`, `UNTIL_FACE_PARALLEL`,
+`UNTIL_FACE_BEHIND` (the kernel's answer is to reverse, which contradicts the
+`direction` the document states) and `UNTIL_FACE_COINCIDENT` — the one geometry that
+made the first investigation think `extrude_until` was broken in general. Plus two
+exclusions in the contract: a distance *or* a face, and no taper and no
+`both_directions`.
+
+**What is deliberately not caught**: a named plane is infinite, so the arithmetic
+always answers and cannot know whether the extrusion lands on the face. It does not
+need to — the part comes back in two pieces and `body_count` already sees it. Trusted
+code refuses what it can decide; an expectation catches what only the built part shows.
+
+Declared `experimental`, and the cycle cannot ask for it: a face selector is
+dialect-legal only as a named selection written here (ADR-032), and "the face this rib
+lands on" is not a constant. It arrives the way the shell did.
+
+**What is next**: the rest of Gate P4. Section correspondence — a square rotated 90° is
+the same square, so a document that states the rotation gets a prism without one — and
+the claimed topology for sweep and loft, where the closed forms are derived and what is
+missing is cases rather than mathematics. `docs/POST-MVP-ROADMAP.md` has the order.
+
+The contract is settled for now: there is no queued CAD-IR version, so the rule about
+not running two contract changes side by side is not binding on the next piece of work.
 
 **A draft names its walls** (POSTMVP-026, ADR-035), and it is the first operation admitted
 against the rule three milestones arrived at. POSTMVP-024 had measured that a drafted boss

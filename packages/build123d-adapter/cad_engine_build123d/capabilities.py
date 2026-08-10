@@ -95,6 +95,14 @@ FEATURE_BOSS_ADDITIVE = "feature.boss.additive"
 # an operator who has seen one wants to stop that one.
 FEATURE_EXTRUDE_SYMMETRIC = "feature.extrude.symmetric"
 FEATURE_EXTRUDE_DRAFT = "feature.extrude.draft"
+#: An extrusion whose length is a face rather than a number (CAD-IR 1.13).
+#:
+#: `experimental` rather than `beta`, and the reason is the corpus rule: a
+#: capability is promoted by cases, and this one has the cases it was given here and
+#: no run behind it. The cycle cannot ask for it either — a face selector is a named
+#: selection written in this repository (ADR-032), and "the face this rib lands on"
+#: is not a constant — so it arrives the way the shell did.
+FEATURE_EXTRUDE_UNTIL_FACE = "feature.extrude.until_face"
 FEATURE_BODY_NEW = "feature.body.new"
 BOOLEAN_UNION = "boolean.union"
 BOOLEAN_SUBTRACT = "boolean.subtract"
@@ -190,6 +198,7 @@ DECLARED: Mapping[str, Declaration] = {
     FEATURE_BOSS_ADDITIVE: Declaration("beta"),
     FEATURE_EXTRUDE_SYMMETRIC: Declaration("beta"),
     FEATURE_EXTRUDE_DRAFT: Declaration("beta"),
+    FEATURE_EXTRUDE_UNTIL_FACE: Declaration("experimental"),
     FEATURE_BODY_NEW: Declaration("beta"),
     BOOLEAN_UNION: Declaration("beta"),
     BOOLEAN_SUBTRACT: Declaration("beta"),
@@ -346,6 +355,11 @@ def requirements(document) -> dict[str, str]:
         taper = getattr(feature.inputs, "taper_deg", 0.0)
         if taper is not None and not isinstance(taper, (int, float)) or taper:
             need(FEATURE_EXTRUDE_DRAFT, f"the draft on {feature.id}")
+        if getattr(feature.inputs, "until_face", None) is not None:
+            need(
+                FEATURE_EXTRUDE_UNTIL_FACE,
+                f"the extrusion {feature.id}, which stops at a face",
+            )
 
         if getattr(feature.inputs, "new_body", False):
             # A separate lump of material is its own capability: a part delivered as
