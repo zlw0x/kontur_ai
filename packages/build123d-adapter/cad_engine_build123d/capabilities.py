@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from cad_ir.canonical import (
+    HelicalPath,
     BooleanFeature,
     BooleanOp,
     ChamferFeature,
@@ -103,6 +104,13 @@ FEATURE_EXTRUDE_DRAFT = "feature.extrude.draft"
 #: selection written in this repository (ADR-032), and "the face this rib lands on"
 #: is not a constant — so it arrives the way the shell did.
 FEATURE_EXTRUDE_UNTIL_FACE = "feature.extrude.until_face"
+#: A sweep whose path is a helix (CAD-IR 1.14).
+#:
+#: `experimental`: the corpus rule promotes an operation by cases, and this has the
+#: one case written here. The cycle cannot ask for it either — five numbers a reading
+#: stage would have to lift off a drawing, behind the same three walls as everything
+#: else (ADR-029).
+FEATURE_SWEEP_HELIX = "feature.sweep.helix"
 FEATURE_BODY_NEW = "feature.body.new"
 BOOLEAN_UNION = "boolean.union"
 BOOLEAN_SUBTRACT = "boolean.subtract"
@@ -199,6 +207,7 @@ DECLARED: Mapping[str, Declaration] = {
     FEATURE_EXTRUDE_SYMMETRIC: Declaration("beta"),
     FEATURE_EXTRUDE_DRAFT: Declaration("beta"),
     FEATURE_EXTRUDE_UNTIL_FACE: Declaration("experimental"),
+    FEATURE_SWEEP_HELIX: Declaration("experimental"),
     FEATURE_BODY_NEW: Declaration("beta"),
     BOOLEAN_UNION: Declaration("beta"),
     BOOLEAN_SUBTRACT: Declaration("beta"),
@@ -385,6 +394,10 @@ def requirements(document) -> dict[str, str]:
             need(CUT_REVOLVE, f"the revolved cut {feature.id}")
         elif isinstance(feature, SolidSweepFeature):
             need(SOLID_SWEEP, f"the sweep {feature.id}")
+        if isinstance(feature, (SolidSweepFeature, CutSweepFeature)) and isinstance(
+            feature.inputs.path, HelicalPath
+        ):
+            need(FEATURE_SWEEP_HELIX, f"the helical path of {feature.id}")
             solids_so_far += 1
         elif isinstance(feature, CutSweepFeature):
             need(CUT_SWEEP, f"the swept cut {feature.id}")

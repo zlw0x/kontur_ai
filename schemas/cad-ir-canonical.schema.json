@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.13",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.14",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -1282,7 +1282,15 @@
           "$ref": "#/$defs/Sketch"
         },
         "path": {
-          "$ref": "#/$defs/SweepPath"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SweepPath"
+            },
+            {
+              "$ref": "#/$defs/HelicalPath"
+            }
+          ],
+          "title": "Path"
         },
         "source_body": {
           "anyOf": [
@@ -2067,6 +2075,89 @@
         "radius"
       ],
       "title": "FilletInputs",
+      "type": "object"
+    },
+    "HelicalPath": {
+      "additionalProperties": false,
+      "description": "A path that winds about the normal of the plane it is stated on (CAD-IR 1.14).\n\n`docs/TASK-POSTMVP-P4-3-a-helix-is-not-a-3d-curve.md` is why this is five numbers\nand not a coordinate vocabulary. Gate P4's table put a spring, an auger, a helical\ngroove and a real thread behind P4.3 — \"a new coordinate vocabulary in CAD-IR; the\nlargest single piece of P4\" — and the kernel says otherwise: a helix is `pitch`,\n`height`, `radius`, a hand and an axis, **not one of them a point in space.**\n\nThe axis is the stated plane's own normal, and the helix starts at `radius` along\nthat plane's x direction. That is build123d's own convention and it is the same\nmove `SweepPath` already makes: a path says which plane it is drawn on, and the\nplane supplies the frame. Nothing here needs a point that CAD-IR cannot say.\n\nIts length is `turns · √((2πr)² + p²)`, matched by the kernel to 1e-10, so a\nswept spring has a closed-form volume by Pappus — which is what the corpus needs\nbefore an operation can be promoted at all.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/BasePlaneName"
+        },
+        "pitch": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "title": "Pitch"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "title": "Height"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "title": "Radius"
+        },
+        "hand": {
+          "enum": [
+            "right",
+            "left"
+          ],
+          "title": "Hand",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "plane",
+        "pitch",
+        "height",
+        "radius",
+        "hand"
+      ],
+      "title": "HelicalPath",
       "type": "object"
     },
     "LineSegment": {
@@ -3275,7 +3366,8 @@
             "mapping": {
               "base": "#/$defs/SketchOnBasePlane",
               "datum": "#/$defs/SketchOnDatumPlane",
-              "face": "#/$defs/SketchOnFace"
+              "face": "#/$defs/SketchOnFace",
+              "path_start": "#/$defs/SketchOnPathStart"
             },
             "propertyName": "on"
           },
@@ -3288,6 +3380,9 @@
             },
             {
               "$ref": "#/$defs/SketchOnFace"
+            },
+            {
+              "$ref": "#/$defs/SketchOnPathStart"
             }
           ],
           "title": "Plane"
@@ -3528,6 +3623,22 @@
         "face"
       ],
       "title": "SketchOnFace",
+      "type": "object"
+    },
+    "SketchOnPathStart": {
+      "additionalProperties": false,
+      "description": "The plane the path itself puts the section on (CAD-IR 1.14).\n\nFor a planar path the profile's plane is a real degree of freedom — the drawing\nshows the section standing across the spine — so 1.9 makes the document state it\nand the engine checks that it is perpendicular. A **helix** has no such freedom:\nits tangent at the start is tilted by the lead angle, which is `atan(pitch /\n2πr)`, so the one plane the section may stand on is determined by numbers the\npath has already stated.\n\nStating it again would be a second place for one truth to live, and getting it\nwrong is not a small error: the probe measured a section left on its own plane\nsweeping its **projection** — 376.99 mm³ where 4752.39 was drawn, one valid\nsolid, no error.\n\nSo this says \"wherever the path starts, across it\", and the engine builds the\nplane. There is nothing to choose and therefore nothing to get wrong.",
+      "properties": {
+        "on": {
+          "const": "path_start",
+          "title": "On",
+          "type": "string"
+        }
+      },
+      "required": [
+        "on"
+      ],
+      "title": "SketchOnPathStart",
       "type": "object"
     },
     "SketchPoint": {
@@ -4066,7 +4177,15 @@
           "$ref": "#/$defs/Sketch"
         },
         "path": {
-          "$ref": "#/$defs/SweepPath"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SweepPath"
+            },
+            {
+              "$ref": "#/$defs/HelicalPath"
+            }
+          ],
+          "title": "Path"
         },
         "source_body": {
           "anyOf": [
@@ -4194,8 +4313,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.13",
-      "default": "1.13",
+      "const": "1.14",
+      "default": "1.14",
       "title": "Schema Version",
       "type": "string"
     },

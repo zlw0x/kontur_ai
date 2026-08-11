@@ -85,8 +85,30 @@ class SketchOnFace(StrictModel):
         return self
 
 
+class SketchOnPathStart(StrictModel):
+    """The plane the path itself puts the section on (CAD-IR 1.14).
+
+    For a planar path the profile's plane is a real degree of freedom — the drawing
+    shows the section standing across the spine — so 1.9 makes the document state it
+    and the engine checks that it is perpendicular. A **helix** has no such freedom:
+    its tangent at the start is tilted by the lead angle, which is `atan(pitch /
+    2πr)`, so the one plane the section may stand on is determined by numbers the
+    path has already stated.
+
+    Stating it again would be a second place for one truth to live, and getting it
+    wrong is not a small error: the probe measured a section left on its own plane
+    sweeping its **projection** — 376.99 mm³ where 4752.39 was drawn, one valid
+    solid, no error.
+
+    So this says "wherever the path starts, across it", and the engine builds the
+    plane. There is nothing to choose and therefore nothing to get wrong.
+    """
+
+    on: Literal["path_start"]
+
+
 SketchPlaneSpec = Annotated[
-    Union[SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace],
+    Union[SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace, SketchOnPathStart],
     Field(discriminator="on"),
 ]
 

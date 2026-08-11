@@ -31,7 +31,7 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
 
 - Two user-facing results, `model.step` and `model.stl`. The manifest, validation
   report and audit events stay internal.
-- CAD-IR is **1.13** and is the parametric source of truth. It was the trust
+- CAD-IR is **1.14** and is the parametric source of truth. It was the trust
   boundary precisely so the engine underneath it could be replaced, and ADR-018
   through ADR-022 survived the change intact. 1.4 added revolve
   (`docs/adr/ADR-024-*`), 1.5 fillet and chamfer (`docs/adr/ADR-026-*`), 1.6 patterns
@@ -39,7 +39,7 @@ ENGINE-MIG-001 through 008 carried it out, each with an acceptance record under
   (`docs/adr/ADR-028-*`), 1.8 shell (`docs/adr/ADR-030-*`), 1.9 sweep and loft
   (`docs/adr/ADR-031-*`), 1.10 the extrusion modes (`docs/adr/ADR-033-*`), 1.11
   scalar arithmetic (`docs/adr/ADR-034-*`), 1.12 draft (`docs/adr/ADR-035-*`), 1.13 an extrusion up to a named face
-(`docs/adr/ADR-039-*`).
+(`docs/adr/ADR-039-*`), 1.14 a helical sweep path (`docs/adr/ADR-040-*`).
 - The engine declares its own capabilities and applies the operator's feature flags
   to them (`cad_engine_build123d/capabilities.py`). The worker publishes what the
   engine says; a list on the worker would be a second place for the truth to live.
@@ -699,6 +699,32 @@ refused rather than discovered in a mesh. And **handedness is invisible to every
 this service measures**: a left-hand and a right-hand thread share volume, topology and
 bounding box, so it cannot be checked after the fact — it has to be read correctly, and
 only a person can catch it being wrong.
+
+**A helix is five numbers and a direction** (CAD-IR 1.14, ADR-040). The investigation
+above became a contract: a second `SweepPath` kind whose **plane's normal is the axis**,
+so a spring, an auger, a helical groove and a profiled thread are expressible and P4.3 is
+untouched. Three findings decided its shape.
+
+**`hand` is required**, because it is the one property of a part in this contract that
+cannot be checked against the built solid — a left-hand and a right-hand helix have the
+same volume, topology and bounding box. A default would have made the uncheckable property
+the one a document may leave out.
+
+**The section's plane comes from the path** (`{"on": "path_start"}`). A planar path leaves
+the profile's plane a real choice the drawing shows, so 1.9 makes the document state it; a
+helix's tangent leans by the lead angle, so exactly one plane works and the path already
+states the numbers that fix it. Getting it wrong costs an order of magnitude — 376.99 mm³
+where 4752.39 was drawn, one valid solid, no error.
+
+**No discriminator field.** The two path kinds have disjoint required properties and both
+forbid extras, so exactly one validates any payload. A required `kind` would have been
+tidier and would have invalidated every earlier document the moment the normalizer
+relabelled it — and the normalizer is relabel-only by design.
+
+`HELIX_PITCH_TIGHTER_THAN_SECTION` is the new refusal and the fifth instance of ADR-033's
+rule: a spring wound tighter than its own wire passes through itself, reports valid, and
+**matches Pappus**, because the material counted twice is the material the formula counts
+twice. The genus cross-check sees it afterwards; the condition is closed-form beforehand.
 
 **What is next**: the rest of Gate P4. Section correspondence — a square rotated 90° is
 the same square, so a document that states the rotation gets a prism without one — and

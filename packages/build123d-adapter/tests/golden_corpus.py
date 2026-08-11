@@ -1082,6 +1082,62 @@ def _sweeps() -> list[Case]:
     return cases
 
 
+def _helices() -> list[Case]:
+    """A spring: a section carried along a helix (CAD-IR 1.14).
+
+    Pappus again, and exact for the same reason it is exact round a bend — the
+    centroid rides the path, so the distance it travels *is* the path length. What
+    makes a helix checkable at all is that its length is closed-form:
+
+        length = (height / pitch) · √((2πr)² + pitch²)
+
+    matched by the kernel to 1e-10 (`scripts/probe_build123d_helix.py`).
+
+    The topology is the `n = 1` row of the sweep table: a helix is **one edge**
+    however many turns it has, so a circular section gives two caps, one lateral
+    face, one circle at each end plus one seam, and one vertex per circle — 3/3/2.
+    """
+
+    def helix_length(pitch: float, height: float, radius: float) -> float:
+        return (height / pitch) * math.hypot(2 * math.pi * radius, pitch)
+
+    def spring(fid: str, body: str, wire: float, pitch: float, height: float,
+               radius: float, hand: str = "right") -> dict[str, Any]:
+        return {
+            "id": fid, "type": "solid.sweep", "enabled": True, "depends_on": [],
+            "produces": [{"id": body, "kind": "solid_body"}],
+            "inputs": {
+                # The profile stands at the start of the path, across it — 1.9's rule,
+                # and the probe measured what breaking it costs: a section left on its
+                # own plane sweeps its projection, 376.99 mm3 where 4752.39 was drawn.
+                "sketch": sketch(fid.split(".")[-1], circle(wire),
+                                 plane={"on": "path_start"}),
+                "path": {"id": "path.helix", "plane": "XY", "pitch": pitch,
+                         "height": height, "radius": radius, "hand": hand},
+            },
+        }
+
+    cases: list[Case] = []
+    wire, pitch, height, radius = 2.0, 10.0, 30.0, 20.0
+    length = helix_length(pitch, height, radius)
+    cases.append(Case(
+        id="helix-spring",
+        document=document(
+            "spring",
+            [spring("feature.spring", "body.main", wire, pitch, height, radius)],
+            # The winding reaches `radius + wire` from the axis in x and y, and the
+            # section's own diameter past the ends in z.
+            (2 * (radius + wire), 2 * (radius + wire), height + 2 * wire), holes=0),
+        volume_mm3=math.pi * wire**2 * length,
+        arithmetic=(
+            f"π × {wire:g}² × {length:.4f} — Pappus, over a helix of "
+            f"({height:g}/{pitch:g}) × √((2π×{radius:g})² + {pitch:g}²)"
+        ),
+        topology=(3, 3, 2),
+    ))
+    return cases
+
+
 def _lofts() -> list[Case]:
     """The prismatoid rule: `h/3 × (A₁ + √(A₁A₂) + A₂)` between similar sections.
 
@@ -1298,7 +1354,7 @@ def positives() -> list[Case]:
         *_blind_hole(),
         *_cut_shapes(), *_bosses(), *_face_selector(), *_revolves(), *_fillets(),
         *_chamfers(), *_patterns(), *_grid_and_mirror(), *_extrude_modes(),
-        *_until_face(), *_shells(),
+        *_until_face(), *_helices(), *_shells(),
         *_drafts(), *_sweeps(), *_lofts(), *_bodies_and_booleans(),
     ]
 
@@ -1482,6 +1538,35 @@ def negatives() -> list[Refusal]:
         }
 
     return [
+        Refusal(
+            id="helix-pitch-tighter-than-its-wire",
+            document=document(
+                "negative",
+                [{
+                    "id": "feature.spring", "type": "solid.sweep", "enabled": True,
+                    "depends_on": [],
+                    "produces": [{"id": "body.main", "kind": "solid_body"}],
+                    "inputs": {
+                        "sketch": sketch("spring", circle(2.0),
+                                         plane={"on": "path_start"}),
+                        # 2 mm wire on a 2 mm pitch: neighbouring turns overlap by
+                        # half a diameter.
+                        "path": {"id": "path.helix", "plane": "XY", "pitch": 2.0,
+                                 "height": 20.0, "radius": 20.0, "hand": "right"},
+                    },
+                }],
+                (44.0, 44.0, 24.0), holes=0,
+            ),
+            code="HELIX_PITCH_TIGHTER_THAN_SECTION",
+            why=(
+                "a spring wound tighter than its own wire passes through itself, and "
+                "the kernel returns one solid, calls it valid, and produces a volume "
+                "that matches Pappus -- because the material counted twice is exactly "
+                "the material the formula counts twice. Only the genus cross-check can "
+                "see it afterwards, and the condition is closed-form beforehand, so it "
+                "is refused with a number in it"
+            ),
+        ),
         Refusal(
             id="until-face-coincident",
             document=with_features(

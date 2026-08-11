@@ -39,7 +39,9 @@ from .base import (
     Id,
     Provenance,
     ResultRef,
+    Scalar,
     StrictModel,
+    stated_number,
 )
 from .sketch import BasePlaneName, PathSegment, Sketch
 
@@ -62,6 +64,68 @@ class SweepPath(StrictModel):
     segments: Annotated[list[PathSegment], Field(min_length=1, max_length=200)]
 
 
+class HelicalPath(StrictModel):
+    """A path that winds about the normal of the plane it is stated on (CAD-IR 1.14).
+
+    `docs/TASK-POSTMVP-P4-3-a-helix-is-not-a-3d-curve.md` is why this is five numbers
+    and not a coordinate vocabulary. Gate P4's table put a spring, an auger, a helical
+    groove and a real thread behind P4.3 — "a new coordinate vocabulary in CAD-IR; the
+    largest single piece of P4" — and the kernel says otherwise: a helix is `pitch`,
+    `height`, `radius`, a hand and an axis, **not one of them a point in space.**
+
+    The axis is the stated plane's own normal, and the helix starts at `radius` along
+    that plane's x direction. That is build123d's own convention and it is the same
+    move `SweepPath` already makes: a path says which plane it is drawn on, and the
+    plane supplies the frame. Nothing here needs a point that CAD-IR cannot say.
+
+    Its length is `turns · √((2πr)² + p²)`, matched by the kernel to 1e-10, so a
+    swept spring has a closed-form volume by Pappus — which is what the corpus needs
+    before an operation can be promoted at all.
+    """
+
+    id: Id
+    #: The plane the helix winds in. Its **normal is the axis**, and its x direction
+    #: is where the first turn starts.
+    plane: BasePlaneName
+    #: How far one turn advances along the axis.
+    pitch: Scalar
+    #: How far the whole helix advances. Turns are `height / pitch`, stated this way
+    #: because a drawing dimensions a spring's free length rather than counting turns
+    #: — and a non-integer number of turns is an ordinary spring.
+    height: Scalar
+    #: The distance from the axis to the path, which is where the profile stands.
+    radius: Scalar
+    #: Which way it winds, and it is **required**.
+    #:
+    #: Every other property of a part in this contract can be checked against the
+    #: built solid. This one cannot: a left-hand and a right-hand helix have the same
+    #: volume, the same topology and the same bounding box — measured, not assumed —
+    #: so nothing downstream can catch a wrong one. A default would make the
+    #: uncheckable property the one a document is allowed to leave out.
+    hand: Literal["right", "left"]
+
+    @model_validator(mode="after")
+    def validate_dimensions(self) -> "HelicalPath":
+        for name, value in (("pitch", self.pitch), ("height", self.height),
+                            ("radius", self.radius)):
+            stated = stated_number(value)
+            # A named one is a promise about a number this module never sees, which
+            # the engine resolves and re-checks in front of the kernel.
+            if stated is not None and stated <= 0:
+                raise ValueError(f"a helix {name} must be positive")
+        return self
+
+
+#: Where a profile travels: a chain of lines and arcs in a plane, or a helix.
+#:
+#: No discriminator field, and that is deliberate rather than lazy. The two have
+#: disjoint required properties and both forbid extras, so exactly one of them
+#: validates any given payload — the spelling is unique without a tag. Adding a
+#: required `kind` would have made every document written before 1.14 invalid the
+#: moment the normalizer relabelled it, and the normalizer is relabel-only by design.
+SweepPathSpec = Union[SweepPath, HelicalPath]
+
+
 class SweepInputs(StrictModel):
     """A profile and the path it travels.
 
@@ -71,7 +135,7 @@ class SweepInputs(StrictModel):
     """
 
     sketch: Sketch
-    path: SweepPath
+    path: SweepPathSpec
     source_body: ResultRef | None = None
     new_body: bool = False
 
@@ -93,7 +157,7 @@ class CutSweepInputs(StrictModel):
     """
 
     sketch: Sketch
-    path: SweepPath
+    path: SweepPathSpec
     source_body: ResultRef | None = None
 
 

@@ -31,6 +31,7 @@ from cad_ir.canonical import (
     CadIrDocument,
     ChamferFeature,
     CutExtrudeFeature,
+    HelicalPath,
     CutLoftFeature,
     CutRevolveFeature,
     CutSweepFeature,
@@ -63,7 +64,9 @@ from .lofts import require_distinct_planes
 from .drafts import draft
 from .shells import shell
 from .sweeps import (
+    helix_wire,
     path_wire,
+    require_pitch_clears_the_section,
     require_bends_clear_the_profile,
     require_profile_across_path,
 )
@@ -493,15 +496,35 @@ def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
     sketch = inputs.sketch
     _check_assertions(sketch, params)
 
-    profile_plane = _sketch_plane(sketch.plane, planes, part, bodies)
+    path_plane = BASE_PLANES[str(inputs.path.plane)]
+    helical = isinstance(inputs.path, HelicalPath)
+    wire = None
+    if helical:
+        # The section's plane is the path's, not the document's. A helix's tangent at
+        # its start leans by the lead angle `atan(pitch / 2πr)`, so there is exactly
+        # one plane the section may stand on and the path has already stated the
+        # numbers that fix it. `SketchOnPathStart` is how a document says "there".
+        wire = path_plane.location * helix_wire(inputs.path, params, str(feature.id))
+        profile_plane = Plane(origin=wire @ 0, z_dir=wire % 0)
+    else:
+        profile_plane = _sketch_plane(sketch.plane, planes, part, bodies)
     face = sketch_face(sketch.outer, list(sketch.inner), params)
     placed = profile_plane.location * face
 
-    path_plane = BASE_PLANES[str(inputs.path.plane)]
-    require_profile_across_path(profile_plane, path_plane, inputs.path, params, feature.id)
-    require_bends_clear_the_profile(
-        placed, profile_plane, path_plane, inputs.path, params, feature.id
-    )
+    if helical:
+        # A spring wound tighter than its own wire passes through itself, reports
+        # valid, and returns a volume that agrees with Pappus because the overlap is
+        # counted twice on both sides. Closed-form, so refused before the kernel.
+        require_pitch_clears_the_section(
+            placed, profile_plane, path_plane.z_dir,
+            params.resolve(inputs.path.pitch, f"{feature.id} helix pitch"),
+            str(feature.id),
+        )
+    else:
+        require_profile_across_path(profile_plane, path_plane, inputs.path, params, feature.id)
+        require_bends_clear_the_profile(
+            placed, profile_plane, path_plane, inputs.path, params, feature.id
+        )
 
     is_cut = isinstance(feature, CutSweepFeature)
     if part is None and is_cut:
@@ -515,8 +538,14 @@ def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
     # coordinates and then moved to where the profile stands. The kernel would anchor
     # it there anyway; doing it here is what makes the wire in the trace the wire the
     # checks were run against.
-    wire = path_plane.location * path_wire(inputs.path, params, str(feature.id))
-    anchored = wire.moved(Location(profile_plane.origin - path_plane.origin))
+    if helical:
+        # Already built above, because the profile plane came from it. And no
+        # re-anchoring: the section is on the path's own start, so the two already
+        # meet where the document says they do.
+        anchored = wire
+    else:
+        wire = path_plane.location * path_wire(inputs.path, params, str(feature.id))
+        anchored = wire.moved(Location(profile_plane.origin - path_plane.origin))
 
     solid = sweep(placed, path=anchored)
     return solid, is_cut

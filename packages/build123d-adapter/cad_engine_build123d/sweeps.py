@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import math
 
-from build123d import Edge, Plane, Vector, Wire
+from build123d import Edge, Helix, Plane, Vector, Wire
 from cad_ir.canonical import SweepPath
 from cad_ir.sketch import ArcSegment, LineSegment
 
@@ -47,6 +47,76 @@ from .sketches import CLOSURE_TOLERANCE_MM, arc_edge, plane_distance, sketch_poi
 #: sine of the angle between them. 1e-6 is about 0.2 arc-seconds: far below anything a
 #: drawing states and far above the noise of arithmetic on stated coordinates.
 DIRECTION_TOLERANCE = 1e-6
+
+
+#: How much of the section may overlap the next turn before it is refused, in mm.
+#:
+#: Nothing: turns touching exactly is the boundary, and past it the solid passes
+#: through itself. A small slack would be inventing a clearance the drawing did not
+#: give, which is what ADR-026 refuses to let a blend do.
+_HELIX_TOUCH_TOLERANCE_MM = 0.0
+
+
+def helix_wire(path, params, feature_id: str) -> Wire:
+    """A helical path, wound about the normal of the plane it is stated on.
+
+    Five numbers and a direction, and the reason that is enough is
+    `docs/TASK-POSTMVP-P4-3-a-helix-is-not-a-3d-curve.md`: Gate P4 assumed a spring
+    needed a coordinate vocabulary, and the kernel needs `pitch`, `height`, `radius`
+    and a hand. The plane supplies the frame, exactly as it does for a planar path.
+
+    Measured: the wire's length is `turns · √((2πr)² + p²)` to 1e-10, so a swept
+    spring has a closed-form volume by Pappus.
+    """
+    pitch = params.resolve(path.pitch, f"{feature_id} helix pitch")
+    height = params.resolve(path.height, f"{feature_id} helix height")
+    radius = params.resolve(path.radius, f"{feature_id} helix radius")
+    for name, value in (("pitch", pitch), ("height", height), ("radius", radius)):
+        if value <= 0:
+            raise CadEngineError(
+                "DIMENSION_OUT_OF_RANGE",
+                "feature",
+                f"A helix {name} must be positive; {feature_id} resolves it to {value:g}.",
+            )
+    return Wire(
+        Helix(
+            pitch=pitch,
+            height=height,
+            radius=radius,
+            lefthand=path.hand == "left",
+        ).edges()
+    )
+
+
+def require_pitch_clears_the_section(face, profile_plane: Plane, axis: Vector,
+                                     pitch: float, feature_id: str) -> None:
+    """A spring wound tighter than its own wire is refused before the kernel sees it.
+
+    Measured, and it is the fifth instance of the rule ADR-033 states. A 2 mm wire on
+    a 2 mm pitch overlaps its neighbouring turn by half its diameter, and the kernel
+    returns one solid, calls it valid, and produces a volume that **matches Pappus** —
+    because the material counted twice is exactly the material the formula counts
+    twice. Nothing in the volume can see it.
+
+    The genus cross-check of POSTMVP-020 does catch it, by disagreeing with itself
+    across two exporters. But the condition is closed-form and knowable beforehand:
+    turns touch when the section's extent along the axis reaches the pitch. So it is
+    refused here with a number in it, the way `SWEEP_BEND_TIGHTER_THAN_PROFILE` is,
+    because a refusal a repair loop can read beats a genus that came out wrong.
+    """
+    forward = _reach(face, profile_plane, axis)
+    backward = _reach(face, profile_plane, -axis)
+    extent = forward + backward
+    if extent - pitch > _HELIX_TOUCH_TOLERANCE_MM:
+        raise CadEngineError(
+            "HELIX_PITCH_TIGHTER_THAN_SECTION",
+            "feature",
+            f"The path of {feature_id} advances {pitch:.4f} mm per turn while its "
+            f"section spans {extent:.4f} mm along the axis. Neighbouring turns would "
+            "pass through each other; the kernel builds it anyway, calls it valid, and "
+            "returns a volume that agrees with Pappus because the overlap is counted "
+            "twice on both sides.",
+        )
 
 
 def path_wire(path: SweepPath, params, feature_id: str) -> Wire:
