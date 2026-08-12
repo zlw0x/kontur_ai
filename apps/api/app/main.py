@@ -413,7 +413,36 @@ def _identify(request: Request) -> tuple[Principal, SessionRecord | None] | None
     manual = request.headers.get("x-manual-api-token")
     if manual and secrets.compare_digest(manual, settings.manual_api_token):
         return Principal(role=Role.OPERATOR), None
+    if settings.open_local_access:
+        # One machine, one person. Everybody is the same standing account, so an
+        # order still has an owner and every path that reads `owner_id` — the
+        # moderation queue, `may_see_order`, the quotas — keeps working unchanged
+        # rather than growing a second way to be nobody.
+        #
+        # `from_cookie` is False, so `require_principal` skips the CSRF check: there
+        # is no cookie to forge, and a browser attaches nothing to a cross-site
+        # request that would arrive here as this principal.
+        #
+        # `Settings` refuses to start with this on outside `local`.
+        return Principal(role=Role.CUSTOMER, user_id=_open_local_account()), None
     return None
+
+
+#: The account every request becomes when `open_local_access` is on.
+#:
+#: A real row rather than an invented id, because an order's `owner_id` is a foreign
+#: key into `users` — real PostgreSQL enforces it, and inventing an owner is how the
+#: defect that `test_migration_parity` was widened to catch got in. Created once and
+#: found by address afterwards.
+_OPEN_LOCAL_EMAIL = "local@localhost"
+
+
+def _open_local_account() -> uuid.UUID:
+    existing = accounts.repository.user_by_email(_OPEN_LOCAL_EMAIL)
+    if existing is not None:
+        return existing.id
+    user, _ = accounts.register(_OPEN_LOCAL_EMAIL, secrets.token_urlsafe(32))
+    return user.id
 
 
 def require_principal(request: Request) -> Principal:
@@ -580,6 +609,23 @@ def current_account(request: Request, response: Response) -> SessionResponse:
     if identified is None:
         raise HTTPException(status_code=401, detail="sign in to continue")
     principal, session = identified
+    if session is None and principal.user_id is not None and settings.open_local_access:
+        # One machine, one person: there is no session because nobody signed in, and
+        # the page still has to be told who it is talking to — otherwise it shows a
+        # sign-in card on a service that does not want one. The CSRF token is a
+        # throwaway that nothing checks: there is no cookie here to forge, and
+        # `require_principal` tests the header only for a cookie-borne write. The
+        # response model insists on a string of a credible length, and answering with
+        # a short one would be a shape nothing downstream expects.
+        local = accounts.repository.user(principal.user_id)
+        if local is not None:
+            return SessionResponse(
+                user_id=local.id,
+                email=local.email,
+                role=UserRole(local.role.value),
+                csrf_token=secrets.token_urlsafe(32),
+                expires_at=datetime.now(timezone.utc) + accounts.lifetime,
+            )
     if session is None or principal.user_id is None:
         # The manual operator key. It authenticates but it is not an account, and
         # answering with an invented user would be the exact confusion this service
@@ -1551,7 +1597,7 @@ def _hold_for_review(order_id: uuid.UUID) -> None:
     does nothing are an order already decided — cancelled while the build ran, which
     ADR-036 says stays cancelled — and an order created before there was a row.
     """
-    if settings.automatic_acceptance:
+    if not settings.hold_for_review:
         return
     order = orders.get(order_id)
     if order is None:

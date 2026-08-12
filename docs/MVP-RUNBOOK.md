@@ -171,6 +171,36 @@ Both branches are covered by tests. The `true` case is the one that used to be t
 only behaviour, and a setting whose `true` case nobody exercises stops working
 quietly.
 
+## Just look at a drawing (one machine, one person)
+
+```bash
+# in .env
+OPEN_LOCAL_ACCESS=true
+```
+
+No sign-in, no CSRF token, no moderation queue: upload a drawing, get `READY` with the
+files. Every request is the same standing `local@localhost` account, so an order still
+has an owner and everything that reads one — the queue, `may_see_order`, the quotas —
+keeps working unchanged.
+
+**It cannot be switched on outside `local`.** The API refuses to start rather than trust
+anybody to remember, because this is the one setting whose convenient value must never
+reach a deployment: with it on, every request is a signed-in customer and every build
+goes straight to whoever asks for it.
+
+Measured with it on, from an upload carrying no credential at all:
+
+```text
+POST /api/v1/drawing-jobs                        201  WAITING_FOR_LOCAL_WORKER
+  → DRAWING_ANALYSIS → build → verify            READY, 6 artifacts, 100 s
+GET  …/artifacts/STEP                            22 674 bytes, no credential
+volume 14085.8407 mm3, box [60, 30, 8], genus 2 from both exporters
+```
+
+The test suite pins it **off** whatever `.env` says (`apps/api/tests/conftest.py`).
+Turning it on made sixteen tests fail, and every one was right to: they assert that an
+unauthenticated request is refused.
+
 ## Is what is deployed built from what is checked out?
 
 ```bash

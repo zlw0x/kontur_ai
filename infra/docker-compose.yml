@@ -50,6 +50,10 @@ services:
       # for a person; with it on the order goes straight through, which is what the
       # service did before there was a queue.
       AUTOMATIC_ACCEPTANCE: ${AUTOMATIC_ACCEPTANCE:-false}
+      # One machine, one person: no sign-in and no moderation queue. Off unless the
+      # env file says otherwise, and the API refuses to start with it on when
+      # ENVIRONMENT is anything but `local` — so it cannot travel with this file.
+      OPEN_LOCAL_ACCESS: ${OPEN_LOCAL_ACCESS:-false}
       # Empty means the sanitizer's process mode, which still has RLIMIT_AS,
       # RLIMIT_CPU and a wall clock in this image because it is Linux. Production
       # names an image here; outside `local` the process mode is refused on a
