@@ -262,6 +262,12 @@ def test_the_corpus_is_what_promoted_the_operations_to_beta():
     answer while an operation had one fixture and one day behind it, and the promotion
     was always meant to be a one-line change with a corpus behind it (POSTMVP-013/014):
     several sizes, closed-form arithmetic, named refusals, byte-identical repeats.
+
+    What this asserts is the promotion **out of `experimental`**, not a particular
+    destination. Some of these have since gone further — a revolve is built by three
+    kinds of part in the corpus and is `stable` as of POSTMVP-028 — and which ones is
+    measured in `test_corpus.py` rather than listed here, so this test does not have to
+    be edited every time the corpus grows.
     """
     for key in (caps.SOLID_REVOLVE, caps.CUT_REVOLVE, caps.FEATURE_FILLET_CONSTANT,
                 caps.FEATURE_CHAMFER_EQUAL, caps.FEATURE_PATTERN_LINEAR,
@@ -269,7 +275,7 @@ def test_the_corpus_is_what_promoted_the_operations_to_beta():
                 caps.FEATURE_BODY_NEW, caps.BOOLEAN_UNION, caps.BOOLEAN_SUBTRACT,
                 caps.BOOLEAN_INTERSECT, caps.SELECTOR_EDGE_CONVEXITY,
                 caps.VALIDATE_SURFACE_FACE_COUNT):
-        assert caps.DECLARED[key].status == "beta", key
+        assert caps.DECLARED[key].status in {"beta", "stable"}, key
 
 
 def test_the_one_operation_the_corpus_does_not_vary_stays_experimental():
@@ -280,12 +286,23 @@ def test_the_one_operation_the_corpus_does_not_vary_stays_experimental():
     operation does not earn a promotion because its neighbours did.
     """
     assert caps.DECLARED[caps.FEATURE_CHAMFER_ASYMMETRIC].status == "experimental"
-    assert {declared.status for declared in caps.DECLARED.values()} == {"beta", "experimental"}
 
 
-def test_nothing_on_a_two_milestone_old_engine_claims_to_be_stable():
-    """The roadmap's bar for stable is ten positive and ten negative fixtures."""
-    assert {declared.status for declared in caps.DECLARED.values()} == {"beta", "experimental"}
+def test_a_status_is_one_of_three_words_and_nothing_else():
+    """The vocabulary, and it is the only thing this test still fixes.
+
+    It used to assert that **nothing** was `stable`, which was true while the corpus was
+    42 cases across fifteen shapes and stopped being true when it reached Gate P2's bar
+    — 100 models, 38 part types, all 100 deterministic
+    (`docs/acceptance/POSTMVP-028-*`). Which keys earned it is not decided here: it is
+    measured against the corpus by `test_corpus.py`, in both directions, so a
+    declaration cannot run ahead of the evidence and the evidence cannot quietly outgrow
+    a declaration.
+    """
+    assert {declared.status for declared in caps.DECLARED.values()} <= {
+        "experimental", "beta", "stable"
+    }
+    assert "stable" in {declared.status for declared in caps.DECLARED.values()}
 
 
 # --- there is only one vocabulary now --------------------------------------

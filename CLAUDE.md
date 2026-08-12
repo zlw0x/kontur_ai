@@ -876,9 +876,32 @@ is what is worth building next, and it is small because every number in it alrea
 — repair count, assumption count, the verification report, the claim's verdict — and it is
 what makes the moderation queue sortable rather than scannable.
 
-**Gate P1 and Gate P2 are a number, not a feature.** 65 positive corpus cases and 42
-negative against a bar of 100 models across 30 part types, which is exactly why nothing is
-declared `stable`.
+**Gate P2 is met, and it is what makes anything `stable`** (POSTMVP-028,
+`docs/acceptance/POSTMVP-028-the-corpus-reaches-gate-p2.md`). All three of its numbers:
+**100 golden models, 38 part types, 100 of 100 deterministic.** Thirty-five new cases in
+fifteen new part types — washer, spacer, nut blank, flange, gasket, hex bar, stepped
+shaft, tapered bushing, angle bracket, vee block, cross plate, counterbored cover,
+triangular gusset, slotted arm, sheet-metal flange — and **not one of them is a new
+operation**. 32 of the 35 were right at the first build; the three that were not were one
+repeated dependency mistake the contract caught.
+
+`part_type` is a **field**, because a plate at three sizes is three models and one part
+type, and a count derived from ids is a count anybody can inflate by resizing one shape.
+
+Determinism first came back 99 of 100, and the exception was worth the paragraph: a STEP
+*assembly* names its occurrences from a counter that lives **in the process**, not in the
+document. Two separate processes give byte-identical STEP and STL, labels included — and
+a worker builds one job per process. Normalised like `FILE_NAME`, and kept narrow by a
+test: the occurrence's path and both entity references may not move. Then 100 of 100.
+
+**Eighteen keys became `stable`**, by a rule asserted in both directions: a capability is
+`stable` when the corpus exercises it in **at least three distinct part types**. Three
+rather than one because this repository's defects are the kind that only appear when a
+*second* sort of part uses an operation — POSTMVP-006's multi-body boss, and the
+two-group opening claim POSTMVP-027 found on flanges after nine runs on parts with one
+hole size. A declaration can no longer drift from the corpus in either direction, which
+is what turns `stable` from an opinion into a measurement. **Gate P1 is not met**: it
+asks for 20 parameter sets per fixture and the corpus builds two or three.
 
 **What is next**, in the order the evidence supports: `thread.designation` with the
 sheet-metal manufacturing vocabulary (one contract version — they are the same kind of

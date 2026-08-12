@@ -177,49 +177,45 @@ class Declaration:
 
 #: Everything this build declares, and how far anyone should trust it.
 #:
-#: **Nothing here is stable, and everything the golden corpus covers is beta as of
-#: POSTMVP-013/014.** Revolve, the
-#: blends, the patterns, named bodies and the booleans each arrived `experimental` — on
-#: one fixture and one day — and the promotion was always meant to be a one-line change
-#: with a corpus behind it. That corpus now exists: every one of these is built at several
-#: sizes against closed-form arithmetic, refuses a named list of malformed documents with
-#: named codes, and produces byte-identical results twice in a row
-#: (`tests/golden_corpus.py`, `tests/test_corpus.py`).
+#: **The bar for `stable` is the roadmap's own, and it is now met.** Gate P2 asks for
+#: 100 golden models across 30 part types with 99% deterministic build success on a
+#: synthetic corpus. The corpus is **100 positive cases across 38 part types and 42
+#: negatives**, every expected number closed-form from the drawing, and all 100 build
+#: byte-identical twice — measured in `docs/acceptance/POSTMVP-028-*`.
 #:
-#: Not stable, and the bar for that is the roadmap's own: Gate P2 asks for 100 golden
-#: models across 30 part types and 99% deterministic build success on a synthetic corpus.
-#: Forty-two cases across fifteen part shapes is a body of evidence; it is not that gate.
+#: Meeting the gate does not promote everything, and the rule is stated so nobody has to
+#: guess: a capability is **`stable` when the corpus exercises it in at least three
+#: distinct part types.** Three rather than one because this repository's own defects are
+#: the kind that only appear when a second sort of part uses an operation — the
+#: multi-body boss of POSTMVP-006, the two-group opening claim POSTMVP-027 found on
+#: flanges — and one part type proves an operation on one shape. `test_corpus.py` asserts
+#: the rule both ways, so a declaration cannot drift from the corpus behind it.
 #:
-#: **`feature.chamfer.asymmetric` stays experimental**, alone among the operations. It is
-#: the one whose distinguishing question — which face the first distance is measured from —
-#: has no corpus case: the blended-bracket fixture exercises it and nothing varies it. An
-#: operation has not earned a promotion just because its neighbours did.
-#:
-#: Convexity is listed among the operations because it is a *predicate* rather than one,
-#: and it keeps its own switch: it is a measurement this engine makes with a dot product it
-#: wrote itself, and if that is wrong on some geometry what has to stop is every selector
-#: that trusts it — not every fillet.
+#: `beta` is therefore "the corpus builds it, on one or two kinds of part":
+#: the blends, the patterns, the booleans, named bodies, the shells, the lofts, the
+#: symmetric and drafted extrusions. `experimental` is unchanged and means what it always
+#: did — one case, written with the operation, and no run behind it.
 DECLARED: Mapping[str, Declaration] = {
-    SOLID_RECTANGULAR_PRISM: Declaration("beta"),
-    SOLID_CONTOUR_PROFILE: Declaration("beta"),
-    SOLID_REVOLVE: Declaration("beta"),
+    SOLID_RECTANGULAR_PRISM: Declaration("stable"),
+    SOLID_CONTOUR_PROFILE: Declaration("stable"),
+    SOLID_REVOLVE: Declaration("stable"),
     CUT_REVOLVE: Declaration("beta"),
-    SOLID_SWEEP: Declaration("beta"),
+    SOLID_SWEEP: Declaration("stable"),
     CUT_SWEEP: Declaration("beta"),
     SOLID_LOFT: Declaration("beta"),
     CUT_LOFT: Declaration("beta"),
     SKETCH_ARC: Declaration("beta"),
-    SKETCH_SLOT: Declaration("beta"),
-    SKETCH_REGULAR_POLYGON: Declaration("beta"),
-    SKETCH_ISLANDS: Declaration("beta"),
-    SKETCH_CONSTRUCTION: Declaration("beta"),
-    SKETCH_PLANE_BASE: Declaration("beta"),
-    SKETCH_PLANE_DATUM: Declaration("beta"),
+    SKETCH_SLOT: Declaration("stable"),
+    SKETCH_REGULAR_POLYGON: Declaration("stable"),
+    SKETCH_ISLANDS: Declaration("stable"),
+    SKETCH_CONSTRUCTION: Declaration("stable"),
+    SKETCH_PLANE_BASE: Declaration("stable"),
+    SKETCH_PLANE_DATUM: Declaration("stable"),
     SKETCH_PLANE_FACE_SELECTOR: Declaration("beta"),
     SKETCH_CONSTRAINTS: Declaration("beta"),
     SKETCH_DIMENSIONS: Declaration("beta"),
-    FEATURE_HOLE_SIMPLE_THROUGH: Declaration("beta"),
-    FEATURE_BOSS_ADDITIVE: Declaration("beta"),
+    FEATURE_HOLE_SIMPLE_THROUGH: Declaration("stable"),
+    FEATURE_BOSS_ADDITIVE: Declaration("stable"),
     FEATURE_EXTRUDE_SYMMETRIC: Declaration("beta"),
     FEATURE_EXTRUDE_DRAFT: Declaration("beta"),
     FEATURE_EXTRUDE_UNTIL_FACE: Declaration("experimental"),
@@ -242,13 +238,13 @@ DECLARED: Mapping[str, Declaration] = {
     # earned it: some walls of a block, and the outer wall of a turned part.
     FEATURE_DRAFT: Declaration("experimental"),
     SELECTOR_EDGE_CONVEXITY: Declaration("beta"),
-    EXPORT_STEP: Declaration("beta"),
-    EXPORT_STL: Declaration("beta"),
-    VALIDATE_MANIFOLD: Declaration("beta"),
-    VALIDATE_BOUNDING_BOX: Declaration("beta"),
-    VALIDATE_HOLE_COUNT: Declaration("beta"),
+    EXPORT_STEP: Declaration("stable"),
+    EXPORT_STL: Declaration("stable"),
+    VALIDATE_MANIFOLD: Declaration("stable"),
+    VALIDATE_BOUNDING_BOX: Declaration("stable"),
+    VALIDATE_HOLE_COUNT: Declaration("stable"),
     VALIDATE_SURFACE_FACE_COUNT: Declaration("beta"),
-    VALIDATE_TOPOLOGY: Declaration("beta"),
+    VALIDATE_TOPOLOGY: Declaration("stable"),
 }
 
 #: Every key this build knows about, so a flag naming something else is refused

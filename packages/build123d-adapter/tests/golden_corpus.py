@@ -32,7 +32,7 @@ drawing, and they are the reason this generator can be trusted to be dumb.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from cad_ir.canonical import CAD_IR_VERSION
@@ -52,6 +52,13 @@ class Case:
     #: cannot be named is a figure somebody typed to make a test pass.
     arithmetic: str
     bodies: int = 1
+    #: What a reader would call this part, and it is Gate P2's second number: "100
+    #: golden models, **30 part types**". A count of documents is not a count of shapes
+    #: -- a plate at three sizes is one part type and three cases -- so the type is
+    #: stated rather than inferred from an id, and `test_corpus.py` counts the distinct
+    #: ones. Families set it wholesale in `positives()`; a case that differs from its
+    #: family says so itself.
+    part_type: str = ""
     #: What the finished solid is made of, as (faces, edges, vertices), when the
     #: drawing settles it. Closed-form like the volume: a box is 6 faces, 12 edges and
     #: 8 vertices, and every round through hole adds one face, **three** edges and two
@@ -1402,15 +1409,454 @@ def kept_tool() -> Case:
     )
 
 
+# ---------------------------------------------------------------------------
+# Gate P2's part types
+#
+# "100 golden models, 30 part types" is two numbers, and the second is the one that
+# makes the first mean something: a plate at three sizes is three models and one part
+# type. The families below are the shapes a reader would name differently -- a washer is
+# not a spacer and a nut blank is not a hex bar -- and every one of them is built out of
+# the operations the corpus already exercises. None of them is here to raise a count:
+# each is a shape somebody orders, with a closed form that comes off its drawing.
+# ---------------------------------------------------------------------------
+
+
+def _hexagon_area(circumradius: float) -> float:
+    """A regular n-gon of circumradius R has area ½ n R² sin(2π/n); n = 6 here."""
+    return 0.5 * 6 * circumradius**2 * math.sin(2 * math.pi / 6)
+
+
+def _turned_parts() -> list[Case]:
+    """Parts a lathe makes: a step in a diameter, and a taper in one.
+
+    A stepped shaft is two coaxial extrusions, so its volume is the sum of two cylinders
+    and nothing is shared. A tapered bushing is a revolve of an annular trapezoid, whose
+    volume is the frustum rule less the bore: `πh/3 (R₁² + R₁R₂ + R₂²) − πr²h`.
+
+    Both keep clear of the axis, which is what `require_profile_clear_of_axis` asks and
+    what an annular profile gives for free.
+    """
+    cases: list[Case] = []
+
+    for shank_r, shank_h, head_r, head_h in (
+        (8.0, 40.0, 14.0, 6.0),
+        (5.0, 25.0, 9.0, 4.0),
+        (12.0, 60.0, 20.0, 10.0),
+    ):
+        datum = {"id": "feature.step", "type": "datum.plane.offset", "enabled": True,
+                 "depends_on": ["feature.shank"],
+                 "produces": [{"id": "plane.step", "kind": "plane"}],
+                 "inputs": {"base": "XY", "offset_mm": shank_h, "flip": False}}
+        head = extrude("feature.head", None, head_h, circle(head_r),
+                       depends=["feature.shank", "feature.step"],
+                       plane={"on": "datum", "plane": {"result": "plane.step"}})
+        cases.append(Case(
+            id=f"stepped-shaft-{shank_r:g}x{head_r:g}",
+            part_type="stepped shaft",
+            document=document(
+                "stepped-shaft",
+                [extrude("feature.shank", "body.main", shank_h, circle(shank_r)),
+                 datum, head],
+                (2 * max(shank_r, head_r), 2 * max(shank_r, head_r), shank_h + head_h),
+                holes=0),
+            volume_mm3=math.pi * shank_r**2 * shank_h + math.pi * head_r**2 * head_h,
+            arithmetic=(f"π×{shank_r:g}²×{shank_h:g} + π×{head_r:g}²×{head_h:g} — two "
+                        "coaxial cylinders, the second landing on the first"),
+        ))
+
+    for big, small, bore, height in (
+        (20.0, 14.0, 8.0, 30.0),
+        (16.0, 10.0, 5.0, 20.0),
+        (25.0, 25.0, 12.0, 18.0),      # no taper: the frustum rule degenerates to a tube
+    ):
+        axis = {"type": "line", "id": "axis.centre", "start": [0.0, 0.0],
+                "end": [0.0, height]}
+        profile = {"type": "path", "segments": [
+            {"type": "line", "start": [bore, 0.0], "end": [big, 0.0]},
+            {"type": "line", "start": [big, 0.0], "end": [small, height]},
+            {"type": "line", "start": [small, height], "end": [bore, height]},
+            {"type": "line", "start": [bore, height], "end": [bore, 0.0]},
+        ]}
+        feature = {
+            "id": "feature.bushing", "type": "solid.revolve", "enabled": True,
+            "depends_on": [], "produces": [{"id": "body.main", "kind": "solid_body"}],
+            "inputs": {
+                "sketch": sketch("section", profile, plane={"on": "base", "plane": "XZ"},
+                                 construction=[axis]),
+                "axis": {"kind": "construction_line", "entity": "axis.centre"},
+                "angle_deg": 360.0,
+            },
+        }
+        frustum = math.pi * height / 3 * (big**2 + big * small + small**2)
+        cases.append(Case(
+            id=f"tapered-bushing-{big:g}-{small:g}",
+            part_type="tapered bushing",
+            document=document("tapered-bushing", [feature],
+                              (2 * big, 2 * big, height), holes=1),
+            volume_mm3=frustum - math.pi * bore**2 * height,
+            arithmetic=(f"π×{height:g}/3 × ({big:g}² + {big:g}·{small:g} + {small:g}²) "
+                        f"− π×{bore:g}²×{height:g} — the frustum rule less the bore"),
+        ))
+    return cases
+
+
+def _ring_parts() -> list[Case]:
+    """Everything that is a disc with something taken out of the middle.
+
+    Four part types share one piece of arithmetic — `π(R² − r²)t` — and are still four
+    parts: a washer is thin and plain, a spacer is tall, a nut blank is hexagonal
+    outside, and a flange carries a bolt circle. The fifth, a gasket, is a flange thin
+    enough that nobody would machine it.
+    """
+    cases: list[Case] = []
+
+    for outer, bore, thickness in ((20.0, 10.5, 3.0), (12.0, 6.5, 2.0), (30.0, 16.0, 4.0)):
+        cases.append(Case(
+            id=f"washer-{outer:g}x{bore:g}",
+            part_type="washer",
+            document=document(
+                "washer",
+                [extrude("feature.washer", "body.main", thickness,
+                         circle(outer), [circle(bore)])],
+                (2 * outer, 2 * outer, thickness), holes=1),
+            volume_mm3=math.pi * (outer**2 - bore**2) * thickness,
+            arithmetic=f"π({outer:g}² − {bore:g}²) × {thickness:g}",
+            topology=(4, 6, 4),
+        ))
+
+    for outer, bore, height in ((8.0, 3.2, 25.0), (6.0, 2.6, 15.0)):
+        cases.append(Case(
+            id=f"spacer-{outer:g}x{height:g}",
+            part_type="spacer",
+            document=document(
+                "spacer",
+                [extrude("feature.spacer", "body.main", height,
+                         circle(outer), [circle(bore)])],
+                (2 * outer, 2 * outer, height), holes=1),
+            volume_mm3=math.pi * (outer**2 - bore**2) * height,
+            arithmetic=f"π({outer:g}² − {bore:g}²) × {height:g}",
+            topology=(4, 6, 4),
+        ))
+
+    for across, bore, thickness in ((16.0, 10.0, 8.0), (11.0, 6.5, 5.0)):
+        cases.append(Case(
+            id=f"nut-blank-{across:g}",
+            part_type="nut blank",
+            document=document(
+                "nut-blank",
+                [extrude("feature.blank", "body.main", thickness,
+                         polygon(6, across), [circle(bore)])],
+                (2 * across, across * math.sqrt(3), thickness), holes=1),
+            volume_mm3=(_hexagon_area(across) - math.pi * bore**2) * thickness,
+            arithmetic=(f"(½·6·{across:g}²·sin60° − π×{bore:g}²) × {thickness:g} — a "
+                        "hexagon of circumradius R has area ½ n R² sin(2π/n)"),
+        ))
+
+    for outer, bore, bolts, bolt_r, pcd, thickness in (
+        (45.0, 20.0, 4, 3.0, 68.0, 8.0),
+        (35.0, 16.0, 6, 2.5, 54.0, 6.0),
+        (60.0, 30.0, 8, 4.0, 92.0, 10.0),
+    ):
+        rim = pcd / 2 + bolt_r + 4.0
+        islands = [circle(bore)] + [
+            circle(bolt_r, (pcd / 2 * math.cos(2 * math.pi * i / bolts),
+                            pcd / 2 * math.sin(2 * math.pi * i / bolts)))
+            for i in range(bolts)
+        ]
+        cases.append(Case(
+            id=f"flange-{bolts:g}-bolt",
+            part_type="flange",
+            document=document(
+                "flange",
+                [extrude("feature.flange", "body.main", thickness, circle(rim), islands)],
+                (2 * rim, 2 * rim, thickness), holes=1 + bolts),
+            volume_mm3=math.pi * (rim**2 - bore**2 - bolts * bolt_r**2) * thickness,
+            arithmetic=(f"π({rim:g}² − {bore:g}² − {bolts}×{bolt_r:g}²) × {thickness:g} "
+                        f"— a rim, a bore and {bolts} bolt holes on a Ø{pcd:g} circle"),
+        ))
+        del outer
+
+    for rim, bore, bolts, bolt_r, pcd, thickness in (
+        (40.0, 24.0, 6, 3.0, 62.0, 1.5),
+        (28.0, 18.0, 4, 2.5, 44.0, 2.0),
+    ):
+        islands = [circle(bore)] + [
+            circle(bolt_r, (pcd / 2 * math.cos(2 * math.pi * i / bolts),
+                            pcd / 2 * math.sin(2 * math.pi * i / bolts)))
+            for i in range(bolts)
+        ]
+        outer_r = pcd / 2 + bolt_r + 3.0
+        cases.append(Case(
+            id=f"gasket-{bolts:g}-hole",
+            part_type="gasket",
+            document=document(
+                "gasket",
+                [extrude("feature.gasket", "body.main", thickness,
+                         circle(outer_r), islands)],
+                (2 * outer_r, 2 * outer_r, thickness), holes=1 + bolts),
+            volume_mm3=math.pi * (outer_r**2 - bore**2 - bolts * bolt_r**2) * thickness,
+            arithmetic=(f"π({outer_r:g}² − {bore:g}² − {bolts}×{bolt_r:g}²) × "
+                        f"{thickness:g} — the same arithmetic as a flange, at 1/5 the "
+                        "thickness"),
+        ))
+        del rim
+    return cases
+
+
+def _prismatic_parts() -> list[Case]:
+    """Parts that are one profile and one thickness, and are still seven different parts.
+
+    Every volume here is `area × thickness` with the area written out from the drawing:
+    a hexagon by `½ n R² sin(2π/n)`, an angle by two rectangles less their overlap, a
+    cross by `2Lw − w²`, a right triangle by `½ab`, a slot by `πr² + 2rL`.
+    """
+    cases: list[Case] = []
+
+    for across, thickness in ((14.0, 30.0), (9.0, 18.0)):
+        cases.append(Case(
+            id=f"hex-bar-{across:g}",
+            part_type="hex bar",
+            document=document(
+                "hex-bar",
+                [extrude("feature.bar", "body.main", thickness, polygon(6, across))],
+                (2 * across, across * math.sqrt(3), thickness), holes=0),
+            volume_mm3=_hexagon_area(across) * thickness,
+            arithmetic=f"½·6·{across:g}²·sin60° × {thickness:g}",
+            topology=(8, 18, 12),
+        ))
+
+    for leg_a, leg_b, web, thickness in ((60.0, 40.0, 8.0, 30.0), (45.0, 45.0, 6.0, 20.0)):
+        angle = {"type": "path", "segments": [
+            {"type": "line", "start": [0.0, 0.0], "end": [leg_a, 0.0]},
+            {"type": "line", "start": [leg_a, 0.0], "end": [leg_a, web]},
+            {"type": "line", "start": [leg_a, web], "end": [web, web]},
+            {"type": "line", "start": [web, web], "end": [web, leg_b]},
+            {"type": "line", "start": [web, leg_b], "end": [0.0, leg_b]},
+            {"type": "line", "start": [0.0, leg_b], "end": [0.0, 0.0]},
+        ]}
+        cases.append(Case(
+            id=f"angle-bracket-{leg_a:g}x{leg_b:g}",
+            part_type="angle bracket",
+            document=document(
+                "angle-bracket",
+                [extrude("feature.angle", "body.main", thickness, angle)],
+                (leg_a, leg_b, thickness), holes=0),
+            volume_mm3=(leg_a * web + (leg_b - web) * web) * thickness,
+            arithmetic=(f"({leg_a:g}·{web:g} + ({leg_b:g}−{web:g})·{web:g}) × "
+                        f"{thickness:g} — two rectangles less the corner they share"),
+        ))
+
+    for width, depth, block_t, groove_b, groove_d in (
+        (60.0, 40.0, 30.0, 24.0, 12.0),
+        (44.0, 30.0, 22.0, 18.0, 9.0),
+    ):
+        vee = {"type": "path", "segments": [
+            {"type": "line", "start": [-groove_b / 2, block_t],
+             "end": [0.0, block_t - groove_d]},
+            {"type": "line", "start": [0.0, block_t - groove_d],
+             "end": [groove_b / 2, block_t]},
+            {"type": "line", "start": [groove_b / 2, block_t],
+             "end": [-groove_b / 2, block_t]},
+        ]}
+        groove = {"id": "feature.vee", "type": "cut.extrude", "enabled": True,
+                  "depends_on": ["feature.block"], "produces": [],
+                  "inputs": {"sketch": sketch("vee", vee,
+                                              plane={"on": "base", "plane": "XZ"}),
+                             "direction": "+Y", "through_all": True,
+                             "source_body": {"result": "body.main"}}}
+        cases.append(Case(
+            id=f"vee-block-{width:g}x{depth:g}",
+            part_type="vee block",
+            document=document(
+                "vee-block",
+                [extrude("feature.block", "body.main", block_t,
+                         rectangle(width, depth, (0.0, depth / 2))),
+                 groove],
+                (width, depth, block_t), holes=0),
+            volume_mm3=width * depth * block_t - 0.5 * groove_b * groove_d * depth,
+            arithmetic=(f"{width:g}·{depth:g}·{block_t:g} − ½·{groove_b:g}·{groove_d:g}"
+                        f"·{depth:g} — a triangular groove run the length of the block"),
+        ))
+
+    for span, arm, thickness in ((80.0, 20.0, 6.0), (60.0, 16.0, 5.0)):
+        half, harm = span / 2, arm / 2
+        cross = {"type": "path", "segments": [
+            {"type": "line", "start": [-harm, -half], "end": [harm, -half]},
+            {"type": "line", "start": [harm, -half], "end": [harm, -harm]},
+            {"type": "line", "start": [harm, -harm], "end": [half, -harm]},
+            {"type": "line", "start": [half, -harm], "end": [half, harm]},
+            {"type": "line", "start": [half, harm], "end": [harm, harm]},
+            {"type": "line", "start": [harm, harm], "end": [harm, half]},
+            {"type": "line", "start": [harm, half], "end": [-harm, half]},
+            {"type": "line", "start": [-harm, half], "end": [-harm, harm]},
+            {"type": "line", "start": [-harm, harm], "end": [-half, harm]},
+            {"type": "line", "start": [-half, harm], "end": [-half, -harm]},
+            {"type": "line", "start": [-half, -harm], "end": [-harm, -harm]},
+            {"type": "line", "start": [-harm, -harm], "end": [-harm, -half]},
+        ]}
+        cases.append(Case(
+            id=f"cross-plate-{span:g}",
+            part_type="cross plate",
+            document=document(
+                "cross-plate",
+                [extrude("feature.cross", "body.main", thickness, cross)],
+                (span, span, thickness), holes=0),
+            volume_mm3=(2 * span * arm - arm**2) * thickness,
+            arithmetic=(f"(2·{span:g}·{arm:g} − {arm:g}²) × {thickness:g} — two arms "
+                        "less the square they cross in"),
+        ))
+
+    for width, height, thickness, bore, counter, depth in (
+        (70.0, 50.0, 12.0, 5.0, 9.0, 4.0),
+        (50.0, 50.0, 10.0, 4.0, 8.0, 3.0),
+    ):
+        cases.append(Case(
+            id=f"counterbored-cover-{width:g}x{height:g}",
+            part_type="counterbored cover",
+            document=document(
+                "counterbored-cover",
+                [extrude("feature.cover", "body.main", thickness,
+                         rectangle(width, height)),
+                 cut("feature.bore", circle(bore), ["feature.cover"]),
+                 cut("feature.counterbore", circle(counter),
+                     ["feature.cover", "feature.bore"], distance=depth)],
+                (width, height, thickness), holes=1),
+            volume_mm3=(width * height * thickness - math.pi * bore**2 * thickness
+                        - math.pi * (counter**2 - bore**2) * depth),
+            arithmetic=(f"plate − π×{bore:g}²×{thickness:g} − "
+                        f"π({counter:g}² − {bore:g}²)×{depth:g} — a through hole and the "
+                        "ring the counterbore takes off the top of it"),
+        ))
+
+    for base, rise, thickness in ((70.0, 50.0, 8.0), (40.0, 40.0, 6.0)):
+        gusset = {"type": "path", "segments": [
+            {"type": "line", "start": [0.0, 0.0], "end": [base, 0.0]},
+            {"type": "line", "start": [base, 0.0], "end": [0.0, rise]},
+            {"type": "line", "start": [0.0, rise], "end": [0.0, 0.0]},
+        ]}
+        cases.append(Case(
+            id=f"gusset-{base:g}x{rise:g}",
+            part_type="triangular gusset",
+            document=document(
+                "gusset",
+                [extrude("feature.gusset", "body.main", thickness, gusset)],
+                (base, rise, thickness), holes=0),
+            volume_mm3=0.5 * base * rise * thickness,
+            arithmetic=f"½·{base:g}·{rise:g} × {thickness:g}",
+            topology=(5, 9, 6),
+        ))
+
+    for width, height, thickness, slot_r, slot_len in (
+        (120.0, 40.0, 6.0, 5.0, 30.0),
+        (90.0, 30.0, 5.0, 4.0, 20.0),
+    ):
+        cases.append(Case(
+            id=f"slotted-arm-{width:g}",
+            part_type="slotted arm",
+            document=document(
+                "slotted-arm",
+                [extrude("feature.arm", "body.main", thickness, rectangle(width, height),
+                         [slot(slot_r, slot_len, (-width / 4, 0.0)),
+                          slot(slot_r, slot_len, (width / 4, 0.0))])],
+                (width, height, thickness), holes=2),
+            volume_mm3=(width * height - 2 * (math.pi * slot_r**2 + 2 * slot_r * slot_len))
+            * thickness,
+            arithmetic=(f"({width:g}·{height:g} − 2×(π×{slot_r:g}² + "
+                        f"2·{slot_r:g}·{slot_len:g})) × {thickness:g} — a slot is a "
+                        "circle and a rectangle"),
+        ))
+    return cases
+
+
+def _folded_parts() -> list[Case]:
+    """A sheet-metal flange, which is a swept rectangle and nothing new.
+
+    `docs/TASK-POSTMVP-closing-the-remaining-stages.md` measured this: the folded part of
+    stage P6 already builds, and **uniform thickness is a property of the construction
+    rather than a check**, because the swept section never changes. What P6 is still
+    missing is the flat pattern and the manufacturing vocabulary around it, neither of
+    which changes the folded solid — three K-factors give three blanks and one part.
+
+    The volume is the section times the path, which is Pappus with the centroid on the
+    path. The box is the outer wall of the bend: `leg + t/2` each way.
+    """
+    cases: list[Case] = []
+    for thickness, width, inner, leg in (
+        (2.0, 60.0, 3.0, 40.0),
+        (1.5, 40.0, 2.0, 30.0),
+        (3.0, 80.0, 5.0, 55.0),
+    ):
+        centre = inner + thickness / 2
+        path_length = 2 * (leg - centre) + (math.pi / 2) * centre
+        feature = {
+            "id": "feature.flange", "type": "solid.sweep", "enabled": True,
+            "depends_on": [], "produces": [{"id": "body.main", "kind": "solid_body"}],
+            "inputs": {
+                "sketch": sketch("section", rectangle(width, thickness),
+                                 plane={"on": "base", "plane": "YZ"}),
+                "path": {"id": "path.spine", "plane": "XZ", "segments": [
+                    {"type": "line", "start": [0.0, 0.0], "end": [leg - centre, 0.0]},
+                    {"type": "arc", "start": [leg - centre, 0.0], "end": [leg, centre],
+                     "center": [leg - centre, centre], "sweep": "ccw"},
+                    {"type": "line", "start": [leg, centre],
+                     "end": [leg, centre + (leg - centre)]}]},
+            },
+        }
+        cases.append(Case(
+            id=f"sheet-flange-{thickness:g}x{leg:g}",
+            part_type="sheet-metal flange",
+            document=document("sheet-flange", [feature],
+                              (leg + thickness / 2, width, leg + thickness / 2),
+                              holes=0),
+            volume_mm3=width * thickness * path_length,
+            arithmetic=(f"{width:g}·{thickness:g} × (2×({leg:g}−{centre:g}) + "
+                        f"π/2×{centre:g}) — the section times the path it travels"),
+        ))
+    return cases
+
+
+def _typed(part_type: str, cases: list[Case]) -> list[Case]:
+    """Name the kind of part a family builds, without overwriting a case that differs.
+
+    Gate P2 asks for part *types* as well as models, and a count nobody can check is not
+    a gate. Setting it per family keeps it one line where a family is one kind of part,
+    and a case that is something else -- a bent tube among the straight sweeps -- states
+    its own and is left alone.
+    """
+    return [case if case.part_type else replace(case, part_type=part_type)
+            for case in cases]
+
+
 def positives() -> list[Case]:
     """Every positive case, in a stable order."""
     return [
-        *_plates(), *_discs(), *_polygons(), *_slots(), *_paths(), *_holes(),
-        *_blind_hole(),
-        *_cut_shapes(), *_bosses(), *_face_selector(), *_revolves(), *_fillets(),
-        *_chamfers(), *_patterns(), *_grid_and_mirror(), *_extrude_modes(),
-        *_until_face(), *_helices(), *_shells(),
-        *_drafts(), *_sweeps(), *_lofts(), *_bodies_and_booleans(),
+        *_typed("plate", _plates()),
+        *_typed("disc", _discs()),
+        *_typed("polygon plate", _polygons()),
+        *_typed("slotted plate", _slots()),
+        *_typed("profiled plate", _paths()),
+        *_typed("perforated plate", _holes()),
+        *_typed("pocketed plate", _blind_hole()),
+        *_typed("cut-out plate", _cut_shapes()),
+        *_typed("boss plate", _bosses()),
+        *_typed("faced bracket", _face_selector()),
+        *_typed("turned ring", _revolves()),
+        *_typed("filleted plate", _fillets()),
+        *_typed("chamfered plate", _chamfers()),
+        *_typed("patterned plate", _patterns()),
+        *_typed("grid plate", _grid_and_mirror()),
+        *_typed("tapered block", _extrude_modes()),
+        *_typed("bored plate", _until_face()),
+        *_typed("spring", _helices()),
+        *_typed("enclosure", _shells()),
+        *_typed("drafted boss", _drafts()),
+        *_typed("swept tube", _sweeps()),
+        *_typed("lofted transition", _lofts()),
+        *_typed("multi-body bracket", _bodies_and_booleans()),
+        *_turned_parts(),
+        *_ring_parts(),
+        *_prismatic_parts(),
+        *_folded_parts(),
     ]
 
 
