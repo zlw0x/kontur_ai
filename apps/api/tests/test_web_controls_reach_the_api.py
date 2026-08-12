@@ -61,6 +61,12 @@ LOCAL_ONLY: dict[str, str] = {
     "authEmail": "sent to /auth/sign-in and /auth/register",
     "authPassword": "sent to /auth/sign-in and /auth/register",
     "authTotp": "sent to /auth/sign-in",
+    # Whether the sign-in form is showing the second-factor field at all. Purely a
+    # browser decision: only operators and administrators have a second factor, and
+    # the API answers a missing code and a wrong password with the same words on
+    # purpose, so nothing can be asked of it to decide this. A customer never meets
+    # the field; an operator asks for it with a click that discloses nothing.
+    "staffSignIn": "whether the second-factor field is shown; decided in the browser",
     # The one control that is genuinely local and is labelled as such.
     #
     # It decides which of the delivered files the download button hands over, and

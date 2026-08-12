@@ -201,3 +201,49 @@ Verified afterwards in the browser, on the same sequence that produced the 403:
 demonstration banner and no error.
 
 **1014 python, typecheck clean, OpenAPI unchanged, all three images current.**
+
+---
+
+## The fourth: signed in at one address, refused at another
+
+Reported again after the CSRF fix, and it is a different defect with the same words.
+Reproduced by opening the site at `http://127.0.0.1:3000` while the API is named
+`http://localhost:8000`:
+
+```text
+POST /api/v1/auth/register   201   the account, in the body
+document.cookie              (none)
+GET  /api/v1/auth/me         401   sign in to continue
+```
+
+`127.0.0.1` and `localhost` are **different hosts**, and a session is a cookie, and a
+cookie belongs to a host. The browser accepted the answer and refused the cookie. The
+page then showed the customer as signed in — because it took the reply as proof — and
+everything they did afterwards was 401.
+
+Three things were wrong, and each one alone is enough to lose an afternoon.
+
+**The API address was baked in and the page's address was not.**
+`NEXT_PUBLIC_API_URL` is fixed when the image is built, so a local deployment carries
+`http://localhost:8000` whatever anybody later types into the address bar. `apiBase()`
+now follows the page's own hostname **when the configured host is a loopback name** —
+a local deployment, never a production domain, which is left exactly as configured.
+
+**The page believed a reply instead of checking.** `setSession(...)` came straight from
+the register/sign-in body. It is not proof: the body says who you are, the cookie says
+whether the browser kept you. Sign-in now confirms with `/auth/me` before it claims
+anything, and when the cookie did not survive it says so in a sentence somebody can act
+on — which address to open — instead of leaving them signed in as nobody.
+
+**The staff field was shown to everybody.** "Код из приложения *(для сотрудников)*" sat
+on the only way in, under a comment claiming it was optional "so a customer is not shown
+a field they can never fill". It cannot be asked for on demand — the API answers a
+missing code and a wrong password with the same words on purpose, so nothing can learn
+from the difference — so it is behind "Я сотрудник — нужен код подтверждения". A
+customer never meets it; the click happens in the browser and discloses nothing.
+
+Verified at both addresses after the fix. At `http://127.0.0.1:3000`: register through
+the form, cookie kept, `/auth/me` 200, upload accepted, order id in the address bar, no
+banner and no error.
+
+**1015 python, typecheck clean, web builds, all three images current.**

@@ -4,7 +4,39 @@ import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "reac
 import StlPreview from "./stl-preview";
 import LandingPage from "./landing-page";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const CONFIGURED_API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+/** Hosts that mean "this machine" and are nevertheless different hosts to a browser. */
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/**
+ * Where the API is, from where this page is actually being read.
+ *
+ * `NEXT_PUBLIC_API_URL` is baked in when the image is built, so a local deployment
+ * carries `http://localhost:8000` whatever address somebody later types. Open the
+ * site at `http://127.0.0.1:3000` and every request goes to a **different host** —
+ * and the session is a cookie, and a cookie belongs to a host. The browser refuses
+ * to keep it, `POST /auth/register` still answers **201** with the account in its
+ * body, the page believes it is signed in, and every request after that is 401
+ * `sign in to continue`. Measured, and it is exactly what a customer reported.
+ *
+ * So when the configured host is a loopback name — a local deployment, never a
+ * production domain — the page follows its own hostname and keeps both halves on
+ * one host. A real domain is left exactly as configured.
+ */
+function apiBase(): string {
+  if (typeof window === "undefined") return CONFIGURED_API;
+  try {
+    const url = new URL(CONFIGURED_API);
+    if (LOOPBACK.has(url.hostname) && window.location.hostname !== url.hostname) {
+      url.hostname = window.location.hostname;
+      return url.origin;
+    }
+    return CONFIGURED_API;
+  } catch {
+    return CONFIGURED_API;
+  }
+}
 
 /**
  * The CSRF token the browser is holding right now.
@@ -155,6 +187,7 @@ export default function Home() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authTotp, setAuthTotp] = useState("");
+  const [staffSignIn, setStaffSignIn] = useState(false);
   const [authMode, setAuthMode] = useState<"sign-in" | "register">("sign-in");
 
   /**
@@ -192,7 +225,7 @@ export default function Home() {
       const current = csrfFromCookie();
       if (current) headers.set("x-csrf-token", current);
       else if (session) headers.set("x-csrf-token", session.csrf_token);
-      return fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
+      return fetch(`${apiBase()}${path}`, { ...init, headers, credentials: "include" });
     };
 
     const first = await send();
@@ -202,7 +235,7 @@ export default function Home() {
     // succeeds and the customer never learns that anything happened. If it fails
     // again the session is genuinely gone, and `signedOut` puts the way back in
     // front of them instead of an API string they cannot act on.
-    const recovered = await fetch(`${API_URL}/api/v1/auth/me`, {
+    const recovered = await fetch(`${apiBase()}/api/v1/auth/me`, {
       credentials: "include",
       cache: "no-store",
     });
@@ -232,7 +265,7 @@ export default function Home() {
     // back without making anybody sign in again.
     void (async () => {
       try {
-        const response = await fetch(`${API_URL}/api/v1/auth/me`, {
+        const response = await fetch(`${apiBase()}/api/v1/auth/me`, {
           credentials: "include",
           cache: "no-store",
         });
@@ -403,14 +436,36 @@ export default function Home() {
         authMode === "register"
           ? { email: authEmail, password: authPassword }
           : { email: authEmail, password: authPassword, ...(authTotp ? { totp: authTotp } : {}) };
-      const response = await fetch(`${API_URL}${path}`, {
+      const response = await fetch(`${apiBase()}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error(await safeError(response));
-      setSession((await response.json()) as Session);
+      const issued = (await response.json()) as Session;
+
+      // Confirmed before it is believed, and this is the check that was missing.
+      //
+      // The reply carries the account, so the page used to take it as proof and
+      // show somebody as signed in. It is not proof: the session is a **cookie**,
+      // and a browser can accept the answer and refuse the cookie — which is
+      // exactly what happens when the page and the API are on different hosts.
+      // 201, an email on the screen, and 401 on everything afterwards. Asking
+      // `/auth/me` costs one request and turns a silent dead end into a sentence.
+      const confirmedSession = await fetch(`${apiBase()}/api/v1/auth/me`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!confirmedSession.ok) {
+        throw new Error(
+          "Аккаунт создан, но браузер не сохранил сеанс. Так бывает, когда сайт " +
+          "открыт по одному адресу, а сервис отвечает по другому, или когда " +
+          `браузер блокирует сторонние cookie. Откройте ${window.location.protocol}//` +
+          `${window.location.hostname}:3000 и войдите ещё раз.`
+        );
+      }
+      setSession(((await confirmedSession.json()) as Session) ?? issued);
       // Cleared at once. The password has no reason to stay in this component's
       // state after it has been sent, and React state is readable from a devtools
       // pane sitting open on somebody's desk.
@@ -851,19 +906,41 @@ export default function Home() {
                   onChange={(event) => setAuthPassword(event.target.value)}
                 />
               </label>
+              {/*
+                Only operators and administrators have a second factor, and the
+                comment that used to sit here said this field was optional "so a
+                customer is not shown a field they can never fill" — while showing
+                it to every one of them, on the only way in, labelled with a word
+                about staff. A customer reading that has to decide whether they are
+                one, on a form where the wrong answer looks like a locked door.
+
+                It cannot be asked for on demand: the API answers a missing code and
+                a wrong password with the same words on purpose, so that nothing
+                learns from the difference. So it is behind a switch. A customer
+                never meets it; an operator clicks once, and a click discloses
+                nothing because it happens in the browser.
+              */}
               {authMode === "sign-in" && (
-                <label>
-                  {/* Only operators and administrators have one. Optional here so
-                      a customer is not shown a field they can never fill. */}
-                  <span>Код из приложения <em>(для сотрудников)</em></span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={authTotp}
-                    onChange={(event) => setAuthTotp(event.target.value)}
-                  />
-                </label>
+                staffSignIn ? (
+                  <label>
+                    <span>Код из приложения для входа</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={authTotp}
+                      onChange={(event) => setAuthTotp(event.target.value)}
+                    />
+                  </label>
+                ) : (
+                  <button
+                    type="button"
+                    className="link-button auth-staff-toggle"
+                    onClick={() => setStaffSignIn(true)}
+                  >
+                    Я сотрудник — нужен код подтверждения
+                  </button>
+                )
               )}
             </div>
             {authMode === "register" && (
@@ -908,7 +985,7 @@ export default function Home() {
                 </div>
               ) : (
                 <StlPreview
-                  url={stl ? `${API_URL}${stl.download_url}` : undefined}
+                  url={stl ? `${apiBase()}${stl.download_url}` : undefined}
                   token={token}
                   local={!authed || !stl}
                   dimensions={dimensions}
