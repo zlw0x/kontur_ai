@@ -171,6 +171,29 @@ Both branches are covered by tests. The `true` case is the one that used to be t
 only behaviour, and a setting whose `true` case nobody exercises stops working
 quietly.
 
+## Is what is deployed built from what is checked out?
+
+```bash
+python scripts/check_deployment.py
+```
+
+Run it after `docker compose up` and before believing anything. Three images make up
+this service and **two of them were stale on the same day**, in ways that looked like
+nothing at all:
+
+- the engine image spoke CAD-IR 1.12 against a contract at 1.15, so every document was
+  refused at its first line — a worker that registers, heartbeats and then fails. Third
+  time (`P0-RUN-2026-08-09`, `-09b`, `-12`);
+- the web image was built before accounts existed, so the studio had **no way to sign
+  in**. Every visitor saw "the drawing was not sent and no model was built" and
+  downloads stayed disabled. Nine days, and the only symptom was a page that looked
+  finished.
+
+Neither is a crash and neither is visible to a test suite, because a suite runs against
+the working tree and the bug is that the deployment does not. The check asks each
+component what it *is* — the engine through `describe`, the API through `/auth/me`, the
+web by reading the scripts the page actually serves — rather than trusting a tag.
+
 ## Smoke test
 
 Open the web page, sign in (or register — it signs you in), and either press

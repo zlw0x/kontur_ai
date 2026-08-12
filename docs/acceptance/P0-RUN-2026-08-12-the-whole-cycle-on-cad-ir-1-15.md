@@ -101,3 +101,57 @@ docker run --rm --read-only --network none --tmpfs /tmp cad-ai/cad-worker:latest
 
 If `cad_ir_version` there disagrees with `cad_ir.canonical.CAD_IR_VERSION`, the image is
 stale and nothing is wrong with the code.
+
+---
+
+## The second stale image, and the one that had been stale for nine days
+
+The studio told every visitor:
+
+> Чертёж **не отправлялся** и модель **не строилась**. Всё, что показано ниже, —
+> пример того, как выглядит работа сервиса, а не ваша деталь. Скачивание отключено.
+
+That banner is correct and deliberate: `order && !authed` means a visitor who is signed
+in as nobody gets the flow and not a part (P0-1). The defect was that **there was no way
+to stop being nobody**. Read from the running page:
+
+```text
+scripts served by /studio            7
+any of them calling /auth/me         false
+any of them calling /auth/register   false
+requests to the API                  none
+```
+
+The sign-in card is gated on `authChecked`, which is set in the same effect that calls
+`/auth/me` — and the call was not in the bundle at all. `infra-web` was built nine days
+ago, and accounts landed in `2fcd1b6`. The source on disk had a sign-in form the whole
+time; the deployment did not.
+
+Rebuilt and restarted, with nothing in the page's code changed:
+
+```text
+GET  /api/v1/auth/me        401     (nobody, as expected)
+POST /api/v1/auth/register  201     through the form, in the browser
+auth card gone, demonstration banner gone, the account's address on the page
+```
+
+## What was built because of it
+
+`scripts/check_deployment.py`. Neither stale image is a crash and neither is visible to a
+test suite, because a suite runs against the working tree and the bug is that the
+deployment does not. The check asks each component what it **is** — the engine through
+`describe`, the API through `/auth/me`, the web by reading the scripts the page actually
+serves — which is the launcher's rule (*what a component is beats what something upstream
+believes about it*) applied to a deployment.
+
+Measured against both failures:
+
+```text
+--engine-image cad-ai/cad-worker:claimfix   STALE  speaks CAD-IR 1.12, this checkout defines 1.15   exit 1
+current stack                               OK     engine 1.15 / api / web                          exit 0
+--web http://localhost:9999                 STALE  answered nothing                                 exit 1
+```
+
+The web branch is written against the failure this run found: it reads the served
+bundles, not the source, because the source was right for nine days while the page was
+not.
