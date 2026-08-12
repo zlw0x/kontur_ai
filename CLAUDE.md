@@ -830,10 +830,62 @@ compile into operations the contract already has. Same argument as hole families
 rib. "Simplifies the model's reasoning" is a case for the prompt and the output profile
 (ADR-029, ADR-032), not for the contract.
 
-**What is next**: the rest of Gate P4. Section correspondence — a square rotated 90° is
-the same square, so a document that states the rotation gets a prism without one — and
-the claimed topology for sweep and loft, where the closed forms are derived and what is
-missing is cases rather than mathematics. `docs/POST-MVP-ROADMAP.md` has the order.
+**The rest of the roadmap has been measured too** (`docs/TASK-POSTMVP-closing-the-remaining-stages.md`,
+`scripts/probe_build123d_remaining_stages.py`). Two of the four open stages close without
+a build, and the pattern is the one every stage before them followed.
+
+**P5 (surfaces) is refused, and the reason is every check this service has.** A face has
+**area 2400.0000 and volume 0.0000**, and its STL is 2 triangles with 4 open edges. Now
+list what a delivered part is checked with: volume, bounding box, `body_count`,
+`closed_manifold_mesh`, `consistent_normals`, the genus cross-check, the shape claim.
+Every one is a question about a solid. The kernel is not the obstacle — `thicken(face, 3)`
+gives exactly 7200.0000 with 0 open edges — CAD-IR simply has no way to *state* a surface,
+and even that one operation needs the whole vocabulary the rest of P5 is refused for. The
+operations that end in a solid already exist, and they are how a curved part is built here.
+
+**P6's folded geometry already builds.** A 2 mm sheet 60 wide, bent 90° at R3, is a
+rectangular section on a run–arc–run path: 9393.9822 against a closed form of 9393.9822,
+0 open edges, one solid. **Uniform thickness is not a check but a property of the
+construction** — the swept section never changes. What is missing is not geometry:
+`K = 0.33 / 0.42 / 0.50` give flat lengths 75.7491 / 76.0319 / 76.2832 and **the same
+folded volume**, so a K-factor sits exactly where a thread designation and `hand` sit — a
+manufacturing number only a person can catch wrong. The flat pattern and a DXF artifact
+are the one genuinely new computation left in the CAD line, and they want the vocabulary
+first.
+
+The same sweep written **straight against build123d** comes back with 140 open edges,
+because a 60 × 2 section is as frame-sensitive as a thread's V. The engine is safe only
+because CAD-IR makes the document state the profile's plane rather than inherit one.
+
+**P7 needs no solver, and ADR-022 decided it years of milestones ago.** Two 20 mm cubes
+26 mm apart intersect in 0.0000; 16 mm apart, in 1600.0000 = 20 × 20 × 4. An interference
+is an intersection volume over bodies the document already places, so a mate is a stated
+placement plus an assertion — never something the kernel solves for. What is left is
+packaging: per-part export (each body already exports clean), an assembly STEP, a ZIP, and
+an `interference` expectation the size of `body_count`.
+
+**P8 is gated by its own rule** — extend vision only after the adapter supports the
+geometry — and most of what it lists now waits on ADR-029's vision wall instead, which no
+code here settles. Two concrete items are not vision: WEBP through the sanitizer, and the
+PDF rasterizer.
+
+**P9 mostly landed under other names.** The reaper, `PAUSED`, `LEASE_LOST`, the
+quarantine's stop-at-the-limit, the order quotas, `CODEX_BUDGET_EXHAUSTED`; the Windows
+Job Object is obsolete since the engine moved to a Linux container. The **quality score**
+is what is worth building next, and it is small because every number in it already exists
+— repair count, assumption count, the verification report, the claim's verdict — and it is
+what makes the moderation queue sortable rather than scannable.
+
+**Gate P1 and Gate P2 are a number, not a feature.** 65 positive corpus cases and 42
+negative against a bar of 100 models across 30 part types, which is exactly why nothing is
+declared `stable`.
+
+**What is next**, in the order the evidence supports: `thread.designation` with the
+sheet-metal manufacturing vocabulary (one contract version — they are the same kind of
+thing); the quality score; the corpus to Gate P2's bar; then the flat pattern and DXF.
+And the rest of Gate P4 — section correspondence under rotation, and the claimed topology
+for sweep and loft, where the closed forms are derived and what is missing is cases.
+`docs/POST-MVP-ROADMAP.md` has the order.
 
 The contract is settled for now: there is no queued CAD-IR version, so the rule about
 not running two contract changes side by side is not binding on the next piece of work.
