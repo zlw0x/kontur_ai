@@ -39,6 +39,19 @@ public static class CodexProbe
         try
         {
             var runner = new LocalCodexRunner();
+            // The probe names a model, and it asks the router for one rather than
+            // carrying its own. It did neither before, so `CODEX_MODEL_UNSPECIFIED` was
+            // the only answer this command could give — the operator's first health
+            // check, and the one the runbook tells them to run before enrolling, could
+            // not pass. A diagnostic that cannot succeed reports the wrong thing about
+            // every machine it is run on.
+            //
+            // `InputTriage` because a probe should cost the least the routing table
+            // offers and its only question is whether the CLI answers at all. Taking it
+            // from the router rather than writing a model name here means the probe
+            // exercises the same decision the pipeline makes, and cannot drift from it.
+            var route = new CodexRoutingProfile().Route(
+                CodexStage.InputTriage, nameof(AgentRole.DRAWING_EXTRACTION));
             var result = await runner.RunAsync(
                 new CodexStageRequest(
                     workspace,
@@ -49,7 +62,10 @@ public static class CodexProbe
                     Do not use tools, do not execute commands, do not read files, and do not use the network.
                     Return only the JSON object required by the provided output schema.
                     """,
-                    Timeout: TimeSpan.FromMinutes(3)));
+                    Model: route.RequestedModel,
+                    ReasoningEffort: route.RequestedReasoningEffort,
+                    Timeout: TimeSpan.FromMinutes(3),
+                    Routing: route));
             using var parsed = JsonDocument.Parse(await File.ReadAllBytesAsync(output));
             var message = parsed.RootElement.GetProperty("result").GetProperty("message").GetString();
             if (message != "codex-local-auth-ok")
@@ -58,6 +74,7 @@ public static class CodexProbe
             {
                 status = "CODEX_OK",
                 auth = "local-chatgpt",
+                model = route.RequestedModel,
                 sandbox = "cad-runtime-read-only",
                 result.ThreadId,
                 result.Usage,
