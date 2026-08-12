@@ -783,6 +783,53 @@ standing alone. The test now parametrises over both kinds of feature and all thr
 of path: one example per type is what let the second `ClaimLoop.Typed` defect through,
 and it is the same lesson twice.
 
+**A thread is a direction, and the frame it points in was nobody's**
+(`docs/TASK-POSTMVP-P3-4-a-thread-is-a-direction.md`, ADR-040's amendment). Gate P3 asks
+one thing this repository had never measured — *modeled threads pass a manifold check* —
+and until 1.14 a thread was not expressible, so the clause could not be tested. It passes:
+an M20 × 2.5 as a blank and a helical cut, at 2, 6 and 12 turns, **0 open edges, 0 flipped
+normals, genus 0**, 0.13–1.68 s and 112–578 KiB. An internal thread passes too.
+`feature.thread` is **not** added — a thread is a `solid.extrude` and a `cut.sweep`, which
+is POSTMVP-011's rule again.
+
+But the engine had to be fixed first, and it is not about threads. `SketchOnPathStart`
+fixed the section's **normal** and left the frame *inside* that plane to build123d, whose
+rule is to project whichever global axis is least parallel to it — the axis for a helix,
+**+X** for one of the 3D-path probe's directions. A heuristic, not a convention. A round
+section cannot tell, which is why 1.14 never asked; a thread's flanks are nothing but a
+direction, and the same section aimed the other way removes **188.34 mm³ where 374.19 was
+drawn**, with no error. The engine now builds the frame from the path: x is the helix's
+axis projected into the section plane, y is radially outward — along the screw, depth
+inward, which is how a drawing draws one.
+
+**And the spring's own arithmetic was the special case.** OpenCascade's default framing
+keeps a section from twisting relative to a *fixed* direction, which round a helix means
+twisting relative to the path's own normal — 0.052%, 0.476%, 1.733%, 4.745% at 1, 3, 6 and
+12 turns. Under Frenet the closed form `V = A·L·(1 − κ·ū)` is exact at every turn count,
+and a circle sits *on* the path so `ū = 0` and the whole correction vanishes. Frenet stays
+on the helical branch: a helix has no point of zero curvature and a straight run is nothing
+but one.
+
+**The order of the cuts is the whole part.** Three ways of writing one nut out of the same
+three solids: `(shell − groove) − bore` is the part; `shell − bore − groove` is the plain
+hollow nut **to the digit**, the groove having done nothing and said nothing; and
+`shell − (bore + groove)` is 14 324 open edges. CAD-IR applies features in the document's
+own order (ADR-028), so this is the document's decision and nothing tells it which is
+right — only the silent one is dangerous, because the third fails `closed_manifold_mesh`
+on every build.
+
+**What is left of P3.4 is not geometry.** `thread.designation` — the callout — is the gap
+POSTMVP-011 named and it is still open. It cannot be checked by measuring the delivered
+solid: M20×2.5-6g is not a shape, and the same part carries it whether the tolerance class
+is right or wrong. That puts it beside `hand` in ADR-040's argument — a property only a
+person can catch being wrong — and decides its place: read off the drawing, carried by the
+claim, shown to the operator. It is the next contract version this line needs.
+
+**P3.5's high-level features are refused** for the reason they are described by: they
+compile into operations the contract already has. Same argument as hole families and the
+rib. "Simplifies the model's reasoning" is a case for the prompt and the output profile
+(ADR-029, ADR-032), not for the contract.
+
 **What is next**: the rest of Gate P4. Section correspondence — a square rotated 90° is
 the same square, so a document that states the rotation gets a prism without one — and
 the claimed topology for sweep and loft, where the closed forms are derived and what is

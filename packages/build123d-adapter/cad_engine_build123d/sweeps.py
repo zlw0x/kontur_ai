@@ -119,6 +119,35 @@ def helix_wire(path, params, feature_id: str) -> Wire:
     )
 
 
+def helix_section_plane(wire: Wire, axis: Vector) -> Plane:
+    """Where a helix's section stands, with a frame this repository chose.
+
+    `Plane(origin, z_dir=…)` leaves the in-plane frame to build123d, and build123d
+    picks whichever global axis is least parallel to the normal — measured, it returned
+    the projection of +X for one direction and of +Z for another. That is a heuristic
+    rather than a convention, and a **round section cannot tell**, which is why 1.14
+    never had to ask. A thread's flanks can: they are nothing but a direction.
+
+    So the frame is built here from the path itself. `x` is the helix's **axis
+    projected into the section plane** and `y` follows, which puts a section drawn the
+    way a drawing draws one — along the screw, and radially outward for depth — where
+    the drawing puts it. It cannot be exactly the axis, because the plane is
+    perpendicular to a tangent that leans by the lead angle; the projection is the
+    nearest thing the geometry allows, and it is stated rather than inherited.
+    """
+    tangent = (wire % 0).normalized()
+    along = axis.normalized()
+    # The axis, less whatever of it points along the path.
+    in_plane = along - tangent * along.dot(tangent)
+    if in_plane.length <= DIRECTION_TOLERANCE:  # pragma: no cover - a helix never does
+        raise CadEngineError(
+            "DIMENSION_OUT_OF_RANGE",
+            "feature",
+            "A helical path leaves its own plane along the axis, which no helix does.",
+        )
+    return Plane(origin=wire @ 0, x_dir=in_plane.normalized(), z_dir=tangent)
+
+
 def require_pitch_clears_the_section(face, profile_plane: Plane, axis: Vector,
                                      pitch: float, feature_id: str) -> None:
     """A spring wound tighter than its own wire is refused before the kernel sees it.
@@ -690,6 +719,7 @@ def _reach(face, profile_plane: Plane, direction: Vector) -> float:
 
 __all__ = [
     "DIRECTION_TOLERANCE",
+    "helix_section_plane",
     "helix_wire",
     "path_wire",
     "require_bends_clear_the_profile",

@@ -65,6 +65,7 @@ from .lofts import require_distinct_planes
 from .drafts import draft
 from .shells import shell
 from .sweeps import (
+    helix_section_plane,
     helix_wire,
     path_wire,
     require_no_self_intersection,
@@ -511,7 +512,7 @@ def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
         # one plane the section may stand on and the path has already stated the
         # numbers that fix it. `SketchOnPathStart` is how a document says "there".
         wire = path_plane.location * helix_wire(inputs.path, params, str(feature.id))
-        profile_plane = Plane(origin=wire @ 0, z_dir=wire % 0)
+        profile_plane = helix_section_plane(wire, path_plane.z_dir)
     else:
         profile_plane = _sketch_plane(sketch.plane, planes, part, bodies)
     face = sketch_face(sketch.outer, list(sketch.inner), params)
@@ -570,7 +571,22 @@ def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
         wire = path_plane.location * path_wire(inputs.path, params, str(feature.id))
         anchored = wire.moved(Location(profile_plane.origin - path_plane.origin))
 
-    solid = sweep(placed, path=anchored)
+    # `is_frenet` for a helix, and it is a correctness fix rather than a preference.
+    # OpenCascade's default is a *corrected* frame, which keeps the section from
+    # twisting relative to a fixed direction — and round a helix that means it twists
+    # relative to the path's own normal, progressively. Measured on a V section over a
+    # Ø20 helix of 2.5 pitch, against the closed form `A·L·(1 − κū)`:
+    #
+    #     1 turn    corrected 101.6246   Frenet 101.5715   closed 101.5715   0.052% / 0.000%
+    #     3 turns   corrected 306.1641   Frenet 304.7140   closed 304.7145   0.476% / 0.000%
+    #     6 turns   corrected 619.9891   Frenet 609.4293   closed 609.4290   1.733% / 0.000%
+    #
+    # The drift accumulates with the turn count and is **invisible to a round section**,
+    # which is why 1.14's spring never saw it: a circle carried by either frame is the
+    # same circle. A thread's flanks are not. Frenet is well defined here because a
+    # helix has no point of zero curvature; a path with a straight run does, so this
+    # stays on the helical branch rather than becoming the engine's default.
+    solid = sweep(placed, path=anchored, is_frenet=helical)
     # The backstop, and it is here because this is the operation whose failure mode it
     # was measured on: a path that meets itself far from any bend builds one valid
     # solid whose volume matches Pappus and whose mesh is a closed manifold, so nothing

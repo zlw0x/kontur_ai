@@ -527,3 +527,240 @@ def _turns_about_z(curve, samples: int = 4000) -> float:
             total += step
         previous = angle
     return total / (2 * math.pi)
+
+
+# --- a modelled thread: Gate P3's one named bar -----------------------------
+#
+# "Modeled threads проходят manifold check" is the only thing Gate P3 asks that this
+# repository had never measured, because until CAD-IR 1.14 a thread was not expressible
+# at all. It still needs no new operation — a thread is a profiled section swept along a
+# helix and subtracted, which is composition, and POSTMVP-011 already refused
+# `feature.hole` for saying twice what the contract says once.
+#
+# What the measurement found is that the *frame* had to be fixed first. See
+# `helix_section_plane` and the `is_frenet` comment in `adapter.py`.
+
+MAJOR, THREAD_PITCH, TURNS = 20.0, 2.5, 6.0
+#: The ISO 60° profile's full depth is `pitch·√3/2`, and a real thread cuts 5/8 of it.
+THREAD_DEPTH = THREAD_PITCH * math.sqrt(3) / 2 * 5 / 8
+#: The width of a 60° V at that depth: `2·d·tan30`, which is `5·pitch/8`.
+#:
+#: Drawn `pitch` wide instead — the sharp V's full width — the turns meet base to base
+#: and `SOLID_PASSES_THROUGH_ITSELF` fires. It is the right answer and the check finding
+#: a wrong profile is what it is for: `HELIX_PITCH_TIGHTER_THAN_SECTION` does not,
+#: because a section spanning exactly the pitch is the boundary rather than past it.
+THREAD_WIDTH = 2 * THREAD_DEPTH * math.tan(math.radians(30.0))
+
+
+def vee(depth: float, width: float) -> dict[str, Any]:
+    """A thread's section as a drawing gives it: along the screw, depth radially in.
+
+    `x` is the axis projected into the section plane and `y` is radially outward
+    (`helix_section_plane`), so an apex at `-depth` in y points into the material.
+    """
+    return {"type": "path", "segments": [
+        {"type": "line", "start": [width / 2, 0.0], "end": [0.0, -depth]},
+        {"type": "line", "start": [0.0, -depth], "end": [-width / 2, 0.0]},
+        {"type": "line", "start": [-width / 2, 0.0], "end": [width / 2, 0.0]},
+    ]}
+
+
+def helical(fid: str, body: str | None, outer: dict, pitch: float, height: float,
+            radius: float, depends: list[str] | None = None,
+            cut_from: str | None = None) -> dict[str, Any]:
+    inputs: dict[str, Any] = {
+        "sketch": sketch("section", outer, {"on": "path_start"}),
+        "path": {"id": "path.helix", "plane": "XY", "pitch": pitch, "height": height,
+                 "radius": radius, "hand": "right"},
+    }
+    if cut_from:
+        inputs["source_body"] = {"result": cut_from}
+    return {"id": fid, "type": "cut.sweep" if cut_from else "solid.sweep",
+            "enabled": True, "depends_on": depends or [],
+            "produces": [{"id": body, "kind": "solid_body"}] if body else [],
+            "inputs": inputs}
+
+
+def thread_tool_volume(pitch: float, height: float, radius: float, depth: float,
+                       width: float) -> float:
+    """The closed form a profiled helical sweep has, and a round one hides.
+
+    For a tube round a curve the volume element is `(1 − uκ) du dv ds`, so
+
+        V = A·L − (∫κ ds)·M
+
+    with `M` the section's first moment about the path along the principal normal. A
+    helix has **constant** curvature `κ = r/(r² + c²)` with `c = pitch/2π`, and its
+    normal points at the axis — so a section whose centroid sits `ū` inside the path
+    gives `V = A·L·(1 − κ·ū)` exactly. A triangle of base `width` and height `depth`
+    with its apex inward has `ū = depth/3`.
+
+    ADR-040's spring could not see any of this: a circular section is centred on the
+    path, so `ū = 0` and the correction vanishes. It is the profiled case that made the
+    frame matter.
+    """
+    c = pitch / (2 * math.pi)
+    curvature = radius / (radius * radius + c * c)
+    turns = height / pitch
+    length = turns * math.hypot(2 * math.pi * radius, pitch)
+    return (width * depth / 2) * length * (1 - curvature * depth / 3)
+
+
+def test_a_profiled_helical_sweep_measures_its_own_closed_form():
+    """The thread's ridge on its own, which is the part with a number to check."""
+    part = built(document([
+        helical("feature.ridge", "body.main", vee(THREAD_DEPTH, THREAD_WIDTH),
+                THREAD_PITCH, THREAD_PITCH * TURNS, MAJOR / 2)
+    ]))
+
+    expected = thread_tool_volume(THREAD_PITCH, THREAD_PITCH * TURNS, MAJOR / 2,
+                                  THREAD_DEPTH, THREAD_WIDTH)
+    assert float(part.volume) == pytest.approx(expected, rel=1e-5)
+
+
+def test_the_default_frame_twists_a_profiled_section_round_a_helix():
+    """Why the helical branch sweeps with `is_frenet=True`, in the number it costs.
+
+    OpenCascade's default is a *corrected* frame, which keeps the section from twisting
+    relative to a fixed direction — and round a helix that means it twists relative to
+    the path's own normal, progressively:
+
+        1 turn    corrected 101.6246   Frenet 101.5715   closed 101.5715
+        3 turns   corrected 306.1641   Frenet 304.7140   closed 304.7145
+        6 turns   corrected 619.9891   Frenet 609.4293   closed 609.4290
+
+    0.05%, 0.48%, 1.73% — it accumulates with the turn count, and it is **invisible to
+    a round section**, which is why 1.14's spring never saw it. A thread's flanks are
+    not invisible to it: they are nothing but a direction.
+    """
+    from build123d import Helix, Plane, Polyline, Wire, make_face, sweep
+
+    from cad_engine_build123d.sweeps import helix_section_plane
+
+    radius = MAJOR / 2
+    for turns, least_drift in ((1.0, 3e-4), (3.0, 3e-3), (6.0, 1e-2)):
+        wire = Wire(Helix(pitch=THREAD_PITCH, height=THREAD_PITCH * turns,
+                          radius=radius).edges())
+        plane = helix_section_plane(wire, Plane.XY.z_dir)
+        section = plane * make_face(Polyline(
+            (THREAD_WIDTH / 2, 0.0), (0.0, -THREAD_DEPTH), (-THREAD_WIDTH / 2, 0.0),
+            close=True))
+        closed = thread_tool_volume(THREAD_PITCH, THREAD_PITCH * turns, radius,
+                                    THREAD_DEPTH, THREAD_WIDTH)
+
+        frenet = sweep(section, wire, is_frenet=True)
+        corrected = sweep(section, wire, is_frenet=False)
+
+        assert float(frenet.volume) == pytest.approx(closed, rel=1e-5)
+        drift = abs(float(corrected.volume) - closed) / closed
+        assert drift > least_drift, f"{turns} turns drifted only {drift:.5f}"
+
+
+def test_a_modelled_thread_passes_the_manifold_check():
+    """Gate P3, in the words the gate uses.
+
+    An M20 x 2.5 external thread as a blank minus a helical cut. Nothing here is a new
+    operation — a `solid.extrude` of a circle and a `cut.sweep` along a helix — which is
+    the whole point: POSTMVP-011's rule says an operation earns its place only when it
+    says what composition cannot, and a thread does not.
+
+    What is asserted is what the gate asks and nothing more: the delivered mesh closes.
+    The volume is not asserted, because the tool straddles the blank's surface and how
+    much of it lies outside is no closed form — the ridge above is where the number is.
+    """
+    from build123d import export_stl
+
+    from cad_engine_build123d.verify import _edge_facts, _parse_stl, topology_of
+
+    blank = {"id": "feature.blank", "type": "solid.extrude", "enabled": True,
+             "depends_on": [], "produces": [{"id": "body.main", "kind": "solid_body"}],
+             "inputs": {"sketch": sketch("blank", circle(MAJOR / 2)),
+                        "direction": "+Z", "distance": THREAD_PITCH * TURNS}}
+    part = built(document([
+        blank,
+        helical("feature.thread", None, vee(THREAD_DEPTH, THREAD_WIDTH), THREAD_PITCH,
+                THREAD_PITCH * TURNS, MAJOR / 2, depends=["feature.blank"],
+                cut_from="body.main"),
+    ]))
+
+    # The cut removed material rather than silently missing it. Measured in the probe:
+    # a tool aimed with the wrong in-plane direction subtracts **exactly nothing** and
+    # says nothing, which is why the frame is built rather than inherited.
+    blank_volume = math.pi * (MAJOR / 2) ** 2 * THREAD_PITCH * TURNS
+    assert float(part.volume) < blank_volume - 1.0
+
+    directory = Path(tempfile.mkdtemp())
+    export_stl(part, str(directory / "thread.stl"))
+    triangles = _parse_stl((directory / "thread.stl").read_bytes())
+    open_edges, inconsistent = _edge_facts(triangles)
+
+    assert open_edges == 0, f"{open_edges} open edges in a modelled thread"
+    assert inconsistent == 0
+    assert topology_of(part).solids == 1
+
+
+def test_an_internal_thread_passes_it_too_and_the_order_of_the_cuts_decides():
+    """The other half of Gate P3's word, and the sharpest thing the probe found.
+
+    Three ways of writing the same nut out of the same three solids:
+
+        (shell - groove) - bore    3953.2440   6072 triangles   0 open   genus 1
+        shell - bore - groove      4146.9023   1008 triangles   0 open   genus 1
+        shell - (bore + groove)    6157.5215  21908 triangles  14324 open  genus 2
+
+    The first is the part. The second is **the plain hollow nut, to the digit** — the
+    groove did nothing and said nothing, because by then the bore had removed the
+    material the tool was crossing and what is left of the tool only touches the new
+    surface. The third is a mesh nobody can print.
+
+    CAD-IR applies features in the document's own order (ADR-028), so this is the
+    document's decision and nothing in the contract tells it which order is right. Only
+    the second is silent: the third fails `closed_manifold_mesh` on every build.
+
+    This test pins the order that works, in a document, so a thread has one.
+    """
+    from build123d import export_stl
+
+    from cad_engine_build123d.verify import _edge_facts, _parse_stl, topology_of
+
+    bore, turns = 16.0, 4.0
+    outer = bore / 2 + 6.0
+    height = THREAD_PITCH * turns
+
+    shell = {"id": "feature.shell", "type": "solid.extrude", "enabled": True,
+             "depends_on": [], "produces": [{"id": "body.main", "kind": "solid_body"}],
+             "inputs": {"sketch": sketch("shell", circle(outer)),
+                        "direction": "+Z", "distance": height}}
+    # The V points outward, into the material, and its base is carried a little into
+    # the void so the tool *crosses* the bore's surface rather than touching it. A tool
+    # meeting a surface tangentially is the degenerate case for every kernel, and here
+    # it costs 193 open edges.
+    groove = helical("feature.groove", None,
+                     {"type": "path", "segments": [
+                         {"type": "line", "start": [THREAD_WIDTH / 2, -0.2],
+                          "end": [0.0, THREAD_DEPTH]},
+                         {"type": "line", "start": [0.0, THREAD_DEPTH],
+                          "end": [-THREAD_WIDTH / 2, -0.2]},
+                         {"type": "line", "start": [-THREAD_WIDTH / 2, -0.2],
+                          "end": [THREAD_WIDTH / 2, -0.2]},
+                     ]},
+                     THREAD_PITCH, height, bore / 2, depends=["feature.shell"],
+                     cut_from="body.main")
+    drill = {"id": "feature.bore", "type": "cut.extrude", "enabled": True,
+             "depends_on": ["feature.shell", "feature.groove"], "produces": [],
+             "inputs": {"sketch": sketch("bore", circle(bore / 2)),
+                        "direction": "+Z", "through_all": True,
+                        "source_body": {"result": "body.main"}}}
+
+    part = built(document([shell, groove, drill]))
+
+    plain = math.pi * (outer**2 - (bore / 2) ** 2) * height
+    assert float(part.volume) < plain - 1.0, "the groove did nothing"
+
+    directory = Path(tempfile.mkdtemp())
+    export_stl(part, str(directory / "nut.stl"))
+    open_edges, inconsistent = _edge_facts(_parse_stl((directory / "nut.stl").read_bytes()))
+
+    assert open_edges == 0, f"{open_edges} open edges in an internal thread"
+    assert inconsistent == 0
+    assert topology_of(part).genus == 1

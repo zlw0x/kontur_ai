@@ -131,3 +131,56 @@ right.
 **The cycle cannot ask for it.** Five numbers a reading stage would have to lift off a
 drawing, behind ADR-029's same three walls. Like the shell and like `until_face`, it
 arrives as an operation the corpus builds and the drawing cycle cannot yet reach.
+
+---
+
+## Amendment, 2026-08-12: the section's frame is built, not inherited
+
+**Investigation:** `docs/TASK-POSTMVP-P3-4-a-thread-is-a-direction.md` ·
+**Probe:** `scripts/probe_build123d_thread.py`
+
+`SketchOnPathStart` fixes the plane's **normal** and this ADR stopped there, because
+every section it had was a circle. Measuring a thread found the other half.
+
+`Plane(origin, z_dir=…)` leaves the in-plane frame to build123d, whose rule is to
+project whichever global axis is least parallel to the normal — the axis for a helix,
+and **+X** for one of the directions in the 3D-path probe. A heuristic, not a
+convention, and a document drawing a profile in it would be drawing in a frame that
+belongs to a library version.
+
+A circular section cannot tell. A thread's flanks are nothing but a direction:
+
+```text
+apex radially inward (-y)    tool 380.8933   removed 374.1876
+apex along the screw (-x)    tool 398.8554   removed 188.3405
+```
+
+Half the material, from the same three numbers, with no error.
+
+So the engine builds the frame from the path (`helix_section_plane`): **x is the helix's
+own axis projected into the section plane, y is radially outward** — along the screw and
+depth inward, which is how a drawing draws one. It cannot be exactly the axis, because
+the plane is perpendicular to a tangent that leans by the lead angle.
+
+### And the sweep is Frenet-framed
+
+OpenCascade's default keeps the section from twisting relative to a *fixed* direction,
+which round a helix means twisting relative to the path's own normal, progressively:
+
+```text
+ 1 turn    corrected  63.5154   Frenet  63.4822   closed  63.4822   drift 0.052%
+ 3 turns   corrected 191.3526   Frenet 190.4463   closed 190.4466   drift 0.476%
+ 6 turns   corrected 387.4932   Frenet 380.8933   closed 380.8931   drift 1.733%
+12 turns   corrected 797.9363   Frenet 761.7851   closed 761.7862   drift 4.745%
+```
+
+Under Frenet the closed form is exact at every turn count. The closed form is Pappus
+with the first-moment correction, `V = A·L·(1 − κ·ū)` — and a circle is centred on the
+path, so `ū = 0` and the correction vanishes. That is the second thing this ADR could
+not have seen: **the spring's own arithmetic was the special case.**
+
+Frenet stays on the helical branch. It is well defined here because a helix has no point
+of zero curvature; a path with a straight run has one at every straight.
+
+**Nothing in CAD-IR changes.** Every document written against 1.14 carries a circular
+section, which is invariant under all of it.
