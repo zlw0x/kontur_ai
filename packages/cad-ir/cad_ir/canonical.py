@@ -101,6 +101,11 @@ from .sweep import (  # re-exported alongside the document
     SolidSweepFeature,
     SweepInputs,
     HelicalPath,
+    Point3,
+    SpatialArcSegment,
+    SpatialLineSegment,
+    SpatialPath,
+    SpatialSegment,
     SweepPath,
     SweepPathSpec,
 )
@@ -112,11 +117,11 @@ from .until_face import (  # re-exported alongside the document
 )
 
 CAD_IR_SCHEMA = "cad-ai/cad-ir"
-CAD_IR_VERSION = "1.14"
+CAD_IR_VERSION = "1.15"
 
 #: Versions this build can consume. A document declaring anything else is
 #: rejected before its features are read.
-SUPPORTED_VERSIONS: tuple[str, ...] = ("1.14",)
+SUPPORTED_VERSIONS: tuple[str, ...] = ("1.15",)
 
 #: Versions the normalizer can lift into the canonical form.
 #:
@@ -139,6 +144,7 @@ MIGRATABLE_VERSIONS: tuple[str, ...] = (
     "1.11",
     "1.12",
     "1.13",
+    "1.14",
 )
 
 class ParameterType(StrEnum):

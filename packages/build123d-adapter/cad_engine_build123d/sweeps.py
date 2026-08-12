@@ -37,8 +37,9 @@ from __future__ import annotations
 import math
 
 from build123d import Edge, Helix, Plane, Vector, Wire
-from cad_ir.canonical import SweepPath
+from cad_ir.canonical import SpatialArcSegment, SpatialLineSegment, SweepPath
 from cad_ir.sketch import ArcSegment, LineSegment
+from OCP.BOPAlgo import BOPAlgo_ArgumentAnalyzer, BOPAlgo_CheckStatus
 
 from .errors import CadEngineError, unsupported
 from .sketches import CLOSURE_TOLERANCE_MM, arc_edge, plane_distance, sketch_point
@@ -67,10 +68,24 @@ def helix_wire(path, params, feature_id: str) -> Wire:
 
     Measured: the wire's length is `turns · √((2πr)² + p²)` to 1e-10, so a swept
     spring has a closed-form volume by Pappus.
+
+    **The cone angle is converted before the kernel sees it** (CAD-IR 1.15), because
+    this kernel's `cone_angle` makes `pitch` a distance along the cone's *slant* while
+    a drawing dimensions a pitch along the *axis*. Measured on the probe:
+
+        cone  0 deg   z per turn 10.00000   3.00000 turns
+        cone 15 deg   z per turn  9.65926   3.10583 turns
+        cone 30 deg   z per turn  8.66025   3.46410 turns
+
+    `z per turn` is `pitch · cos(cone_angle)`, so a document stating the pitch a
+    drawing states would get half a turn too many at 30°, in a spring that is valid,
+    plausible and matches every closed form computed *from the kernel*. Dividing here
+    is the `until_face` pattern: what a division in trusted code buys is a number.
     """
     pitch = params.resolve(path.pitch, f"{feature_id} helix pitch")
     height = params.resolve(path.height, f"{feature_id} helix height")
     radius = params.resolve(path.radius, f"{feature_id} helix radius")
+    cone = params.resolve(path.cone_angle, f"{feature_id} helix cone angle")
     for name, value in (("pitch", pitch), ("height", height), ("radius", radius)):
         if value <= 0:
             raise CadEngineError(
@@ -78,11 +93,27 @@ def helix_wire(path, params, feature_id: str) -> Wire:
                 "feature",
                 f"A helix {name} must be positive; {feature_id} resolves it to {value:g}.",
             )
+    if not -89.0 <= cone <= 89.0:
+        raise CadEngineError(
+            "DIMENSION_OUT_OF_RANGE",
+            "feature",
+            f"A helix cone angle must be between -89 and 89 degrees; {feature_id} "
+            f"resolves it to {cone:g}.",
+        )
+    if radius + height * math.tan(math.radians(cone)) <= CLOSURE_TOLERANCE_MM:
+        raise CadEngineError(
+            "DIMENSION_OUT_OF_RANGE",
+            "feature",
+            f"The cone angle of {feature_id} closes the helix onto its own axis before "
+            f"the end: radius {radius:g} at the start, "
+            f"{radius + height * math.tan(math.radians(cone)):g} at height {height:g}.",
+        )
     return Wire(
         Helix(
-            pitch=pitch,
+            pitch=pitch / math.cos(math.radians(cone)),
             height=height,
             radius=radius,
+            cone_angle=cone,
             lefthand=path.hand == "left",
         ).edges()
     )
@@ -299,6 +330,353 @@ def _in_plane(path_plane: Plane, world: Vector) -> tuple[float, float]:
     return (world.dot(path_plane.x_dir), world.dot(path_plane.y_dir))
 
 
+# --- a path that leaves its plane (CAD-IR 1.15) -----------------------------------
+#
+# `docs/TASK-POSTMVP-P4-3-a-path-that-leaves-its-plane.md` is the argument. Everything
+# below is the planar code with a third component and one extra consequence: a section
+# carried round a path in space is *rotated* by the time it reaches the next bend, so
+# the reach that decides whether that bend is too tight has to be measured in the
+# section's own frame at that point rather than at the start.
+
+
+def spatial_path_wire(path, params, feature_id: str, path_plane: Plane) -> Wire:
+    """A path in space as a wire in world coordinates, checked as it is built.
+
+    The world rather than the plane's local frame, unlike `path_wire`, because a
+    spatial path's checks need world directions anyway — and building it here means
+    the wire the trace records is the wire the checks ran against.
+
+    Every rule is 1.9's: it starts at the plane's origin (ADR-031 — the kernel anchors
+    a sweep at the profile whatever the path says, so a path that started elsewhere
+    would put the part where its own numbers deny), it is connected, it is open, and it
+    is tangent-continuous.
+    """
+    segments = path.segments
+    points = [_spatial_point(segment.start, params, path_plane) for segment in segments]
+    ends = [_spatial_point(segment.end, params, path_plane) for segment in segments]
+
+    if (points[0] - path_plane.origin).length > CLOSURE_TOLERANCE_MM:
+        raise CadEngineError(
+            "SWEEP_PATH_NOT_AT_ORIGIN",
+            "feature",
+            f"The path of {feature_id} starts at {_show(points[0])}. A sweep path is "
+            "stated from the profile, so it starts at the origin of its plane: the "
+            "kernel anchors the sweep at the profile whatever the path's coordinates "
+            "say, and a path that started elsewhere would put the part somewhere its "
+            "own numbers deny.",
+        )
+
+    edges: list[Edge] = []
+    for index, segment in enumerate(segments):
+        start, end = points[index], ends[index]
+        if index and (start - ends[index - 1]).length > CLOSURE_TOLERANCE_MM:
+            raise CadEngineError(
+                "SWEEP_PATH_DISCONNECTED",
+                "feature",
+                f"Segment {index} of {feature_id}'s path starts at {_show(start)}, "
+                f"which is not where segment {index - 1} ended, at "
+                f"{_show(ends[index - 1])}.",
+            )
+        if isinstance(segment, SpatialLineSegment):
+            if (end - start).length <= CLOSURE_TOLERANCE_MM:
+                raise CadEngineError(
+                    "SWEEP_PATH_DISCONNECTED",
+                    "feature",
+                    f"Segment {index} of {feature_id}'s path has no length.",
+                )
+            edges.append(Edge.make_line(start, end))
+        elif isinstance(segment, SpatialArcSegment):
+            edges.append(_spatial_arc(segment, params, path_plane, index, feature_id))
+        else:  # pragma: no cover - the contract's union has only these two
+            raise unsupported(f"Unknown path segment {type(segment).__name__}.", "feature")
+
+    if (ends[-1] - points[0]).length <= CLOSURE_TOLERANCE_MM:
+        raise CadEngineError(
+            "SWEEP_PATH_CLOSED",
+            "feature",
+            f"The path of {feature_id} ends where it began. A closed path meets itself "
+            "at a seam the document does not describe; a profile taken all the way "
+            "round is a revolve, which states its axis.",
+        )
+
+    _require_tangent_in_space(segments, params, path_plane, feature_id)
+    return Wire(edges)
+
+
+def _arc_frame(segment, params, path_plane: Plane, index: int, feature_id: str):
+    """Everything a spatial arc is, checked once and shared by everything that asks.
+
+    One function rather than three, because each of the three callers below needs the
+    binormal and each would divide by zero on the same document. It was measured: a
+    half-turn arc reached `require_spatial_bends_clear_the_profile` before the wire was
+    built and escaped as `gp_Vec::Normalized() - vector has zero norm` — a crash where
+    a refusal was written and waiting.
+    """
+    start = _spatial_point(segment.start, params, path_plane)
+    end = _spatial_point(segment.end, params, path_plane)
+    centre = _spatial_point(segment.center, params, path_plane)
+
+    from_start, from_end = start - centre, end - centre
+    radius, other = from_start.length, from_end.length
+    if radius <= CLOSURE_TOLERANCE_MM or abs(radius - other) > CLOSURE_TOLERANCE_MM:
+        raise CadEngineError(
+            "SWEEP_PATH_ARC_NOT_CIRCULAR",
+            "feature",
+            f"Segment {index} of {feature_id}'s path names a centre {radius:.4f} mm "
+            f"from its start and {other:.4f} mm from its end. An arc has one radius, "
+            "and the two distances are how a document says so.",
+        )
+    if from_start.cross(from_end).length <= radius * radius * DIRECTION_TOLERANCE:
+        raise CadEngineError(
+            "SWEEP_PATH_ARC_AMBIGUOUS",
+            "feature",
+            f"Segment {index} of {feature_id}'s path turns half a circle or more: its "
+            "start, centre and end lie on one line, which leaves the plane the arc "
+            "bends in undecided. The kernel's answer to that is a construction error "
+            "with an empty message. State the bend as two arcs joined tangentially — "
+            "which is what a drawing dimensions anyway.",
+        )
+    return start, end, centre, from_start, from_end, radius
+
+
+def _spatial_arc(segment, params, path_plane: Plane, index: int, feature_id: str) -> Edge:
+    """The shorter of the two arcs through `start` and `end` about `center`.
+
+    "Shorter" is not a preference, it is the only one a tangent-continuous path can
+    take: the longer arc leaves its start in the opposite direction, so it could never
+    carry on the way the path arrived. That is why a spatial arc carries no `sweep`
+    field where a planar one does — a planar arc is shared with sketch contours, which
+    have the freedom a path does not.
+    """
+    start, end, centre, from_start, from_end, radius = _arc_frame(
+        segment, params, path_plane, index, feature_id
+    )
+    # The midpoint of the shorter arc: out along the bisector of the two radii.
+    bisector = (from_start.normalized() + from_end.normalized()).normalized()
+    return Edge.make_three_point_arc(start, centre + bisector * radius, end)
+
+
+def _require_tangent_in_space(segments, params, path_plane: Plane, feature_id: str) -> None:
+    """Every join carries on in the direction it arrived, in three dimensions.
+
+    Checked from the stated coordinates, like the planar one, and for the same reason:
+    a tangent is arithmetic on the numbers in the document, and asking the kernel would
+    mean asking it after it had already decided what to do with the corner.
+    """
+    for index in range(1, len(segments)):
+        leaving = _spatial_direction(
+            segments[index - 1], params, path_plane, True, index - 1, feature_id
+        )
+        arriving = _spatial_direction(
+            segments[index], params, path_plane, False, index, feature_id
+        )
+        cross = leaving.cross(arriving).length
+        dot = leaving.dot(arriving)
+        if cross > DIRECTION_TOLERANCE or dot <= 0:
+            angle = math.degrees(math.atan2(cross, dot))
+            raise CadEngineError(
+                "SWEEP_PATH_NOT_TANGENT",
+                "feature",
+                f"The path of {feature_id} turns {angle:.3f}° at the join between "
+                f"segments {index - 1} and {index}. A swept path carries on in the "
+                "direction it arrived; a bend is an arc of a radius the drawing gives, "
+                "not a corner for the kernel to round however it likes.",
+            )
+
+
+def _spatial_direction(segment, params, path_plane: Plane, at_end: bool,
+                       index: int = 0, feature_id: str = "") -> Vector:
+    """The unit direction of travel at one end of a spatial segment, in world terms."""
+    if isinstance(segment, SpatialLineSegment):
+        start = _spatial_point(segment.start, params, path_plane)
+        end = _spatial_point(segment.end, params, path_plane)
+        return (end - start).normalized()
+
+    _, _, _, from_start, from_end, _ = _arc_frame(
+        segment, params, path_plane, index, feature_id
+    )
+    # The binormal of the shorter arc, and the velocity is the binormal crossed into
+    # the radius — which is the same formula at both ends.
+    binormal = from_start.cross(from_end).normalized()
+    return binormal.cross(from_end if at_end else from_start).normalized()
+
+
+def require_profile_across_spatial_path(
+    profile_plane: Plane, path_plane: Plane, path, params, feature_id: str
+) -> None:
+    """The profile stands across a spatial path, on the same measurement as a planar one.
+
+    Measured on the probe: a section tilted 45° to a 3D run comes back at 8487.6754
+    where 12003.3857 was drawn — the kernel sweeps the section's *projection*, exactly
+    as ADR-031 measured in the plane, and the ratio is the same 1/√2.
+    """
+    heading = _spatial_direction(path.segments[0], params, path_plane, False, 0, feature_id)
+    normal = profile_plane.z_dir.normalized()
+    if heading.cross(normal).length > DIRECTION_TOLERANCE:
+        angle = math.degrees(math.asin(min(1.0, heading.cross(normal).length)))
+        raise CadEngineError(
+            "SWEEP_PROFILE_NOT_PERPENDICULAR",
+            "feature",
+            f"The path of {feature_id} leaves its profile at {90 - angle:.3f}° to the "
+            "profile's plane. A sweep carries the profile across the path; at any other "
+            "angle the kernel sweeps what the profile projects to, which is a smaller "
+            "section than the one the drawing dimensions.",
+        )
+
+
+def require_spatial_bends_clear_the_profile(
+    face, profile_plane: Plane, path_plane: Plane, path, params, feature_id: str
+) -> None:
+    """No bend turns tighter than the profile reaches into it — in space.
+
+    The planar version measures the profile's reach once, because a planar path rotates
+    the section about one fixed axis and the inward direction of every bend rotates with
+    it: the two cancel and the reach in the section's own frame never changes. A path
+    that leaves its plane has no such luck. By the time the section arrives at the third
+    bend it has been turned by the two before it, and the direction pointing at that
+    bend's centre is somewhere else in the section's own frame.
+
+    So the rotation is accumulated as the path is walked — one turn about the arc's own
+    binormal per bend — and the inward direction is carried **back** through it before
+    the profile is measured. Within a single arc nothing more is needed: the section and
+    the inward direction turn about the same binormal by the same angle, so the reach is
+    constant along the bend and the value at its start is exact.
+    """
+    history: list[tuple[Vector, float]] = []
+    for index, segment in enumerate(path.segments):
+        if not isinstance(segment, SpatialArcSegment):
+            continue
+        _, _, _, from_start, from_end, radius = _arc_frame(
+            segment, params, path_plane, index, feature_id
+        )
+
+        inward = from_start.normalized() * -1.0
+        # Back through every turn taken so far, latest first: the section's frame at
+        # this bend is `R` applied to its frame at the start, so a world direction is
+        # `R⁻¹ · d` in the frame the profile was drawn in.
+        local = inward
+        for axis, angle in reversed(history):
+            local = _rotated(local, axis, -angle)
+        needed = _reach(face, profile_plane, local)
+
+        if radius <= needed + CLOSURE_TOLERANCE_MM:
+            raise CadEngineError(
+                "SWEEP_BEND_TIGHTER_THAN_PROFILE",
+                "feature",
+                f"Segment {index} of {feature_id}'s path bends at radius {radius:.4f} mm "
+                f"while the profile reaches {needed:.4f} mm towards the centre of that "
+                "bend. The inside of the sweep would pass through itself; the kernel "
+                "builds it anyway and calls it valid.",
+            )
+
+        binormal = from_start.cross(from_end).normalized()
+        turn = math.atan2(from_start.cross(from_end).length, from_start.dot(from_end))
+        history.append((binormal, turn))
+
+
+def _rotated(vector: Vector, axis: Vector, angle: float) -> Vector:
+    """Rodrigues' formula. Written out because the alternative is a Location round trip
+    for what is three multiplications, and because a rotation the reader can check is
+    worth more here than one hidden behind a transform."""
+    cos, sin = math.cos(angle), math.sin(angle)
+    return (
+        vector * cos
+        + axis.cross(vector) * sin
+        + axis * (axis.dot(vector) * (1.0 - cos))
+    )
+
+
+def _spatial_point(value, params, path_plane: Plane) -> Vector:
+    """A three-component path point, resolved and placed in world coordinates.
+
+    The components are in the path plane's own frame — u along its x direction, v along
+    its y, and w out of it — which is what makes `plane` mean the same thing it means
+    for a planar path even though the path no longer lies in it.
+    """
+    u = params.resolve(value[0], "spatial path point")
+    v = params.resolve(value[1], "spatial path point")
+    w = params.resolve(value[2], "spatial path point")
+    return path_plane.origin + path_plane.x_dir * u + path_plane.y_dir * v + path_plane.z_dir * w
+
+
+def _show(point: Vector) -> str:
+    return f"({float(point.X):.4f}, {float(point.Y):.4f}, {float(point.Z):.4f})"
+
+
+# --- the backstop none of the closed forms could be ------------------------------
+
+
+def require_no_self_intersection(solid, feature_id: str, what: str) -> None:
+    """A solid that passes through itself is never the part on a drawing.
+
+    This is the one check in this module that asks the kernel instead of the document,
+    and it exists because the probe found a failure **nothing else in this service
+    catches**. It has to be a *spiral*, and that is why the gap survived so long: two
+    tangent bends of radius R put the outgoing and returning runs 2R apart, and the
+    bend rule already requires R to clear the profile — so a U-turn's runs can never
+    touch. A path that comes back alongside a part of itself that is **not its
+    neighbour** can.
+
+    Four bends of R35, a section reaching 30, a last run 25 mm from the first:
+
+        volume  2643399.9499   valid   Pappus 2643399.9499   diff 4.657e-10
+        B-rep   1 solid, 1 shell, 11 faces, genus 0
+        mesh    33764 triangles, 0 open edges, 0 inconsistent normals, genus 0
+
+    Every check passes. The genus cross-check of POSTMVP-020 — which does catch the
+    self-intersecting sweep of POSTMVP-018 — agrees with itself here, because this
+    surface passes through itself *smoothly*: no triangle edge is left unmatched, so
+    the mesh is a closed manifold and both computations of the genus give 0. The volume
+    matches its own closed form, because the material counted twice is the material the
+    formula counts twice.
+
+    Every closed-form check written for this family before it is **local**:
+    `SWEEP_BEND_TIGHTER_THAN_PROFILE` looks at one bend against the profile,
+    `HELIX_PITCH_TIGHTER_THAN_SECTION` at one turn against its neighbour. Two
+    *different* parts of a path meeting each other is invisible to both. And the path
+    above is **planar**, so this is a hole in 1.9 rather than a cost of 1.15.
+
+    `BOPAlgo_ArgumentAnalyzer` with `SelfInterMode` answers it exactly, in
+    milliseconds, with no false positive on an ordinary part:
+
+        a plain block / a cylinder             False   0.00s
+        the spiral with a section reaching 10  False   0.09s
+        the spiral with a section reaching 30  True    0.18s
+        tight bend R4 with a section reaching 8  True  0.03s
+        the same bend with a section reaching 2  False 0.03s
+        a helix of pitch 2.0 carrying a 2 mm wire  True 0.84s
+
+    It does **not** make the two closed-form pre-checks redundant, and the difference is
+    the one this repository keeps arriving at: a pre-check refuses with a number the
+    repair loop can read — "bends at radius 4 while the profile reaches 8" — and this
+    one can say only that it happens somewhere. The pre-checks name the mistake; this is
+    the backstop for what no closed form covers.
+    """
+    analyzer = BOPAlgo_ArgumentAnalyzer()
+    analyzer.SetShape1(solid.wrapped)
+    # One question only. Every other mode this analyzer offers is about arguments to a
+    # boolean operation, which is not what is being asked.
+    analyzer.SelfInterMode = True
+    analyzer.StopOnFirstFaulty = True
+    analyzer.Perform()
+
+    faulty = any(
+        result.GetCheckStatus() == BOPAlgo_CheckStatus.BOPAlgo_SelfIntersect
+        for result in analyzer.GetCheckResult()
+    )
+    if faulty:
+        raise CadEngineError(
+            "SOLID_PASSES_THROUGH_ITSELF",
+            "feature",
+            f"The {what} of {feature_id} passes through itself. The kernel returns one "
+            "solid and reports it valid, its volume agrees with the closed form because "
+            "the overlapping material is counted twice on both sides, and its mesh is a "
+            "closed manifold — so nothing downstream would have said anything. Two parts "
+            "of the path meet, or the section is larger than the part of the path it "
+            "travels can carry.",
+        )
+
+
 def _reach(face, profile_plane: Plane, direction: Vector) -> float:
     """How far the placed profile extends along `direction` from its plane's origin.
 
@@ -312,7 +690,13 @@ def _reach(face, profile_plane: Plane, direction: Vector) -> float:
 
 __all__ = [
     "DIRECTION_TOLERANCE",
+    "helix_wire",
     "path_wire",
     "require_bends_clear_the_profile",
+    "require_no_self_intersection",
+    "require_pitch_clears_the_section",
     "require_profile_across_path",
+    "require_profile_across_spatial_path",
+    "require_spatial_bends_clear_the_profile",
+    "spatial_path_wire",
 ]

@@ -30,6 +30,8 @@ from cad_ir.canonical_validator import validate_canonical  # noqa: E402
 
 from cad_engine_build123d.adapter import build_part  # noqa: E402
 from cad_engine_build123d.errors import CadEngineError  # noqa: E402
+from cad_engine_build123d.parameters import Parameters  # noqa: E402
+from cad_engine_build123d.sweeps import helix_wire  # noqa: E402
 from cad_engine_build123d.verify import _edge_facts, _parse_stl  # noqa: E402
 
 RADIUS = 8.0
@@ -398,3 +400,130 @@ def test_the_topology_oracle_catches_the_tear_that_the_solid_alone_denies():
     assert "topology_agrees_with_mesh" in failed
     assert report.brep is not None and report.brep.genus == 0
     assert report.mesh is not None and report.mesh.genus != 0
+
+
+# --- a helix that opens out (CAD-IR 1.15) ----------------------------------
+
+
+def spring(pitch: float, height: float, radius: float, cone: float = 0.0,
+           wire: float = 2.0) -> dict[str, Any]:
+    return {
+        "id": "feature.spring", "type": "solid.sweep", "enabled": True, "depends_on": [],
+        "produces": [{"id": "body.main", "kind": "solid_body"}],
+        "inputs": {
+            "sketch": sketch("wire", circle(wire), {"on": "path_start"}),
+            "path": {"id": "path.helix", "plane": "XY", "pitch": pitch, "height": height,
+                     "radius": radius, "hand": "right", "cone_angle": cone},
+        },
+    }
+
+
+def conical_helix_length(pitch: float, height: float, radius: float, cone: float) -> float:
+    """The arc length of a helix whose radius opens out linearly along its axis.
+
+    With `r(z) = r0 + z·tanα` and `dz/dθ = k = pitch/2π`,
+
+        ds/dθ = √((dr/dθ)² + r² + (dz/dθ)²) = √(r² + k²sec²α)
+
+    and `∫√(r²+c²) dr = ½(r√(r²+c²) + c²·asinh(r/c))`, so the whole length is that
+    antiderivative between `r0` and `r1`, divided by `k·tanα` to change the variable
+    back from `r` to `θ`.
+
+    `pitch` here is the **axial** pitch, which is what a drawing dimensions and what the
+    document states. It is not what the kernel's `cone_angle` means by pitch, which is
+    the point of `test_the_cone_angle_does_not_change_what_pitch_means`.
+    """
+    if not cone:
+        return (height / pitch) * math.hypot(2 * math.pi * radius, pitch)
+    angle = math.radians(cone)
+    k = pitch / (2 * math.pi)
+    c = k / math.cos(angle)
+
+    def antiderivative(r: float) -> float:
+        return (r * math.hypot(r, c) + c * c * math.asinh(r / c)) / 2
+
+    r0, r1 = radius, radius + height * math.tan(angle)
+    return (antiderivative(r1) - antiderivative(r0)) / (k * math.tan(angle))
+
+
+@pytest.mark.parametrize("cone", [0.0, 15.0, 30.0])
+def test_a_tapered_spring_measures_its_own_closed_form(cone: float):
+    """`feature.sweep.helix_conical`, and Pappus over an arc length that is closed-form.
+
+    This is the case the golden corpus does not carry, and the reason is its bounding
+    box rather than its volume. Every corpus document states one, and a tapered spring's
+    box is **not** `2(r₁ + wire)`: the far side of the coil is a quarter-turn lower and
+    therefore narrower, so the box is off-centre and its extents depend on where the
+    last turn happens to land. That is derivable and it would be the whole of the case.
+    Volume is not — it is Pappus over the length above — so the capability is exercised
+    here and listed in `test_corpus.py`'s `elsewhere`.
+    """
+    pitch, height, radius, wire = 10.0, 30.0, 20.0, 2.0
+    part = built(document([spring(pitch, height, radius, cone, wire)], (1.0, 1.0, 1.0)))
+
+    expected = math.pi * wire**2 * conical_helix_length(pitch, height, radius, cone)
+    assert float(part.volume) == pytest.approx(expected, abs=1e-3)
+
+
+def test_the_cone_angle_does_not_change_what_pitch_means():
+    """The document states the pitch a drawing states, whatever the kernel means by it.
+
+    Measured on `scripts/probe_build123d_3d_path.py`: this kernel's `cone_angle` makes
+    `pitch` a distance along the cone's **slant**, so the axial advance per turn comes
+    out at `pitch · cos(cone_angle)` —
+
+        cone  0 deg   z per turn 10.00000   3.00000 turns
+        cone 15 deg   z per turn  9.65926   3.10583 turns
+        cone 30 deg   z per turn  8.66025   3.46410 turns
+
+    — and a document stating pitch 10 over height 30 at 30° would get **half a turn too
+    many**, in a spring that is valid, plausible, and agrees with every closed form
+    computed from the kernel. Nothing downstream could see it: a turn count is not
+    something this service measures.
+
+    So the engine divides by `cos(cone_angle)` before the kernel is asked, and this is
+    the assertion that says so — the turn count is counted off the built part rather
+    than taken on trust.
+    """
+    from build123d import Helix
+
+    pitch, height, radius = 10.0, 30.0, 20.0
+    for cone in (0.0, 15.0, 30.0):
+        # What the kernel does with the document's own number, unconverted.
+        naive = Helix(pitch=pitch, height=height, radius=radius, cone_angle=cone)
+        assert float(naive.length) == pytest.approx(
+            conical_helix_length(pitch * math.cos(math.radians(cone)), height, radius, cone),
+            abs=1e-3,
+        ), f"the kernel reads {pitch} as a slant pitch at {cone} degrees"
+
+        # And what the engine builds, which is the drawing's spring: `height / pitch`
+        # turns, counted by walking the wire the engine actually hands the kernel.
+        wire = helix_wire(
+            validate_canonical(
+                document([spring(pitch, height, radius, cone)], (1.0, 1.0, 1.0))
+            ).features[0].inputs.path,
+            Parameters([]),
+            "feature.spring",
+        )
+        assert _turns_about_z(wire) == pytest.approx(height / pitch, abs=1e-3)
+
+
+def _turns_about_z(curve, samples: int = 4000) -> float:
+    """How many times a curve goes round the Z axis, by walking it.
+
+    Measured rather than derived, because the whole question is whether the number the
+    kernel used is the number the document stated.
+    """
+    total, previous = 0.0, None
+    for index in range(samples + 1):
+        point = curve @ (index / samples)
+        angle = math.atan2(float(point.Y), float(point.X))
+        if previous is not None:
+            step = angle - previous
+            while step > math.pi:
+                step -= 2 * math.pi
+            while step < -math.pi:
+                step += 2 * math.pi
+            total += step
+        previous = angle
+    return total / (2 * math.pi)

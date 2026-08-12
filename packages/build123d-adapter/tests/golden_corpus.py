@@ -1079,6 +1079,61 @@ def _sweeps() -> list[Case]:
         volume_mm3=plate_w * plate_h * plate_t - math.pi * groove**2 * plate_w / 2,
         arithmetic=f"plate − ½ × π × {groove:g}² × {plate_w:g}",
     ))
+
+    # --- a path that leaves its plane (CAD-IR 1.15) -------------------------------
+    #
+    # Pappus is exact for a path in space, and that is not luck: the volume element of
+    # a tube is `(1 − u·κ) du dv ds`, so the correction is the section's first moment
+    # about the path — zero when the centroid rides it. Torsion, which is the entire
+    # difference between this and a planar path, drops out of the volume.
+    #
+    # Which also means volume alone cannot tell the two apart: the same lengths kept
+    # planar give the same 12003.3857. What sees the third dimension is the box.
+    def line3(start, end) -> dict[str, Any]:
+        return {"type": "line3", "start": list(start), "end": list(end)}
+
+    def bend3(start, end, centre) -> dict[str, Any]:
+        return {"type": "arc3", "start": list(start), "end": list(end),
+                "center": list(centre)}
+
+    def spatial(*segments: dict, plane: str = "XY") -> dict[str, Any]:
+        return {"id": "path.spine", "plane": plane, "segments": list(segments)}
+
+    run, turn, section = 30.0, 20.0, 5.0
+    cases.append(Case(
+        id="sweep-spatial-pipe-run",
+        document=document(
+            "bent-tube",
+            [travel("feature.pipe", "body.main", circle(section),
+                    spatial(
+                        # +X, then a bend into +Y in the XY plane, then a bend from +Y
+                        # into +Z — two bends in *different* planes, which is the
+                        # smallest path `SweepPath` cannot state.
+                        line3((0.0, 0.0, 0.0), (run, 0.0, 0.0)),
+                        bend3((run, 0.0, 0.0), (run + turn, turn, 0.0), (run, turn, 0.0)),
+                        line3((run + turn, turn, 0.0), (run + turn, turn + run, 0.0)),
+                        bend3((run + turn, turn + run, 0.0),
+                              (run + turn, turn + run + turn, turn),
+                              (run + turn, turn + run, turn)),
+                        line3((run + turn, turn + run + turn, turn),
+                              (run + turn, turn + run + turn, turn + run)),
+                    ),
+                    plane={"on": "base", "plane": "YZ"})],
+            # x runs from the start cap at 0 to the outer wall of the first bend,
+            # `run + turn + section`; y from `−section` under the start cap to the outer
+            # wall of the second bend, `turn + run + turn + section`; z from `−section`
+            # under the flat part of the run to the end cap at `turn + run`.
+            ((run + turn + section) - 0.0,
+             (turn + run + turn + section) + section,
+             (turn + run) + section),
+            holes=0),
+        volume_mm3=math.pi * section**2 * (3 * run + 2 * (math.pi / 2) * turn),
+        arithmetic=(
+            f"π × {section:g}² × (3×{run:g} + 2×(π/2)×{turn:g}) — Pappus, which is exact "
+            "for a path in space because the section's first moment about it is zero"
+        ),
+        topology=round_topology(5),
+    ))
     return cases
 
 
@@ -1609,6 +1664,89 @@ def negatives() -> list[Refusal]:
                 "already refuses `through_all` beside a distance for the same reason"
             ),
             by_contract=True,
+        ),
+        Refusal(
+            id="spatial-arc-half-turn",
+            document=document(
+                "negative",
+                [{
+                    "id": "feature.pipe", "type": "solid.sweep", "enabled": True,
+                    "depends_on": [],
+                    "produces": [{"id": "body.main", "kind": "solid_body"}],
+                    "inputs": {
+                        "sketch": sketch("section", circle(5.0),
+                                         plane={"on": "base", "plane": "YZ"}),
+                        "path": {
+                            "id": "path.spine", "plane": "XY", "segments": [
+                                {"type": "line3", "start": [0.0, 0.0, 0.0],
+                                 "end": [30.0, 0.0, 0.0]},
+                                # start, centre and end on one line: half a turn.
+                                {"type": "arc3", "start": [30.0, 0.0, 0.0],
+                                 "end": [30.0, 40.0, 0.0], "center": [30.0, 20.0, 0.0]},
+                            ],
+                        },
+                    },
+                }],
+                (60.0, 60.0, 10.0), holes=0,
+            ),
+            code="SWEEP_PATH_ARC_AMBIGUOUS",
+            why=(
+                "a bend of half a circle or more leaves the plane it turns in "
+                "undecided, and the kernel's own answer to that is a construction "
+                "error with an empty message -- a crash where a refusal belongs. A "
+                "U-bend is two quarter turns joined tangentially, which is what the "
+                "document has to state anyway because 1.9 checks the join"
+            ),
+        ),
+        Refusal(
+            id="a-path-that-comes-back-beside-itself",
+            document=document(
+                "negative",
+                [{
+                    "id": "feature.coil", "type": "solid.sweep", "enabled": True,
+                    "depends_on": [],
+                    "produces": [{"id": "body.main", "kind": "solid_body"}],
+                    "inputs": {
+                        "sketch": sketch("section", circle(30.0),
+                                         plane={"on": "base", "plane": "YZ"}),
+                        # A flat spiral. Every bend is R35 and the section reaches 30,
+                        # so `SWEEP_BEND_TIGHTER_THAN_PROFILE` is satisfied -- and the
+                        # last run comes back 25 mm from the first, which no per-bend
+                        # check can see. The kernel returns one valid solid whose
+                        # volume matches Pappus (2643399.9499) and whose mesh is a
+                        # closed manifold of genus 0, agreeing with its B-rep. This is
+                        # a *planar* path: the hole is in 1.9, not in 1.15.
+                        "path": {
+                            "id": "path.spine", "plane": "XY", "segments": [
+                                {"type": "line", "start": [0.0, 0.0], "end": [200.0, 0.0]},
+                                {"type": "arc", "start": [200.0, 0.0], "end": [235.0, 35.0],
+                                 "center": [200.0, 35.0], "sweep": "ccw"},
+                                {"type": "line", "start": [235.0, 35.0], "end": [235.0, 160.0]},
+                                {"type": "arc", "start": [235.0, 160.0], "end": [200.0, 195.0],
+                                 "center": [200.0, 160.0], "sweep": "ccw"},
+                                {"type": "line", "start": [200.0, 195.0], "end": [30.0, 195.0]},
+                                {"type": "arc", "start": [30.0, 195.0], "end": [-5.0, 160.0],
+                                 "center": [30.0, 160.0], "sweep": "ccw"},
+                                {"type": "line", "start": [-5.0, 160.0], "end": [-5.0, 60.0]},
+                                {"type": "arc", "start": [-5.0, 60.0], "end": [30.0, 25.0],
+                                 "center": [30.0, 60.0], "sweep": "ccw"},
+                                {"type": "line", "start": [30.0, 25.0], "end": [150.0, 25.0]},
+                            ],
+                        },
+                    },
+                }],
+                (300.0, 255.0, 60.0), holes=0,
+            ),
+            code="SOLID_PASSES_THROUGH_ITSELF",
+            why=(
+                "the only measured failure of this family that nothing else in the "
+                "service catches. Every closed-form check written for it is local -- "
+                "one bend against the profile, one turn against its neighbour -- and "
+                "two *different* parts of a path meeting each other is invisible to "
+                "both. A U-turn cannot do it, because two tangent bends of radius R "
+                "put the two runs 2R apart and R already has to clear the profile; a "
+                "spiral can"
+            ),
         ),
         Refusal(
             id="open-contour",

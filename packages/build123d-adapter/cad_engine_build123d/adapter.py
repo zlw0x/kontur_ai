@@ -45,6 +45,7 @@ from cad_ir.canonical import (
     SolidLoftFeature,
     SolidRevolveFeature,
     SolidSweepFeature,
+    SpatialPath,
 )
 from cad_ir.sketch import SketchOnBasePlane, SketchOnDatumPlane, SketchOnFace
 
@@ -66,9 +67,13 @@ from .shells import shell
 from .sweeps import (
     helix_wire,
     path_wire,
+    require_no_self_intersection,
     require_pitch_clears_the_section,
     require_bends_clear_the_profile,
     require_profile_across_path,
+    require_profile_across_spatial_path,
+    require_spatial_bends_clear_the_profile,
+    spatial_path_wire,
 )
 from .topology import read_faces
 from .identity import ARTIFACTS, EngineDescription, describe
@@ -498,6 +503,7 @@ def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
 
     path_plane = BASE_PLANES[str(inputs.path.plane)]
     helical = isinstance(inputs.path, HelicalPath)
+    spatial = isinstance(inputs.path, SpatialPath)
     wire = None
     if helical:
         # The section's plane is the path's, not the document's. A helix's tangent at
@@ -519,6 +525,17 @@ def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
             placed, profile_plane, path_plane.z_dir,
             params.resolve(inputs.path.pitch, f"{feature.id} helix pitch"),
             str(feature.id),
+        )
+    elif spatial:
+        # The same two rules as a planar path, on three components. The second one is
+        # where the third dimension actually costs something: the section is turned by
+        # every bend before the one being checked, so the reach has to be measured in
+        # the frame the section has by then.
+        require_profile_across_spatial_path(
+            profile_plane, path_plane, inputs.path, params, feature.id
+        )
+        require_spatial_bends_clear_the_profile(
+            placed, profile_plane, path_plane, inputs.path, params, feature.id
         )
     else:
         require_profile_across_path(profile_plane, path_plane, inputs.path, params, feature.id)
@@ -543,11 +560,22 @@ def _sweep_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
         # re-anchoring: the section is on the path's own start, so the two already
         # meet where the document says they do.
         anchored = wire
+    elif spatial:
+        # Built in world coordinates, because a spatial path's checks need world
+        # directions anyway and two places computing the same points is one place too
+        # many. The anchoring is the planar one unchanged.
+        wire = spatial_path_wire(inputs.path, params, str(feature.id), path_plane)
+        anchored = wire.moved(Location(profile_plane.origin - path_plane.origin))
     else:
         wire = path_plane.location * path_wire(inputs.path, params, str(feature.id))
         anchored = wire.moved(Location(profile_plane.origin - path_plane.origin))
 
     solid = sweep(placed, path=anchored)
+    # The backstop, and it is here because this is the operation whose failure mode it
+    # was measured on: a path that meets itself far from any bend builds one valid
+    # solid whose volume matches Pappus and whose mesh is a closed manifold, so nothing
+    # downstream would have said anything. See `require_no_self_intersection`.
+    require_no_self_intersection(solid, str(feature.id), "swept solid")
     return solid, is_cut
 
 
@@ -580,6 +608,11 @@ def _loft_tool(feature, part, planes: dict[str, Plane], params, bodies=None):
         )
 
     solid = loft(faces, ruled=inputs.ruled)
+    # The same backstop as the sweep. A loft's measured failure is a different one —
+    # two sections in one plane give a closed solid of volume 0.0 (ADR-031) — but a
+    # loft between sections that cross is the same shape of solid as a path meeting
+    # itself, and nothing else here would see it either.
+    require_no_self_intersection(solid, str(feature.id), "lofted solid")
     return solid, is_cut
 
 

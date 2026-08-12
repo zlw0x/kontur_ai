@@ -31,6 +31,7 @@ from typing import Iterable, Mapping
 
 from cad_ir.canonical import (
     HelicalPath,
+    SpatialPath,
     BooleanFeature,
     BooleanOp,
     ChamferFeature,
@@ -111,6 +112,21 @@ FEATURE_EXTRUDE_UNTIL_FACE = "feature.extrude.until_face"
 #: stage would have to lift off a drawing, behind the same three walls as everything
 #: else (ADR-029).
 FEATURE_SWEEP_HELIX = "feature.sweep.helix"
+#: A helix that opens out along its axis — a tapered spring (CAD-IR 1.15).
+#:
+#: Its own key rather than a field of the one above, on the shell's argument: the
+#: thing that can go wrong here is specific and an operator may want to stop only it.
+#: This kernel's `cone_angle` makes `pitch` a distance along the cone's *slant* while a
+#: drawing dimensions it along the axis, so the engine converts — and a conversion is
+#: exactly the kind of thing worth being able to switch off on its own.
+FEATURE_SWEEP_HELIX_CONICAL = "feature.sweep.helix_conical"
+#: A sweep whose path leaves the plane it is stated on (CAD-IR 1.15).
+#:
+#: `docs/TASK-POSTMVP-P4-3-a-path-that-leaves-its-plane.md`: what P4.3 called "a new
+#: coordinate vocabulary" is one number per point, because every other rule a spatial
+#: path needs — tangency, a perpendicular profile, bends that clear it — is a rule 1.9
+#: already states. `experimental`, by the corpus rule: it has the cases written here.
+FEATURE_SWEEP_SPATIAL_PATH = "feature.sweep.spatial_path"
 FEATURE_BODY_NEW = "feature.body.new"
 BOOLEAN_UNION = "boolean.union"
 BOOLEAN_SUBTRACT = "boolean.subtract"
@@ -208,6 +224,8 @@ DECLARED: Mapping[str, Declaration] = {
     FEATURE_EXTRUDE_DRAFT: Declaration("beta"),
     FEATURE_EXTRUDE_UNTIL_FACE: Declaration("experimental"),
     FEATURE_SWEEP_HELIX: Declaration("experimental"),
+    FEATURE_SWEEP_HELIX_CONICAL: Declaration("experimental"),
+    FEATURE_SWEEP_SPATIAL_PATH: Declaration("experimental"),
     FEATURE_BODY_NEW: Declaration("beta"),
     BOOLEAN_UNION: Declaration("beta"),
     BOOLEAN_SUBTRACT: Declaration("beta"),
@@ -370,6 +388,24 @@ def requirements(document) -> dict[str, str]:
                 f"the extrusion {feature.id}, which stops at a face",
             )
 
+        # The path kinds are their own keys and are checked here rather than inside the
+        # chain below, because the chain is about *what the feature is* and this is
+        # about what its path is. Splicing this into the chain is exactly the mistake
+        # CAD-IR 1.14 made: an `if` in the middle of an `elif` sequence broke it in two,
+        # so a plain solid sweep stopped counting towards `solids_so_far` and a helical
+        # *cut* stopped requiring `cut.sweep` at all.
+        if isinstance(feature, (SolidSweepFeature, CutSweepFeature)):
+            if isinstance(feature.inputs.path, HelicalPath):
+                need(FEATURE_SWEEP_HELIX, f"the helical path of {feature.id}")
+                cone = getattr(feature.inputs.path, "cone_angle", 0.0)
+                if not isinstance(cone, (int, float)) or cone:
+                    need(FEATURE_SWEEP_HELIX_CONICAL, f"the tapered helix of {feature.id}")
+            elif isinstance(feature.inputs.path, SpatialPath):
+                need(
+                    FEATURE_SWEEP_SPATIAL_PATH,
+                    f"the path of {feature.id}, which leaves the plane it is stated on",
+                )
+
         if getattr(feature.inputs, "new_body", False):
             # A separate lump of material is its own capability: a part delivered as
             # two bodies where one was meant is a different kind of wrong from a
@@ -394,10 +430,6 @@ def requirements(document) -> dict[str, str]:
             need(CUT_REVOLVE, f"the revolved cut {feature.id}")
         elif isinstance(feature, SolidSweepFeature):
             need(SOLID_SWEEP, f"the sweep {feature.id}")
-        if isinstance(feature, (SolidSweepFeature, CutSweepFeature)) and isinstance(
-            feature.inputs.path, HelicalPath
-        ):
-            need(FEATURE_SWEEP_HELIX, f"the helical path of {feature.id}")
             solids_so_far += 1
         elif isinstance(feature, CutSweepFeature):
             need(CUT_SWEEP, f"the swept cut {feature.id}")

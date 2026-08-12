@@ -45,14 +45,23 @@ from .base import (
 )
 from .sketch import BasePlaneName, PathSegment, Sketch
 
+#: A point in the space a path is stated in: three components in the frame of the
+#: path's own plane, the third being how far it stands out of that plane (CAD-IR 1.15).
+#:
+#: This is the whole of the "new coordinate vocabulary" P4.3 was said to need, and
+#: `docs/TASK-POSTMVP-P4-3-a-path-that-leaves-its-plane.md` is why it is one number
+#: rather than a curve library: everything else about a spatial path — the tangency,
+#: the perpendicular profile, the bend clearance — is a rule CAD-IR 1.9 already states
+#: and the engine already checks, with two components instead of three.
+Point3 = Annotated[list[Scalar], Field(min_length=3, max_length=3)]
+
 
 class SweepPath(StrictModel):
     """Where the profile goes, as a chain of lines and arcs in one plane.
 
-    Planar, and on a base plane. A path that left its plane would be the general 3D
-    curve of P4.3, which needs a way to say where a point is in space that CAD-IR does
-    not have yet — and a planar path is what a drawing gives: a centre line in an
-    elevation, with the bend radii dimensioned on it.
+    Planar, and on a base plane — which is what a drawing gives for most parts: a
+    centre line in an elevation, with the bend radii dimensioned on it. A path that
+    leaves its plane is `SpatialPath`, added in 1.15.
 
     The segments are the same lines and arcs a sketch contour is spelled out with, and
     for the same reason (ADR-020): endpoints that have to *match* rather than angles
@@ -62,6 +71,82 @@ class SweepPath(StrictModel):
     id: Id
     plane: BasePlaneName
     segments: Annotated[list[PathSegment], Field(min_length=1, max_length=200)]
+
+
+class SpatialLineSegment(StrictModel):
+    """A straight run of a path in space (CAD-IR 1.15)."""
+
+    type: Literal["line3"]
+    start: Point3
+    end: Point3
+    id: Id | None = None
+
+
+class SpatialArcSegment(StrictModel):
+    """A bend in space, given by its two endpoints and its centre.
+
+    The same three things a planar arc states, each with a third component — and
+    **without `sweep`**, which is the one difference and it is a consequence rather
+    than a decision.
+
+    A planar `ArcSegment` needs `sweep` because it is shared with sketch contours,
+    where two arcs share every endpoint and centre and differ only in which way round
+    they go. A *path* has no such freedom: CAD-IR 1.9 requires it to be
+    tangent-continuous, and of the two arcs through these points only the shorter one
+    can continue in the direction the path arrived. So the way round is derived, and a
+    second way to state it would be a second thing that can disagree.
+
+    What that form cannot say is a half turn or more: `start`, `center` and `end`
+    collinear leaves the arc's plane undefined, and the kernel's answer to it is
+    `gp_Dir::Crossed() - result vector has zero norm` — an empty-message construction
+    error of the kind the draft investigation found escaping as a crash. The engine
+    refuses it with a reason, and a U-bend is two quarter turns joined tangentially,
+    which is what the document has to state anyway because 1.9 checks the join.
+    """
+
+    type: Literal["arc3"]
+    start: Point3
+    end: Point3
+    center: Point3
+    id: Id | None = None
+
+
+#: One run or one bend of a path in space.
+SpatialSegment = Annotated[
+    Union[SpatialLineSegment, SpatialArcSegment], Field(discriminator="type")
+]
+
+
+class SpatialPath(StrictModel):
+    """A path that leaves the plane it is stated on (CAD-IR 1.15).
+
+    A bent tube is the case: a drawing gives it as straight runs and bend radii across
+    two views, and two of its bends lie in different planes. That is the smallest thing
+    `SweepPath` cannot say.
+
+    `plane` is the frame the coordinates are stated in and nothing more — the path no
+    longer lies in it. Everything else is 1.9's rule unchanged: the path starts at that
+    plane's origin (ADR-031, because the kernel anchors a sweep at the profile whatever
+    the path's coordinates say), it is open, it is tangent-continuous, and it leaves the
+    profile at a right angle.
+
+    Measured, and the reason this is checkable at all: **Pappus is exact for a path in
+    space.** The volume element of a tube is `(1 - u*kappa) du dv ds`, so the correction
+    is the section's first moment about the path — zero when the centroid rides it. The
+    torsion that is the entire difference between this and a planar path drops out of
+    the volume, and the probe agrees to 1.819e-12.
+
+    It follows that **volume cannot see the third dimension**: the run measured in the
+    probe and the same lengths kept planar come back at 12003.3857 both. What sees it is
+    the bounding box, which is an expectation documents already carry.
+    """
+
+    id: Id
+    #: The frame the points are stated in. Its normal is the third component's
+    #: direction; the profile stands on a plane perpendicular to the path's first step,
+    #: exactly as for a planar path.
+    plane: BasePlaneName
+    segments: Annotated[list[SpatialSegment], Field(min_length=1, max_length=200)]
 
 
 class HelicalPath(StrictModel):
@@ -103,6 +188,20 @@ class HelicalPath(StrictModel):
     #: so nothing downstream can catch a wrong one. A default would make the
     #: uncheckable property the one a document is allowed to leave out.
     hand: Literal["right", "left"]
+    #: How far the radius opens out along the axis, in degrees (CAD-IR 1.15). Zero is
+    #: a cylindrical helix and is what every document written before 1.15 means.
+    #:
+    #: `radius` is then the radius at the **start**, and the far end is
+    #: `radius + height * tan(cone_angle)`.
+    #:
+    #: The engine converts before the kernel sees it, and the reason is measured: this
+    #: kernel's `cone_angle` makes `pitch` a distance along the cone's **slant**, while
+    #: a drawing dimensions a pitch along the **axis**. A document stating pitch 10 over
+    #: height 30 at 30 deg would get 3.464 turns where it drew 3 — a valid, plausible
+    #: spring with half a turn too many. So the document states what the drawing states
+    #: and trusted code divides by `cos(cone_angle)`, which is the `until_face` pattern:
+    #: *what a division in trusted code buys is a number.*
+    cone_angle: Scalar = 0.0
 
     @model_validator(mode="after")
     def validate_dimensions(self) -> "HelicalPath":
@@ -113,17 +212,25 @@ class HelicalPath(StrictModel):
             # the engine resolves and re-checks in front of the kernel.
             if stated is not None and stated <= 0:
                 raise ValueError(f"a helix {name} must be positive")
+        cone = stated_number(self.cone_angle)
+        # Half a right angle each way. Past 90 the "cone" turns inside out, and at 90
+        # the conversion this angle exists for divides by zero.
+        if cone is not None and not -89.0 <= cone <= 89.0:
+            raise ValueError("a helix cone_angle must be between -89 and 89 degrees")
         return self
 
 
-#: Where a profile travels: a chain of lines and arcs in a plane, or a helix.
+#: Where a profile travels: a chain of lines and arcs in a plane, the same chain in
+#: space, or a helix.
 #:
-#: No discriminator field, and that is deliberate rather than lazy. The two have
-#: disjoint required properties and both forbid extras, so exactly one of them
-#: validates any given payload — the spelling is unique without a tag. Adding a
-#: required `kind` would have made every document written before 1.14 invalid the
-#: moment the normalizer relabelled it, and the normalizer is relabel-only by design.
-SweepPathSpec = Union[SweepPath, HelicalPath]
+#: No discriminator field, and that is deliberate rather than lazy. Each pair is told
+#: apart by what it declares and all three forbid extras, so exactly one of them
+#: validates any given payload: a helix by its `pitch`/`height`/`radius`/`hand`, and
+#: the two chains by their segments' own `type` — `line`/`arc` against `line3`/`arc3`.
+#: Adding a required `kind` would have made every document written before it invalid
+#: the moment the normalizer relabelled it, and the normalizer is relabel-only by
+#: design (`MIGRATABLE_VERSIONS` derives `RELABEL_ONLY`).
+SweepPathSpec = Union[SweepPath, SpatialPath, HelicalPath]
 
 
 class SweepInputs(StrictModel):
@@ -187,8 +294,15 @@ SweepFeature = Union[SolidSweepFeature, CutSweepFeature]
 __all__ = [
     "CutSweepFeature",
     "CutSweepInputs",
+    "HelicalPath",
+    "Point3",
     "SolidSweepFeature",
+    "SpatialArcSegment",
+    "SpatialLineSegment",
+    "SpatialPath",
+    "SpatialSegment",
     "SweepFeature",
     "SweepInputs",
     "SweepPath",
+    "SweepPathSpec",
 ]

@@ -199,7 +199,7 @@ The two cut cases stay unstated, for the reason above.
 | P4.2 vertex correspondence | **the open half of clause 2** | contract, reachable now |
 | P4.2 guide curves | out | needs P4.3 |
 | P4.2 topology validation | **the open half of clause 1** | corpus, reachable now |
-| P4.3 3D curves | out | a new coordinate vocabulary in CAD-IR; the largest single piece of P4 |
+| P4.3 3D curves | **four of five settled** (1.14, 1.15) | see the second correction below |
 | P4.4 templates (spring, auger, helical groove, real thread) | **behind a helical path, not behind P4.3** | see the correction below |
 
 The shape of stage P4 is therefore: **two small pieces reachable today, then a wall called
@@ -233,6 +233,36 @@ document's findings:
   right-hand thread have the same volume, topology and bounding box. It cannot be checked
   after the fact, so it has to be read off the drawing correctly, and only a person can
   catch it being wrong.
+
+### Second correction, 2026-08-12: P4.3 is not one wall but five questions
+
+`docs/TASK-POSTMVP-P4-3-a-path-that-leaves-its-plane.md` probed the rest of it, and only
+one of the five items behind this line is about coordinates at all.
+
+| item | verdict | why |
+|---|---|---|
+| 3D polyline | **built** (1.15, ADR-041) | one number per point; every other rule is 1.9's |
+| cylindrical helix | shipped (1.14, ADR-040) | five numbers and a direction |
+| conical helix | **built** (1.15) | one field — and this kernel's `pitch` is a *slant* pitch where a drawing dimensions an axial one |
+| 3D spline | **refused** | the stated points do not determine the curve, and the curve leaves the box they define |
+| intersection / projected curve | **refused** | it states no number, which is ADR-039's argument against `until` |
+| imported points | **refused** | a part whose shape is not in its own document cannot be identified by its hash (ADR-018) |
+
+Two measurements are worth having beside the rest of this document's:
+
+- **Pappus is exact for a path in space.** The volume element of a tube is
+  `(1 − uκ) du dv ds`, so the correction is the section's first moment about the path —
+  zero when the centroid rides it, whatever the torsion. Measured to 1.819e-12. It
+  follows that **volume cannot see the third dimension**: a run kept planar and the same
+  run bent out of its plane both come back at 12003.3857. The bounding box can.
+- **A swept path that comes back beside itself passes every check this service has.**
+  A flat spiral with four R35 bends under a section reaching 30, last run 25 mm from the
+  first: one valid solid, volume 2643399.9499 matching Pappus to 4.657e-10, B-rep genus
+  0 and mesh genus 0 with zero open edges — so the cross-check of POSTMVP-020 agrees
+  with itself. It has to be a *spiral*: two tangent bends of radius R put the two runs
+  2R apart and the bend rule already requires R to clear the profile, so a U-turn's runs
+  can never touch. That path is planar, so it is a hole in 1.9, and 1.15 closes it with
+  `SOLID_PASSES_THROUGH_ITSELF`.
 
 ---
 

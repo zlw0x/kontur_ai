@@ -316,3 +316,108 @@ def test_no_dotnet_file_declares_a_capability_key_of_its_own():
     assert not declarations, (
         "the .NET side declares capability keys again: " + "; ".join(declarations)
     )
+
+
+# --- the chain, and the way it broke ---------------------------------------
+
+
+def _sweep(kind: str, path: dict, fid: str = "feature.pipe",
+           cut_from: str | None = None, depends: list[str] | None = None) -> dict:
+    inputs: dict = {
+        "sketch": {"id": "sketch.section",
+                   "plane": {"on": "base", "plane": "YZ"},
+                   "outer": {"type": "circle", "center": [0.0, 0.0], "radius": 4.0},
+                   "inner": [], "construction": [], "constraints": [], "dimensions": []},
+        "path": path,
+    }
+    if cut_from:
+        inputs["source_body"] = {"result": cut_from}
+    return {"id": fid, "type": kind, "enabled": True, "depends_on": depends or [],
+            "produces": ([{"id": "body.main", "kind": "solid_body"}]
+                         if kind == "solid.sweep" else []),
+            "inputs": inputs}
+
+
+PLANAR_PATH = {"id": "path.spine", "plane": "XY",
+               "segments": [{"type": "line", "start": [0.0, 0.0], "end": [40.0, 0.0]}]}
+HELICAL_PATH = {"id": "path.helix", "plane": "XY", "pitch": 10.0, "height": 30.0,
+                "radius": 20.0, "hand": "right"}
+SPATIAL_PATH = {"id": "path.spine", "plane": "XY",
+                "segments": [{"type": "line3", "start": [0.0, 0.0, 0.0],
+                              "end": [40.0, 0.0, 0.0]}]}
+
+
+def _document(features: list[dict]) -> dict:
+    from cad_ir.canonical import CAD_IR_VERSION
+
+    return validate_canonical({
+        "schema": "cad-ai/cad-ir", "schema_version": CAD_IR_VERSION,
+        "document": {"units": "mm", "part_type": "single_part",
+                     "coordinate_system": "right_handed", "name": "swept"},
+        "parameters": [], "features": features,
+        "expectations": [
+            {"id": "inv.box", "type": "bounding_box",
+             "size_mm": {"x": 1.0, "y": 1.0, "z": 1.0}, "tolerance_mm": 0.05},
+            {"id": "inv.bodies", "type": "body_count", "value": 1},
+        ],
+        "metadata": {"generator": "test", "generator_version": "1"},
+    })
+
+
+def test_a_swept_cut_asks_for_the_cut_key_whatever_kind_of_path_it_has():
+    """The regression CAD-IR 1.14 introduced and 1.15 fixes.
+
+    `feature.sweep.helix` was spliced into the middle of the `elif` chain that decides
+    what a feature is, which broke the chain in two. The consequences were both silent:
+    a **helical cut** required `feature.sweep.helix` and then never reached
+    `need(CUT_SWEEP)` at all, so an operator who had switched swept cuts off would still
+    have got one; and a plain solid sweep stopped counting towards `solids_so_far`, so a
+    boss landing on a swept body no longer asked for `feature.boss.additive`.
+
+    Neither was visible to the corpus, because the one helical case it carries is a
+    solid sweep standing alone. Parametrising over both kinds of feature and all three
+    kinds of path is what makes that impossible to reintroduce.
+    """
+    for path in (PLANAR_PATH, HELICAL_PATH, SPATIAL_PATH):
+        solid = set(caps.requirements(_document([_sweep("solid.sweep", path)])))
+        assert caps.SOLID_SWEEP in solid, path["id"]
+
+        removed = set(caps.requirements(_document([
+            _sweep("solid.sweep", PLANAR_PATH, "feature.blank"),
+            _sweep("cut.sweep", path, "feature.groove", cut_from="body.main",
+                   depends=["feature.blank"]),
+        ])))
+        assert caps.CUT_SWEEP in removed, path["id"]
+
+
+def test_a_boss_landing_on_a_swept_body_is_still_a_boss():
+    """The other half of the same break: a sweep is a solid, so what follows it is a boss."""
+    features = [
+        _sweep("solid.sweep", PLANAR_PATH),
+        {"id": "feature.pad", "type": "solid.extrude", "enabled": True,
+         "depends_on": ["feature.pipe"], "produces": [],
+         "inputs": {
+             "sketch": {"id": "sketch.pad", "plane": {"on": "base", "plane": "XY"},
+                        "outer": {"type": "circle", "center": [0.0, 0.0], "radius": 3.0},
+                        "inner": [], "construction": [], "constraints": [],
+                        "dimensions": []},
+             "direction": "+Z", "distance": 5.0}},
+    ]
+    assert caps.FEATURE_BOSS_ADDITIVE in set(caps.requirements(_document(features)))
+
+
+def test_each_kind_of_path_asks_for_its_own_key():
+    assert caps.FEATURE_SWEEP_SPATIAL_PATH in set(
+        caps.requirements(_document([_sweep("solid.sweep", SPATIAL_PATH)]))
+    )
+    assert caps.FEATURE_SWEEP_SPATIAL_PATH not in set(
+        caps.requirements(_document([_sweep("solid.sweep", PLANAR_PATH)]))
+    )
+    assert caps.FEATURE_SWEEP_HELIX_CONICAL not in set(
+        caps.requirements(_document([_sweep("solid.sweep", HELICAL_PATH)]))
+    )
+    assert caps.FEATURE_SWEEP_HELIX_CONICAL in set(
+        caps.requirements(_document([
+            _sweep("solid.sweep", {**HELICAL_PATH, "cone_angle": 15.0})
+        ]))
+    )

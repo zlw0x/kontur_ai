@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.14",
+  "$id": "https://cad.example.com/schemas/cad-ir-canonical/1.15",
   "title": "CadIrDocument",
   "$defs": {
     "AdjacencyPredicate": {
@@ -1287,6 +1287,9 @@
               "$ref": "#/$defs/SweepPath"
             },
             {
+              "$ref": "#/$defs/SpatialPath"
+            },
+            {
               "$ref": "#/$defs/HelicalPath"
             }
           ],
@@ -2147,6 +2150,24 @@
           ],
           "title": "Hand",
           "type": "string"
+        },
+        "cone_angle": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterRef"
+            },
+            {
+              "$ref": "#/$defs/ScalarQuotient"
+            },
+            {
+              "$ref": "#/$defs/ScalarNegation"
+            }
+          ],
+          "default": 0.0,
+          "title": "Cone Angle"
         }
       },
       "required": [
@@ -4105,6 +4126,223 @@
       "title": "SourceRegion",
       "type": "object"
     },
+    "SpatialArcSegment": {
+      "additionalProperties": false,
+      "description": "A bend in space, given by its two endpoints and its centre.\n\nThe same three things a planar arc states, each with a third component — and\n**without `sweep`**, which is the one difference and it is a consequence rather\nthan a decision.\n\nA planar `ArcSegment` needs `sweep` because it is shared with sketch contours,\nwhere two arcs share every endpoint and centre and differ only in which way round\nthey go. A *path* has no such freedom: CAD-IR 1.9 requires it to be\ntangent-continuous, and of the two arcs through these points only the shorter one\ncan continue in the direction the path arrived. So the way round is derived, and a\nsecond way to state it would be a second thing that can disagree.\n\nWhat that form cannot say is a half turn or more: `start`, `center` and `end`\ncollinear leaves the arc's plane undefined, and the kernel's answer to it is\n`gp_Dir::Crossed() - result vector has zero norm` — an empty-message construction\nerror of the kind the draft investigation found escaping as a crash. The engine\nrefuses it with a reason, and a U-bend is two quarter turns joined tangentially,\nwhich is what the document has to state anyway because 1.9 checks the join.",
+      "properties": {
+        "type": {
+          "const": "arc3",
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "End",
+          "type": "array"
+        },
+        "center": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Center",
+          "type": "array"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        }
+      },
+      "required": [
+        "type",
+        "start",
+        "end",
+        "center"
+      ],
+      "title": "SpatialArcSegment",
+      "type": "object"
+    },
+    "SpatialLineSegment": {
+      "additionalProperties": false,
+      "description": "A straight run of a path in space (CAD-IR 1.15).",
+      "properties": {
+        "type": {
+          "const": "line3",
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ParameterRef"
+              },
+              {
+                "$ref": "#/$defs/ScalarQuotient"
+              },
+              {
+                "$ref": "#/$defs/ScalarNegation"
+              }
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "End",
+          "type": "array"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        }
+      },
+      "required": [
+        "type",
+        "start",
+        "end"
+      ],
+      "title": "SpatialLineSegment",
+      "type": "object"
+    },
+    "SpatialPath": {
+      "additionalProperties": false,
+      "description": "A path that leaves the plane it is stated on (CAD-IR 1.15).\n\nA bent tube is the case: a drawing gives it as straight runs and bend radii across\ntwo views, and two of its bends lie in different planes. That is the smallest thing\n`SweepPath` cannot say.\n\n`plane` is the frame the coordinates are stated in and nothing more — the path no\nlonger lies in it. Everything else is 1.9's rule unchanged: the path starts at that\nplane's origin (ADR-031, because the kernel anchors a sweep at the profile whatever\nthe path's coordinates say), it is open, it is tangent-continuous, and it leaves the\nprofile at a right angle.\n\nMeasured, and the reason this is checkable at all: **Pappus is exact for a path in\nspace.** The volume element of a tube is `(1 - u*kappa) du dv ds`, so the correction\nis the section's first moment about the path — zero when the centroid rides it. The\ntorsion that is the entire difference between this and a planar path drops out of\nthe volume, and the probe agrees to 1.819e-12.\n\nIt follows that **volume cannot see the third dimension**: the run measured in the\nprobe and the same lengths kept planar come back at 12003.3857 both. What sees it is\nthe bounding box, which is an expectation documents already carry.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "plane": {
+          "$ref": "#/$defs/BasePlaneName"
+        },
+        "segments": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "arc3": "#/$defs/SpatialArcSegment",
+                "line3": "#/$defs/SpatialLineSegment"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/SpatialLineSegment"
+              },
+              {
+                "$ref": "#/$defs/SpatialArcSegment"
+              }
+            ]
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "plane",
+        "segments"
+      ],
+      "title": "SpatialPath",
+      "type": "object"
+    },
     "SurfaceFaceCountExpectation": {
       "additionalProperties": false,
       "description": "How many faces of one surface kind the finished solid has.\n\nThe check a blend needs, and the reason it is worth adding a fourth\nexpectation type. A fillet is invisible to every other check in the document:\nthe bounding box of a plate with rounded corners is the bounding box of the\nplate, the body count is one either way, and a hole count knows nothing about\ncorners. So a fillet that quietly did not happen — or happened at the wrong\nradius — passes everything, and the only thing that distinguishes it is that\nfour cylindrical faces of that radius are missing from the solid.\n\nStated by the document and measured off the reopened STEP, like every other\nexpectation, and for the same reason (ADR-018): a count derived from the plan\nthat built the geometry would agree with it about anything they both got wrong.",
@@ -4182,6 +4420,9 @@
               "$ref": "#/$defs/SweepPath"
             },
             {
+              "$ref": "#/$defs/SpatialPath"
+            },
+            {
               "$ref": "#/$defs/HelicalPath"
             }
           ],
@@ -4213,7 +4454,7 @@
     },
     "SweepPath": {
       "additionalProperties": false,
-      "description": "Where the profile goes, as a chain of lines and arcs in one plane.\n\nPlanar, and on a base plane. A path that left its plane would be the general 3D\ncurve of P4.3, which needs a way to say where a point is in space that CAD-IR does\nnot have yet — and a planar path is what a drawing gives: a centre line in an\nelevation, with the bend radii dimensioned on it.\n\nThe segments are the same lines and arcs a sketch contour is spelled out with, and\nfor the same reason (ADR-020): endpoints that have to *match* rather than angles\nthat have to be inferred.",
+      "description": "Where the profile goes, as a chain of lines and arcs in one plane.\n\nPlanar, and on a base plane — which is what a drawing gives for most parts: a\ncentre line in an elevation, with the bend radii dimensioned on it. A path that\nleaves its plane is `SpatialPath`, added in 1.15.\n\nThe segments are the same lines and arcs a sketch contour is spelled out with, and\nfor the same reason (ADR-020): endpoints that have to *match* rather than angles\nthat have to be inferred.",
       "properties": {
         "id": {
           "pattern": "^[a-z][a-z0-9_.-]{1,63}$",
@@ -4313,8 +4554,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "1.14",
-      "default": "1.14",
+      "const": "1.15",
+      "default": "1.15",
       "title": "Schema Version",
       "type": "string"
     },

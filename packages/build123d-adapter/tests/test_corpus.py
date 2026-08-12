@@ -71,14 +71,22 @@ def test_the_corpus_covers_every_operation_the_engine_declares():
     for case in POSITIVES:
         exercised |= set(caps.requirements(validate_canonical(case.document)))
 
-    # Four keys belong to a hand-written fixture instead, each for a reason. They are
-    # covered — by `test_constraints.py`, `test_revolve.py` and `test_blends.py` — and
-    # listing them here is what stops the exemption from growing quietly.
+    # Five keys belong to a hand-written test instead, each for a reason. They are
+    # covered — by `test_constraints.py`, `test_revolve.py`, `test_blends.py` and
+    # `test_sweeps.py` — and listing them here is what stops the exemption from growing
+    # quietly.
     elsewhere = {
         caps.SKETCH_CONSTRAINTS,          # constrained-plate (POSTMVP-007): assertions
         caps.SKETCH_DIMENSIONS,           # about coordinates, which change no geometry
         caps.CUT_REVOLVE,                 # bushing: a turned relief groove
         caps.FEATURE_CHAMFER_ASYMMETRIC,  # blended-bracket: a countersink
+        # A tapered spring, and the reason is its *bounding box* rather than its volume.
+        # Every corpus document states one, and a conical helix's box is not
+        # `2(r₁ + wire)`: the far side of the coil is a quarter-turn lower and therefore
+        # narrower, so the box is off-centre and its extents depend on where the last
+        # turn lands. Volume is closed-form — Pappus over an arc length with an exact
+        # antiderivative — so `test_sweeps.py` measures that, and the turn count with it.
+        caps.FEATURE_SWEEP_HELIX_CONICAL,
     }
     missing = set(caps.ALL) - elsewhere - exercised
     assert missing == set(), sorted(missing)
