@@ -292,3 +292,54 @@ Verified end to end from the machine name: registered through the form at
 error.
 
 **1016 python, typecheck clean, OpenAPI unchanged, all three images current.**
+
+---
+
+## The sixth, and it was never the network
+
+`Сервис не ответил по адресу http://127.0.0.1:8000` — the message added one commit
+earlier, and it was wrong. The service was up and answering `health` on both spellings
+throughout. Instrumented `fetch` in the page rather than trusting the message:
+
+```text
+POST /api/v1/drawing-jobs            201
+GET  /api/v1/drawing-jobs/{id}       TypeError: Failed to fetch
+```
+
+The upload worked; the **status poll** did not. In the API's log:
+
+```text
+GET /api/v1/drawing-jobs/{id}
+  → scheduler_diagnostics().report(job)
+  → sql_protocol.workers()
+  → WorkerCapabilityManifest(**row.capability_manifest)
+  ValidationError: kompas_version — Extra inputs are not permitted
+```
+
+**One worker row left from before the KOMPAS removal** still carried
+`kompas_version: null` — a probe worker registered on 2026-07-28. Migration 0006
+rewrote the rows it knew about, and this one survived. `WorkerCapabilityManifest`
+forbids unknown keys, which is right **at the door** and wrong on the way **out of the
+database**: a stored row outlives the model that wrote it.
+
+So every customer's status poll answered 500 — and an unhandled 500 carries no CORS
+header, so a browser reports it as a network failure with no cause in it. Two of the
+last three rounds were spent on a message rather than on the fault.
+
+The order it was polling had **built correctly the whole time**: `MANUAL_REVIEW`, six
+artifacts, STEP 22.1 KB and STL 50.3 KB. Nothing was wrong with the model; the page
+could not ask about it.
+
+Fixed where the asymmetry belongs: keys this build does not declare are dropped when a
+manifest is read **out** of the database and named in the log; a worker **sending** one
+is still refused. `test_a_manifest_from_before_a_field_was_dropped_is_still_readable`
+asserts both directions, and fails without the fix.
+
+This is the other half of a rule CLAUDE.md already states — *deleting a name rows still
+hold turns a rename into an outage*. Migration 0006 got the order right. What was
+missing was a reader that survives the row a migration missed.
+
+Verified in the panel afterwards: poll 200, "Смотрит инженер", 62%, both files listed
+with their sizes, no banner and no error.
+
+**1017 python, typecheck clean, all three images current.**

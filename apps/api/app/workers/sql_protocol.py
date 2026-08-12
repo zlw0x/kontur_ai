@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import hashlib
 import json
 import secrets
@@ -350,10 +352,46 @@ class SqlWorkerProtocolService:
             raise WorkerProtocolError(ErrorCode.LEASE_EXPIRED, "job lease has expired or changed owner")
 
     @staticmethod
+    def _stored_manifest(row: WorkerRow) -> WorkerCapabilityManifest | None:
+        """A manifest a worker sent once, read by a model that has moved since.
+
+        `WorkerCapabilityManifest` forbids unknown keys, which is right **at the
+        door**: a worker sending a field this build does not understand is a worker
+        this build should not believe it understood. It is wrong on the way **out** of
+        the database, because a stored row outlives the model that wrote it.
+
+        Measured, and it was an outage: one row left from before the KOMPAS removal
+        still carried `kompas_version: null`. Migration 0006 rewrote the rows it knew
+        about — the order that matters, and CLAUDE.md says so — and this one survived.
+        Reading it raised `extra_forbidden` inside the scheduler diagnostics, which the
+        customer's **status poll** calls, so every order page 500'd the moment it asked
+        how its build was going. In a browser an unhandled 500 carries no CORS header
+        and arrives as `Failed to fetch`, which is why this looked like a network
+        problem for two rounds.
+
+        So the keys this build does not declare are dropped and named in the log. A
+        capability list from an old worker is still worth reading; the field that is
+        gone is not worth an outage.
+        """
+        stored = row.capability_manifest
+        if not stored:
+            return None
+        known = set(WorkerCapabilityManifest.model_fields)
+        unknown = sorted(key for key in stored if key not in known)
+        if unknown:
+            logging.getLogger("cad_ai.workers").info(
+                "worker %s carries manifest fields this build has dropped: %s",
+                row.id, ", ".join(unknown),
+            )
+        return WorkerCapabilityManifest(
+            **{key: value for key, value in stored.items() if key in known}
+        )
+
+    @staticmethod
     def _worker(row: WorkerRow) -> Worker:
         return Worker(UUID(row.id), row.name, row.token_hash, row.app_version,
                       {WorkerCapability(item) for item in row.capabilities}, set(row.supported_cad_ir), row.last_seen_at,
-                      WorkerCapabilityManifest(**row.capability_manifest) if row.capability_manifest else None,
+                      SqlWorkerProtocolService._stored_manifest(row),
                       row.available_slots or 0,
                       CodexAvailability(
                           state=CodexState(row.codex_state),
