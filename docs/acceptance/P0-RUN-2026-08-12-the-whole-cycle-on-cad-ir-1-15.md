@@ -155,3 +155,49 @@ current stack                               OK     engine 1.15 / api / web      
 The web branch is written against the failure this run found: it reads the served
 bundles, not the source, because the source was right for nine days while the page was
 not.
+
+---
+
+## The third defect: signing in and then being told to sign in
+
+Reported from the panel after a successful sign-in and an upload. Reproduced in a
+browser, and the sequence is the whole explanation:
+
+```text
+POST /api/v1/drawing-jobs   201   the page's own form, straight after signing in
+GET  /api/v1/auth/me        200   anything at all: a reload, a second tab, an effect that runs twice
+POST /api/v1/drawing-jobs   403   the same page, the same form, the same session
+```
+
+`/auth/me` **re-issues the CSRF token on every call** — deliberately, to close the
+window where an old one is still accepted — by overwriting the hash the session
+compares against. It did not rewrite the `cad_ai_csrf` cookie, and the page held its
+token in React state from mount. So the second visit revoked the credential every
+existing page was carrying, and left no way to notice: the cookie still held the value
+from sign-in, which the server had already stopped accepting.
+
+**Two bugs meeting.** The API handed out a credential and revoked it in the same breath;
+the page kept a copy of something that was designed to change.
+
+Fixed on both sides, because either alone leaves a way to lose:
+
+- `/auth/me` sets the cookie to the token it returns. The cookie is the client's only
+  durable copy — the comment beside it has always said it is readable *because the
+  client has to copy it into a header* — so re-issuing without updating it is what made
+  the rotation destructive.
+- `api()` reads the token **from the cookie at the moment of the call** rather than from
+  state, so a second tab can no longer disarm the first.
+- A write refused with 401 or 403 refreshes `/auth/me` **once** and retries. If that
+  fails the session is genuinely gone, and the page says so in words a customer can act
+  on — "the session ended, sign in again, your order is still there" — instead of
+  showing them the API's `sign in to continue`, which is a program talking to a program.
+
+`test_asking_who_i_am_does_not_disarm_the_page_that_asked` asserts the cookie moves with
+the token, that the new one works and the old one does not. Checked against the defect:
+it fails without the cookie write and passes with it.
+
+Verified afterwards in the browser, on the same sequence that produced the 403:
+**201 Created**, the order id in the address bar, the real progress on the page, no
+demonstration banner and no error.
+
+**1014 python, typecheck clean, OpenAPI unchanged, all three images current.**

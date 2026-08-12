@@ -548,7 +548,7 @@ def sign_out(request: Request, response: Response) -> None:
 
 
 @app.get("/api/v1/auth/me", response_model=SessionResponse)
-def current_account(request: Request) -> SessionResponse:
+def current_account(request: Request, response: Response) -> SessionResponse:
     """Who the cookie says you are, and a fresh CSRF token to go with it.
 
     A page reloaded after the CSRF token was only ever held in memory has to be able
@@ -568,15 +568,33 @@ def current_account(request: Request) -> SessionResponse:
     user = accounts.repository.user(principal.user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="sign in to continue")
+    # Re-issued from the session's own secret would be ideal; the stored value is a
+    # hash, so what is returned is a new token. Rotating on a page load closes the
+    # window where an old one is still accepted.
+    #
+    # **And the cookie is rewritten with it**, which it was not, and that omission
+    # broke every write a page made after anything called this a second time. The
+    # rotation overwrote the hash the session compares against while the browser kept
+    # the value from sign-in, so the token the client had — in a cookie or in memory
+    # — was one the server had already stopped accepting. Measured: upload 201, call
+    # `/auth/me`, upload 403. A reload, a second tab or an effect that runs twice was
+    # enough. The cookie is the client's only durable copy, so re-issuing without
+    # updating it hands out a credential and revokes it in the same breath.
+    issued = _reissued_csrf(session)
+    response.set_cookie(
+        CSRF_COOKIE,
+        issued,
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        max_age=int(accounts.lifetime.total_seconds()),
+        path="/",
+    )
     return SessionResponse(
         user_id=user.id,
         email=user.email,
         role=UserRole(user.role.value),
-        # Re-issued from the session's own secret would be ideal; the stored value
-        # is a hash, so what is returned is a new token for a new session. Rotating
-        # on a page load is cheap and closes the window where an old one is still
-        # accepted.
-        csrf_token=_reissued_csrf(session),
+        csrf_token=issued,
         expires_at=session.expires_at,
     )
 

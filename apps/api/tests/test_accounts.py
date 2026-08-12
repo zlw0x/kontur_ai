@@ -591,3 +591,55 @@ def test_the_api_role_enum_and_the_internal_one_say_the_same_three_words():
     in the worker protocol.
     """
     assert {role.value for role in UserRole} == {role.value for role in Role}
+
+
+def test_asking_who_i_am_does_not_disarm_the_page_that_asked(client):
+    """`/auth/me` re-issues the CSRF token, so it has to hand the new one back.
+
+    Measured on the running service before this was fixed: upload 201, call
+    `/auth/me`, upload 403. The re-issue overwrote the hash the session compares
+    against while the browser kept the value from sign-in, so the client was holding
+    a token the server had already stopped accepting — and a reload, a second tab or
+    an effect that runs twice was enough to cause it.
+
+    The cookie is the client's only durable copy of that token. Re-issuing without
+    rewriting it hands out a credential and revokes it in the same breath, which is
+    why this asserts the **cookie** and not only the body.
+    """
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={"email": "rotating@example.com", "password": "correct-horse-battery-staple"},
+    )
+    assert registered.status_code == 201
+    at_sign_in = registered.json()["csrf_token"]
+    assert client.cookies.get(CSRF_COOKIE) == at_sign_in
+
+    first = client.post(
+        "/api/v1/drawing-jobs",
+        headers={"content-type": "image/png", CSRF_HEADER: at_sign_in},
+        content=TINY_PNG,
+    )
+    assert first.status_code == 201
+
+    # The second visit. Anything at all: a reload, another tab, a duplicated effect.
+    again = client.get("/api/v1/auth/me")
+    assert again.status_code == 200
+    reissued = again.json()["csrf_token"]
+    assert reissued != at_sign_in, "a re-issue that returns the same token is not one"
+
+    # The cookie moved with it, so a client that reads the cookie is never stale.
+    assert client.cookies.get(CSRF_COOKIE) == reissued
+
+    # And the token that came back works, which is the whole point of returning one.
+    assert client.post(
+        "/api/v1/drawing-jobs",
+        headers={"content-type": "image/png", CSRF_HEADER: reissued},
+        content=TINY_PNG,
+    ).status_code == 201
+
+    # The old one does not, which is what rotating is for.
+    assert client.post(
+        "/api/v1/drawing-jobs",
+        headers={"content-type": "image/png", CSRF_HEADER: at_sign_in},
+        content=TINY_PNG,
+    ).status_code == 403

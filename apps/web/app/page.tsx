@@ -6,6 +6,18 @@ import LandingPage from "./landing-page";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+/**
+ * The CSRF token the browser is holding right now.
+ *
+ * Readable on purpose — the client has to copy it into a header, and a header is
+ * the thing a cross-origin page cannot set. Reading it here rather than keeping a
+ * copy is what stops a second tab from silently disarming this one.
+ */
+function csrfFromCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  return document.cookie.match(/(?:^|;\s*)cad_ai_csrf=([^;]+)/)?.[1] ?? null;
+}
+
 type Question = {
   id: string;
   parameter_id: string;
@@ -165,11 +177,49 @@ export default function Home() {
    * either — which is how a page ends up with one endpoint that works and one
    * that returns 403 for reasons nobody can see.
    */
-  function api(path: string, init: RequestInit = {}) {
-    const headers = new Headers(init.headers);
-    if (token) headers.set("x-manual-api-token", token);
-    if (session) headers.set("x-csrf-token", session.csrf_token);
-    return fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
+  async function api(path: string, init: RequestInit = {}): Promise<Response> {
+    const send = () => {
+      const headers = new Headers(init.headers);
+      if (token) headers.set("x-manual-api-token", token);
+      // From the cookie, at the moment of the call, and not from React state.
+      //
+      // The API re-issues the CSRF token on every `/auth/me`, so a value captured
+      // once at mount is a value the server may already have stopped accepting: a
+      // reload in another tab, or any second call, and every write from this page
+      // came back 403 until somebody reloaded it. The cookie is the one copy that
+      // is kept current — the API rewrites it whenever it re-issues — so reading it
+      // per call is what makes the two agree.
+      const current = csrfFromCookie();
+      if (current) headers.set("x-csrf-token", current);
+      else if (session) headers.set("x-csrf-token", session.csrf_token);
+      return fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
+    };
+
+    const first = await send();
+    if (first.status !== 401 && first.status !== 403) return first;
+    // One recovery attempt, and only one. `/auth/me` mints a token and writes it to
+    // the cookie, so if this page was simply holding a stale one, the retry
+    // succeeds and the customer never learns that anything happened. If it fails
+    // again the session is genuinely gone, and `signedOut` puts the way back in
+    // front of them instead of an API string they cannot act on.
+    const recovered = await fetch(`${API_URL}/api/v1/auth/me`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!recovered.ok) {
+      setSession(null);
+      // Say what happened, in the words of the thing that happened. "sign in to
+      // continue" is the API talking to a program; a customer who has been signed
+      // in for an hour and has an order on the screen needs to be told that the
+      // session ended and that their order is still there.
+      setError(
+        "Сеанс завершился — войдите снова. Заказ никуда не делся: " +
+        "после входа страница подхватит его."
+      );
+      return first;
+    }
+    setSession((await recovered.json()) as Session);
+    return send();
   }
 
   useEffect(() => {
