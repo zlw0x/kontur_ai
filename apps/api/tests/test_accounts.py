@@ -643,3 +643,47 @@ def test_asking_who_i_am_does_not_disarm_the_page_that_asked(client):
         headers={"content-type": "image/png", CSRF_HEADER: at_sign_in},
         content=TINY_PNG,
     ).status_code == 403
+
+
+def test_a_local_deployment_answers_the_address_it_was_opened_at(client):
+    """The other half of the page following its own hostname.
+
+    A local deployment is opened at whatever address somebody types — `localhost`,
+    `127.0.0.1`, the machine's name, its address on the network — and a browser
+    treats each as a different origin. The page sends its requests to the host it
+    was loaded from, because a session cookie belongs to a host; an allowlist that
+    names two spellings of "this machine" refuses the third, and a refused preflight
+    reaches the page as `Failed to fetch`, which names no cause at all.
+
+    So in `local` the **port** is pinned and the host is not. This asserts both
+    halves: an unfamiliar local host is answered, and a page on the wrong port is
+    not — because widening this to any origin is how a service ends up accepting
+    authenticated requests from anywhere.
+    """
+    for origin in (
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://desktop-lqgruau:3000",
+        "http://192.168.1.42:3000",
+    ):
+        answered = client.options(
+            "/api/v1/auth/sign-in",
+            headers={
+                "origin": origin,
+                "access-control-request-method": "POST",
+                "access-control-request-headers": "content-type",
+            },
+        )
+        assert answered.status_code == 200, origin
+        assert answered.headers.get("access-control-allow-origin") == origin, origin
+        assert answered.headers.get("access-control-allow-credentials") == "true", origin
+
+    refused = client.options(
+        "/api/v1/auth/sign-in",
+        headers={
+            "origin": "http://evil.example.com",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+        },
+    )
+    assert refused.headers.get("access-control-allow-origin") is None

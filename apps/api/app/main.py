@@ -207,8 +207,28 @@ app = FastAPI(
     responses={409: {"model": ProblemDetails, "description": "Conflict"}},
     lifespan=lifespan,
 )
+#: Any address the machine answers to, on the web port, and **only** in `local`.
+#:
+#: A local deployment is opened at whatever address somebody types — `localhost`,
+#: `127.0.0.1`, the machine's name, its address on the network — and the browser
+#: treats every one of them as a different origin. The page follows suit: it sends
+#: its requests to the host it was itself loaded from (`apiBase`), because a session
+#: cookie belongs to a host and splitting the two across `localhost` and `127.0.0.1`
+#: is what made a signed-in customer be told to sign in.
+#:
+#: This is the other half of that. An allowlist that names two spellings of "this
+#: machine" refuses the third, and a refused preflight reaches the page as `Failed to
+#: fetch` — a browser string with no cause in it. So in `local` the port is what is
+#: pinned and the host is not.
+#:
+#: Outside `local` nothing changes: the list stays exactly as configured, because
+#: there the origin is a real domain and guessing at it is how a service ends up
+#: accepting requests from pages it has never heard of.
+_LOCAL_WEB_ORIGIN = r"http://[A-Za-z0-9._\-]+:3000"
+
 app.add_middleware(
     CORSMiddleware,
+    allow_origin_regex=_LOCAL_WEB_ORIGIN if settings.environment.lower() == "local" else None,
     allow_origins=list(dict.fromkeys([
         settings.web_origin,
         "http://localhost:3000",

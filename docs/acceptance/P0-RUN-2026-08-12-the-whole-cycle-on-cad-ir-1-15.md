@@ -247,3 +247,48 @@ the form, cookie kept, `/auth/me` 200, upload accepted, order id in the address 
 banner and no error.
 
 **1015 python, typecheck clean, web builds, all three images current.**
+
+---
+
+## The fifth, and it was the other half of the fourth
+
+`Failed to fetch`, reported straight after the loopback fix. The page had started
+sending its requests to the host it was loaded from — which was the point — and the
+API's allowlist named two spellings of "this machine" and refused the third.
+
+A refused preflight reaches a script as `Failed to fetch` and nothing else: no status,
+no origin, no cause. Measured before the fix, against a service that was running the
+whole time:
+
+```text
+origin http://localhost:3000        200  allow-origin echoed
+origin http://127.0.0.1:3000        200  allow-origin echoed
+origin http://DESKTOP-LQGRUAU:3000  400  (refused)
+origin http://192.168.1.42:3000     400  (refused)
+```
+
+So in `local` the **port** is pinned and the host is not, which is the same rule the
+page now follows. Outside `local` nothing changes — there the origin is a real domain
+and guessing at it is how a service ends up accepting authenticated requests from pages
+it has never heard of. After:
+
+```text
+http://localhost:3000        200  access-control-allow-origin: http://localhost:3000
+http://127.0.0.1:3000        200  access-control-allow-origin: http://127.0.0.1:3000
+http://DESKTOP-LQGRUAU:3000  200  access-control-allow-origin: http://DESKTOP-LQGRUAU:3000
+http://192.168.1.42:3000     200  access-control-allow-origin: http://192.168.1.42:3000
+http://evil.example.com      400  (refused, no header)
+```
+
+And the page no longer repeats the browser at the customer: a `TypeError` from `fetch`
+now reads *"the service did not answer at http://…:8000"* with the address it tried in
+it, because `Failed to fetch` names neither the address nor anything to do about it.
+
+`test_a_local_deployment_answers_the_address_it_was_opened_at` asserts both halves —
+four local spellings answered, a foreign origin refused.
+
+Verified end to end from the machine name: registered through the form at
+`http://desktop-lqgruau:3000`, uploaded, order id in the address bar, no banner and no
+error.
+
+**1016 python, typecheck clean, OpenAPI unchanged, all three images current.**

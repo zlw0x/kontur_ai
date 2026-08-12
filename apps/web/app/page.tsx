@@ -1519,6 +1519,16 @@ function formatBytes(value: number) {
 }
 
 function message(reason: unknown) {
+  if (reason instanceof TypeError) {
+    // What a browser says when the request never reached anybody: the service is
+    // down, or its answer was refused before the page could read it. `Failed to
+    // fetch` is the whole of what the browser will tell a script, and shown as-is
+    // it names neither the address that was tried nor anything to do about it.
+    return (
+      `Сервис не ответил по адресу ${apiBase()}. ` +
+      "Проверьте, что он запущен, и что сайт открыт по тому же адресу, что и он."
+    );
+  }
   return reason instanceof Error ? reason.message : "Не удалось выполнить действие.";
 }
 
