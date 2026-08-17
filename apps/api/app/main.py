@@ -423,8 +423,18 @@ def _identify(request: Request) -> tuple[Principal, SessionRecord | None] | None
         # is no cookie to forge, and a browser attaches nothing to a cross-site
         # request that would arrive here as this principal.
         #
+        # An **operator** with a `user_id`, which is the pair nothing else in this
+        # service produces. The manual token is an operator and owns nothing; a
+        # customer owns orders and cannot see the queue. On one machine the person
+        # placing the order and the person reviewing it are the same, so the standing
+        # account is both: orders belong to it *and* `/operator` opens.
+        #
+        # It is also the only role that makes the queue reachable at all here — with
+        # a customer the operator page answered 403 and there was no second account
+        # to become, which is the same shape of dead end the sign-in form was.
+        #
         # `Settings` refuses to start with this on outside `local`.
-        return Principal(role=Role.CUSTOMER, user_id=_open_local_account()), None
+        return Principal(role=Role.OPERATOR, user_id=_open_local_account()), None
     return None
 
 
@@ -441,7 +451,10 @@ def _open_local_account() -> uuid.UUID:
     existing = accounts.repository.user_by_email(_OPEN_LOCAL_EMAIL)
     if existing is not None:
         return existing.id
-    user, _ = accounts.register(_OPEN_LOCAL_EMAIL, secrets.token_urlsafe(32))
+    # Registered as an operator so its stored role matches the principal it backs.
+    # The TOTP secret that comes with the role is minted and never used — nothing
+    # signs this account in, which is the whole point of the setting.
+    user, _ = accounts.register(_OPEN_LOCAL_EMAIL, secrets.token_urlsafe(32), Role.OPERATOR)
     return user.id
 
 

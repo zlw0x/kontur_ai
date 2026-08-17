@@ -81,3 +81,29 @@ def test_an_upload_needs_no_credential_and_the_order_still_has_an_owner(open_cli
     me = open_client.get("/api/v1/auth/me")
     assert me.status_code == 200, "the page decides what to show from this"
     assert me.json()["email"] == "local@localhost"
+
+
+def test_the_same_person_places_the_order_and_reviews_it(open_client):
+    """One machine, one person — and that person is both halves of the service.
+
+    The pair this produces exists nowhere else: an **operator with a `user_id`**.
+    The manual token is an operator and owns nothing; a customer owns orders and
+    cannot see the queue. With the standing account registered as a customer the
+    operator page answered 403 and there was no second account to become, which is
+    the same dead end the sign-in form was before this setting existed.
+    """
+    created = open_client.post(
+        "/api/v1/drawing-jobs", headers={"content-type": "image/png"}, content=TINY_PNG
+    )
+    assert created.status_code == 201
+
+    # The order belongs to somebody...
+    order_id = created.json()["order_id"]
+    assert open_client.get(f"/api/v1/drawing-jobs/{order_id}").status_code == 200
+
+    # ...and the same caller can open the queue that reviews it.
+    queue = open_client.get("/api/v1/operator/orders")
+    assert queue.status_code == 200, queue.text
+    assert "orders" in queue.json()
+
+    assert open_client.get("/api/v1/auth/me").json()["role"] == "operator"
