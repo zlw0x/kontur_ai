@@ -635,7 +635,12 @@ def current_account(request: Request, response: Response) -> SessionResponse:
             return SessionResponse(
                 user_id=local.id,
                 email=local.email,
-                role=UserRole(local.role.value),
+                # The **principal's** role, not the stored row's. This endpoint answers
+                # "who am I to you", and to this API the caller is an operator whatever
+                # the row says — an account created before the role was decided still
+                # reads `customer`, and answering with that told the operator page it
+                # could not open a queue the API was already serving it.
+                role=UserRole(principal.role.value),
                 csrf_token=secrets.token_urlsafe(32),
                 expires_at=datetime.now(timezone.utc) + accounts.lifetime,
             )
