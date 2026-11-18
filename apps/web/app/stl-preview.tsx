@@ -189,6 +189,9 @@ export default function StlPreview({
 
     const frameModel = (span: number) => {
       const distance = Math.max(span * 1.72, 82);
+      // Keep larger parts as readable as small ones: fixed world-space fog
+      // made a 140 mm enclosure almost disappear into the dark background.
+      if (scene.fog instanceof THREE.FogExp2) scene.fog.density = 0.28 / distance;
       camera.position.set(distance * 0.88, distance * 0.68, distance);
       camera.near = Math.max(distance / 1000, 0.1);
       camera.far = distance * 20;
@@ -272,9 +275,10 @@ export default function StlPreview({
       geometry.computeBoundingBox();
       const bounds = geometry.boundingBox ?? new THREE.Box3();
       const size = bounds.getSize(new THREE.Vector3());
-      const mesh = addMesh(geometry);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.y = size.z / 2;
+      addMesh(geometry);
+      // The mesh and its edge overlay share the same CAD-to-view transform.
+      root.rotation.x = -Math.PI / 2;
+      root.position.y = size.z / 2;
       frameModel(Math.max(size.x, size.y, size.z));
     };
 

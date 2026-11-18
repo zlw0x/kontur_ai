@@ -11,7 +11,7 @@ step that makes a new operation schedulable.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.contracts import (
     CAPABILITY_MATURITY,
@@ -169,7 +169,13 @@ def worker_version_accepted(worker_version: str) -> bool:
 
 
 def is_online(last_seen_at: datetime | None, now: datetime, window: timedelta) -> bool:
-    return last_seen_at is not None and now - last_seen_at <= window
+    if last_seen_at is None:
+        return False
+    # SQLite returns naive timestamps even for timezone=True. Both stores write
+    # UTC, so the local SQL preview must interpret those the same way PostgreSQL does.
+    if last_seen_at.tzinfo is None:
+        last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+    return now - last_seen_at <= window
 
 
 def capability_blockers(

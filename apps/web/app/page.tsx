@@ -3,6 +3,7 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import StlPreview from "./stl-preview";
 import LandingPage from "./landing-page";
+import ProjectEditor from "./project-editor";
 
 const CONFIGURED_API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -113,7 +114,7 @@ type IconName =
 
 // The order results are shown in: two files and the report they were checked
 // with, which is ADR-023's whole answer to what a customer gets.
-const artifactOrder = ["STEP", "STL", "VALIDATION_REPORT"];
+const artifactOrder = ["STEP", "STL"];
 // One vocabulary. The API used to answer with `OrderStatus` on two branches and
 // `JobStatus` on the third — READY and WAITING_FOR_USER_ANSWERS from one set,
 // PENDING and LEASED from the other — so this map had to cover both and which
@@ -150,6 +151,7 @@ const working = new Set(["DRAWING_ANALYSIS", "CAD_BUILDING", "CAD_VALIDATION"]);
 */
 
 export default function Home() {
+  const [editorReset, setEditorReset] = useState(0);
   const [showLanding, setShowLanding] = useState(true);
   const fileInput = useRef<HTMLInputElement>(null);
   // The operator's diagnostic key. It still works, and it is not how a customer
@@ -168,7 +170,6 @@ export default function Home() {
   const [outputs, setOutputs] = useState<Record<string, boolean>>({
     STEP: true,
     STL: true,
-    VALIDATION_REPORT: true,
   });
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -388,6 +389,7 @@ export default function Home() {
       return;
     }
     setFile(nextFile);
+    setEditorReset(current => current + 1);
     setOrder(null);
     setOrderId(null);
     setAnswers({});
@@ -652,6 +654,7 @@ export default function Home() {
   }
 
   function resetProject() {
+    setEditorReset(current => current + 1);
     setFile(null);
     setOrder(null);
     setOrderId(null);
@@ -812,6 +815,18 @@ export default function Home() {
             worth more than a hint beside a file.
           */}
 
+          <ProjectEditor api={api} authed={authed} sourceOrderId={orderId}
+            sourceReady={order?.status === "READY"} resetSignal={editorReset}
+            onVersion={nextOrder => {
+              if (nextOrder !== orderId) {
+                setOrderId(nextOrder);
+                setOrder(null);
+                setMeasured(null);
+                setConfirmed(null);
+                setViewMode("model");
+              }
+            }} />
+
           <div className="form-footer">
             {error && <p className="error-message"><Icon name="info" />{error}</p>}
             <button className="primary-action" type="submit" disabled={busy}>
@@ -826,9 +841,9 @@ export default function Home() {
       <section className="workspace">
         <header className="topbar">
           <div className="project-title">
-            <span className="eyebrow">Новая модель</span>
+            <span className="eyebrow">{order ? "Сохранённая модель" : "Новая модель"}</span>
             <div>
-              <h1>{file ? cleanFileName(file.name) : "Деталь без названия"}</h1>
+              <h1>{file ? cleanFileName(file.name) : order ? "Моя модель" : "Деталь без названия"}</h1>
               {file && <span className="saved-state"><i /> Изменения сохранены</span>}
             </div>
           </div>
@@ -1485,8 +1500,10 @@ function cleanFileName(value: string) {
  * dimensions, which is the correct answer when it does not know them.
  */
 function readBoundingBox(report: unknown): Dimensions | null {
-  const box = (report as { geometry?: { Mesh?: { BoundingBox?: unknown } } })?.geometry?.Mesh
-    ?.BoundingBox;
+  type Geometry = { mesh?: { bounding_box?: unknown }; Mesh?: { BoundingBox?: unknown } };
+  const value = report as (Geometry & { geometry?: Geometry }) | null;
+  const box = value?.geometry?.mesh?.bounding_box ?? value?.mesh?.bounding_box
+    ?? value?.geometry?.Mesh?.BoundingBox;
   if (!Array.isArray(box) || box.length < 3) return null;
   const [length, width, height] = box.slice(0, 3).map(Number);
   if (![length, width, height].every((value) => Number.isFinite(value) && value > 0)) return null;

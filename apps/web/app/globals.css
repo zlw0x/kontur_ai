@@ -2625,3 +2625,18 @@ button.result-file:hover .file-download {
    `<button>` with a chevron, one option and no `onClick`. */
 .select-control.static { cursor: default; }
 .select-control.static:hover { background: inherit; }
+.project-editor { margin: 20px 0; padding: 18px 20px; border-top: 1px solid var(--line); display: grid; gap: 12px; min-width: 0; }
+.project-editor h2 { font-size: 18px; margin: 0; }
+.project-editor p, .project-editor small { font-size: 12px; line-height: 1.55; margin: 0; color: var(--text-soft); }
+.project-editor input:not([type="range"]), .project-editor select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-2); color: var(--text); }
+.project-editor button { padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); background: var(--surface-3); cursor: pointer; font: inherit; font-size: 12px; }
+.project-editor button:disabled, .project-editor input:disabled { opacity: .5; cursor: default; }
+.editor-actions, .editor-value { display: flex; gap: 8px; min-width: 0; }
+.editor-value input { flex: 1; }
+.editor-parameter { display: grid; gap: 6px; font-size: 12px; min-width: 0; }
+.editor-parameter input[type="range"] { width: 100%; max-width: 100%; min-width: 0; margin: 0; accent-color: var(--accent); }
+.project-editor details { padding: 10px 0; border-top: 1px solid var(--line); }
+.project-editor summary { cursor: pointer; font-size: 13px; margin-bottom: 8px; }
+.project-editor details .field-group { margin-top: 8px; }
+.editor-version { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; font-size: 11px; }
+.project-editor .editor-state { padding: 10px; background: var(--surface-2); border-radius: 8px; }

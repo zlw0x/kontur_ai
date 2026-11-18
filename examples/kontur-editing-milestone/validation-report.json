@@ -1,0 +1,102 @@
+{
+  "valid": true,
+  "checks": [
+    {
+      "name": "step_readable",
+      "passed": true,
+      "detail": "34899 bytes reopened."
+    },
+    {
+      "name": "step_has_solid",
+      "passed": true,
+      "detail": "1 solid bodies found."
+    },
+    {
+      "name": "step_shape_valid",
+      "passed": true,
+      "detail": "The kernel accepts the reopened shape."
+    },
+    {
+      "name": "positive_volume",
+      "passed": true,
+      "detail": "100883.1770 mm3."
+    },
+    {
+      "name": "no_degenerate_solids",
+      "passed": true,
+      "detail": "Every solid encloses volume."
+    },
+    {
+      "name": "solid_body_count",
+      "passed": true,
+      "detail": "expected 1, measured 1."
+    },
+    {
+      "name": "bounding_box",
+      "passed": true,
+      "detail": "expected [140.0, 90.0, 50.0], measured [140.0, 90.0, 50.0]."
+    },
+    {
+      "name": "stl_structure",
+      "passed": true,
+      "detail": "536 complete triangles parsed."
+    },
+    {
+      "name": "stl_triangle_count",
+      "passed": true,
+      "detail": "536 triangles."
+    },
+    {
+      "name": "finite_non_degenerate_triangles",
+      "passed": true,
+      "detail": "0 degenerate or non-finite triangles."
+    },
+    {
+      "name": "closed_manifold_mesh",
+      "passed": true,
+      "detail": "0 edges do not have exactly two incident triangles."
+    },
+    {
+      "name": "consistent_normals",
+      "passed": true,
+      "detail": "0 edges are traversed the same way by both their triangles."
+    },
+    {
+      "name": "through_hole_count",
+      "passed": true,
+      "detail": "expected 1, mesh-derived genus 1."
+    },
+    {
+      "name": "mesh_matches_solid",
+      "passed": true,
+      "detail": "STEP [140.0, 90.0, 50.0] against STL [140.0, 90.0, 50.0]; the mesh sits 0.0000 mm inside and 0.000000 mm outside, against 0.000033 mm of single-precision storage slack."
+    },
+    {
+      "name": "topology_agrees_with_mesh",
+      "passed": true,
+      "detail": "B-rep genus 1, mesh genus 1."
+    }
+  ],
+  "mesh": {
+    "triangle_count": 536,
+    "vertex_count": 268,
+    "degenerate_triangle_count": 0,
+    "open_or_non_manifold_edge_count": 0,
+    "inconsistent_normal_count": 0,
+    "bounding_box": [
+      140.0,
+      90.0,
+      50.0
+    ],
+    "genus": 1
+  },
+  "topology": {
+    "solid_count": 1,
+    "shell_count": 1,
+    "face_count": 12,
+    "wire_count": 15,
+    "edge_count": 27,
+    "vertex_count": 18,
+    "genus": 1
+  }
+}

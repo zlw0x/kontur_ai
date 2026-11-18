@@ -1,0 +1,4 @@
+model.step binary
+model.stl binary
+*.json -text whitespace=cr-at-eol
+versions/*.json -text whitespace=cr-at-eol

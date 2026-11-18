@@ -96,6 +96,8 @@ from .orders.state_machine import (
     OrderTransitionError,
 )
 from .workers.sql_protocol import SqlWorkerProtocolService
+from .projects.repository import ProjectRepository
+from .projects.routes import router as project_router
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("cad-ai-api")
@@ -157,6 +159,14 @@ def build_resource_ledger():
         return ResourceLedgerService(sessions)
     _, sessions = create_session_factory(settings.database_url)
     return ResourceLedgerService(sessions)
+
+
+def build_project_repository():
+    url = "sqlite://" if settings.worker_repository_mode == "memory" else settings.database_url
+    engine, sessions = create_session_factory(url)
+    if settings.worker_repository_mode == "memory":
+        Base.metadata.create_all(engine)
+    return ProjectRepository(sessions)
 
 
 @contextlib.asynccontextmanager
@@ -258,6 +268,8 @@ sanitizer = Sanitizer(
     allow_unconfined_process=settings.environment.lower() == "local",
 )
 orders = build_order_repository()
+projects = build_project_repository()
+app.include_router(project_router)
 accounts = AccountService(build_account_repository())
 #: What one customer may have in flight and start in a day.
 #:
@@ -1100,7 +1112,14 @@ def _within_quota(principal: Principal) -> None:
     """
     if principal.is_staff or principal.user_id is None:
         return
-    started, in_flight = orders.quota_counts(principal.user_id)
+    def active_job(job_id):
+        job = worker_protocol.get_job(job_id) if job_id is not None else None
+        # Progress is derived from the job, not written back to orders. In
+        # automatic acceptance the stored order can therefore still say waiting
+        # after a successful build; counting it forever blocks the fourth edit.
+        return job is None or job.status.value not in {"COMPLETED", "FAILED"}
+
+    started, in_flight = orders.quota_counts(principal.user_id, active_job=active_job)
     try:
         check_order_quota(
             started_in_window=started,
@@ -1591,6 +1610,14 @@ def complete_job(job_id: uuid.UUID, request: JobCompletionRequest, authorization
             artifact_store.verify_completion(job_id, artifact.model_dump())
     except ArtifactIntegrityError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    if projects.has_job(job_id):
+        try:
+            report = json.loads(artifact_store.artifact(job_id, "VALIDATION_REPORT").path.read_text(encoding="utf-8"))
+            confirmed = "VALIDATION_REPORT" in artifact_types and report.get("valid") is True
+        except (ArtifactIntegrityError, ValueError, AttributeError):
+            confirmed = False
+        if not confirmed:
+            raise HTTPException(status_code=409, detail="a project build requires a valid geometry report")
     replay = worker_protocol.complete_with_artifacts(
         worker, job_id, request.idempotency_key, [artifact.model_dump() for artifact in request.artifacts]
     )
