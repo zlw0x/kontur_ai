@@ -80,7 +80,7 @@ class OrderRepository(Protocol):
 
     def reviews_of(self, order_id: UUID) -> list[OrderReview]: ...
 
-    def quota_counts(self, owner_id: UUID) -> tuple[list[datetime], int]: ...
+    def quota_counts(self, owner_id: UUID, *, active_job=None) -> tuple[list[datetime], int]: ...
 
 
 #: The stored statuses that mean "this customer is occupying the fleet".
@@ -225,10 +225,13 @@ class InMemoryOrderRepository:
     def reviews_of(self, order_id: UUID) -> list[OrderReview]:
         return [review for review in self._reviews if review.order_id == order_id]
 
-    def quota_counts(self, owner_id: UUID) -> tuple[list[datetime], int]:
+    def quota_counts(self, owner_id: UUID, *, active_job=None) -> tuple[list[datetime], int]:
         mine = [order for order in self._orders.values() if order.owner_id == owner_id]
         started = [order.created_at for order in mine if order.created_at is not None]
-        return started, sum(1 for order in mine if order.status in _IN_FLIGHT)
+        return started, sum(
+            1 for order in mine if order.status in _IN_FLIGHT
+            and (active_job is None or active_job(order.latest_job_id))
+        )
 
 
 class SqlOrderRepository:
@@ -384,7 +387,7 @@ class SqlOrderRepository:
             return [review_record(row) for row in rows]
 
 
-    def quota_counts(self, owner_id: UUID) -> tuple[list[datetime], int]:
+    def quota_counts(self, owner_id: UUID, *, active_job=None) -> tuple[list[datetime], int]:
         """When this customer's orders were started, and how many are live.
 
         Two counts off rows that already exist rather than a table of rate events.
@@ -397,15 +400,15 @@ class SqlOrderRepository:
         with self.sessions.begin() as session:
             mine = select(OrderRow).where(OrderRow.owner_id == str(owner_id))
             started = list(session.scalars(mine.with_only_columns(OrderRow.created_at)).all())
-            live = session.scalar(
-                select(func.count())
-                .select_from(OrderRow)
+            live_jobs = session.scalars(
+                select(OrderRow.latest_job_id)
                 .where(
                     OrderRow.owner_id == str(owner_id),
                     OrderRow.status.in_([status.value for status in _IN_FLIGHT]),
                 )
-            )
-            return started, int(live or 0)
+            ).all()
+            live = sum(1 for job_id in live_jobs if active_job is None or active_job(UUID(job_id) if job_id else None))
+            return started, live
 
 
 def _record(row: OrderRow) -> OrderRecord:

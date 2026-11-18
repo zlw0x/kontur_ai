@@ -5,6 +5,383 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Projects",
+        "operationId": "list_projects_api_v1_projects_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response List Projects Api V1 Projects Get"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "operationId": "create_project_api_v1_projects_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Project Api V1 Projects Post"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project",
+        "operationId": "get_project_api_v1_projects__project_id__get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Project Api V1 Projects  Project Id  Get"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/retry-build": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Retry Build",
+        "operationId": "retry_build_api_v1_projects__project_id__retry_build_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Retry Build Api V1 Projects  Project Id  Retry Build Post"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/edits": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Edit Project",
+        "operationId": "edit_project_api_v1_projects__project_id__edits_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ParameterEdit"
+                  },
+                  {
+                    "$ref": "#/components/schemas/HoleEdit"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TextEdit"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RestoreEdit"
+                  }
+                ],
+                "discriminator": {
+                  "propertyName": "kind",
+                  "mapping": {
+                    "parameters": "#/components/schemas/ParameterEdit",
+                    "hole": "#/components/schemas/HoleEdit",
+                    "text": "#/components/schemas/TextEdit",
+                    "restore": "#/components/schemas/RestoreEdit"
+                  }
+                },
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Edit Project Api V1 Projects  Project Id  Edits Post"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/cad-ir": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Download Project",
+        "operationId": "download_project_api_v1_projects__project_id__cad_ir_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revision"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -2296,6 +2673,45 @@
         "title": "CodexState",
         "description": "Whether the model can be reached from a worker **right now**.\n\nA different question from `codex_cli_version`, which says which version is\ninstalled and nothing about whether it works. The measured case that needed\nthis: the account's quota ran out until a stated date, and orders went on being\nhanded to workers that immediately returned `CODEX_CAPACITY_LIMIT` — three\nleases and three failures per order, all of them predictable from the first one."
       },
+      "CreateProject": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Name"
+          },
+          "source_order_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Order Id"
+          },
+          "enclosure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EnclosureInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CreateProject"
+      },
       "CreateUserRequest": {
         "properties": {
           "email": {
@@ -2413,6 +2829,41 @@
         ],
         "title": "DrawingJobResponse"
       },
+      "EnclosureInput": {
+        "properties": {
+          "width": {
+            "type": "number",
+            "maximum": 2000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "default": 120
+          },
+          "height": {
+            "type": "number",
+            "maximum": 2000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "default": 80
+          },
+          "depth": {
+            "type": "number",
+            "maximum": 2000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Depth",
+            "default": 40
+          },
+          "wall": {
+            "type": "number",
+            "maximum": 2000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Wall",
+            "default": 3
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "EnclosureInput"
+      },
       "ErrorCode": {
         "type": "string",
         "enum": [
@@ -2446,6 +2897,55 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HoleEdit": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "action_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Action Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "hole",
+            "title": "Kind"
+          },
+          "diameter": {
+            "type": "number",
+            "maximum": 2000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Diameter"
+          },
+          "x": {
+            "type": "number",
+            "maximum": 2000.0,
+            "minimum": -2000.0,
+            "title": "X"
+          },
+          "y": {
+            "type": "number",
+            "maximum": 2000.0,
+            "minimum": -2000.0,
+            "title": "Y"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "action_id",
+          "kind",
+          "diameter",
+          "x",
+          "y"
+        ],
+        "title": "HoleEdit"
       },
       "JobClaimabilityReport": {
         "properties": {
@@ -3055,6 +3555,44 @@
         "title": "OrderSummary",
         "description": "One row of the queue. Enough to decide what to open, and no more."
       },
+      "ParameterEdit": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "action_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Action Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "parameters",
+            "title": "Kind"
+          },
+          "changes": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "maxProperties": 30,
+            "minProperties": 1,
+            "title": "Changes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "action_id",
+          "kind",
+          "changes"
+        ],
+        "title": "ParameterEdit"
+      },
       "ProblemDetails": {
         "properties": {
           "type": {
@@ -3483,6 +4021,41 @@
         ],
         "title": "ResourceStage"
       },
+      "RestoreEdit": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "action_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Action Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "restore",
+            "title": "Kind"
+          },
+          "revision": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "action_id",
+          "kind",
+          "revision"
+        ],
+        "title": "RestoreEdit"
+      },
       "ReviewDecisionName": {
         "type": "string",
         "enum": [
@@ -3576,6 +4149,41 @@
           "password"
         ],
         "title": "SignInRequest"
+      },
+      "TextEdit": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "action_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Action Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "text",
+            "title": "Kind"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "action_id",
+          "kind",
+          "text"
+        ],
+        "title": "TextEdit"
       },
       "TokenSource": {
         "type": "string",

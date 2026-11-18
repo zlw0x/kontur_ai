@@ -39,6 +39,7 @@ STATE = re.compile(r"const \[(\w+), set\w+\] = useState")
 #: Every entry here is a claim somebody has to defend at review. An entry with a
 #: vague reason is the thing this test exists to make visible.
 LOCAL_ONLY: dict[str, str] = {
+    "editorReset": "clears the saved-project selection when a new source is chosen",
     # Presentation and transport state, which nothing outside the browser wants.
     "showLanding": "which of the two pages is being shown",
     "file": "the upload itself, sent as the request body rather than as a field",

@@ -33,6 +33,11 @@ def memory_protocol(monkeypatch):
     from app.accounts import AccountService, InMemoryAccountRepository
 
     monkeypatch.setattr("app.main.accounts", AccountService(InMemoryAccountRepository()))
+    from app.projects.repository import ProjectRepository
+
+    project_engine, project_sessions = create_session_factory("sqlite://")
+    Base.metadata.create_all(project_engine)
+    monkeypatch.setattr("app.main.projects", ProjectRepository(project_sessions))
     return protocol
 
 

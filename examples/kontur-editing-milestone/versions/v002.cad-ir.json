@@ -1,0 +1,147 @@
+{
+  "schema": "cad-ai/cad-ir",
+  "schema_version": "1.15",
+  "document": {
+    "units": "mm",
+    "part_type": "single_part",
+    "coordinate_system": "right_handed",
+    "name": "enclosure"
+  },
+  "parameters": [
+    {
+      "id": "p_width",
+      "type": "length",
+      "value": 140.0,
+      "unit": "mm",
+      "name": "Ширина",
+      "status": "user_confirmed"
+    },
+    {
+      "id": "p_height",
+      "type": "length",
+      "value": 80.0,
+      "unit": "mm",
+      "name": "Длина",
+      "status": "user_confirmed"
+    },
+    {
+      "id": "p_depth",
+      "type": "length",
+      "value": 40.0,
+      "unit": "mm",
+      "name": "Глубина",
+      "status": "user_confirmed"
+    },
+    {
+      "id": "p_wall",
+      "type": "length",
+      "value": 3.0,
+      "unit": "mm",
+      "name": "Стенка",
+      "status": "user_confirmed"
+    }
+  ],
+  "reference_geometry": [],
+  "features": [
+    {
+      "id": "feature.body",
+      "type": "solid.extrude",
+      "enabled": true,
+      "depends_on": [],
+      "produces": [
+        {
+          "id": "body.main",
+          "kind": "solid_body"
+        }
+      ],
+      "inputs": {
+        "sketch": {
+          "id": "sketch.body",
+          "plane": {
+            "on": "base",
+            "plane": "XY"
+          },
+          "outer": {
+            "type": "rectangle",
+            "center": [
+              0.0,
+              0.0
+            ],
+            "width": {
+              "parameter": "p_width"
+            },
+            "height": {
+              "parameter": "p_height"
+            },
+            "rotation_deg": 0.0
+          },
+          "inner": [],
+          "construction": [],
+          "constraints": [],
+          "dimensions": []
+        },
+        "direction": "+Z",
+        "distance": {
+          "parameter": "p_depth"
+        },
+        "both_directions": false,
+        "taper_deg": 0.0,
+        "new_body": false
+      }
+    },
+    {
+      "id": "feature.hollow",
+      "type": "feature.shell",
+      "enabled": true,
+      "depends_on": [
+        "feature.body"
+      ],
+      "produces": [],
+      "inputs": {
+        "faces": {
+          "id": "selector.open_top",
+          "kind": "face",
+          "from_result": "body.main",
+          "where": {
+            "surface_type": "planar",
+            "normal": {
+              "parallel_to": "axis.z",
+              "direction": "positive"
+            }
+          },
+          "cardinality": "exactly_one"
+        },
+        "thickness": {
+          "parameter": "p_wall"
+        },
+        "direction": "inward"
+      }
+    }
+  ],
+  "expectations": [
+    {
+      "id": "inv_bbox",
+      "type": "bounding_box",
+      "size_mm": {
+        "x": 140.0,
+        "y": 80.0,
+        "z": 40.0
+      },
+      "tolerance_mm": 0.05
+    },
+    {
+      "id": "inv_bodies",
+      "type": "body_count",
+      "value": 1
+    },
+    {
+      "id": "inv_holes",
+      "type": "through_hole_count",
+      "value": 0
+    }
+  ],
+  "metadata": {
+    "generator": "kontur-editor",
+    "generator_version": "1.0"
+  }
+}

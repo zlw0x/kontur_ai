@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-18",
+  "project_id": "261b9744-9a71-43dc-91bf-c952d0561c1d",
+  "revision": 5,
+  "geometry_valid": true,
+  "dimensions_mm": [
+    140.0,
+    90.0,
+    50.0
+  ],
+  "through_holes": 1,
+  "engine": {
+    "engine_id": "build123d",
+    "engine_version": "0.11.1",
+    "kernel_id": "opencascade",
+    "kernel_version": "7.9.3.1.1",
+    "cad_ir_version": "1.15"
+  },
+  "sequence": [
+    "120x80x40 wall3",
+    "width140",
+    "length90",
+    "depth50",
+    "hole_diameter6 at(0,0)"
+  ],
+  "files": [
+    {
+      "file": "model.step",
+      "bytes": 34899,
+      "sha256": "cafaba35cf39639e811b4c628cd88b18fb6c93f5047454341c1c97875d84f5ff"
+    },
+    {
+      "file": "model.stl",
+      "bytes": 26884,
+      "sha256": "43c94eac8d04e5be7681402bc76a8626e65f178f71a7c1bbb676e17445505fb4"
+    },
+    {
+      "file": "project.cad-ir.json",
+      "bytes": 4248,
+      "sha256": "b7dc47e5c440403b95ef57784a36ddb10ec18bd1c6f5bbac815ab48c7bdc8a53"
+    },
+    {
+      "file": "validation-report.json",
+      "bytes": 2544,
+      "sha256": "0eeea1e1a456adb69f0ebbc2cbff2fdd94b800890517cc2d52ec48de16fa3372"
+    }
+  ]
+}
