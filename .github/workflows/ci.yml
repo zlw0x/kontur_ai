@@ -9,6 +9,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.13"}
       - run: pip install -r requirements.txt
+      - run: pip install -r ../../packages/image-sanitizer/requirements.txt
       - run: pytest -q
   # The sanitizer's own job, because its tests need an image decoder and the API's
   # must never have one. Without this the suite would `importorskip` on Pillow and
@@ -52,6 +53,8 @@ jobs:
           set -euo pipefail
           pip install -r packages/image-sanitizer/requirements.txt
           mkdir -p bomb/in bomb/out
+          # The container writes as uid 65534, not the runner owning the checkout.
+          sudo chown 65534:65534 bomb/out
           python - <<'MAKE'
           from PIL import Image
           Image.MAX_IMAGE_PIXELS = None
@@ -158,6 +161,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install pydantic==2.13.1 jsonschema==4.25.1
       - run: docker build -f apps/cad-worker/Dockerfile -t cad-ai/cad-worker:ci .
       # Run it the way the launcher runs it, so the image is checked under the
       # restrictions it will actually have rather than under none.
